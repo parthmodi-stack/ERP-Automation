@@ -23,7 +23,7 @@ test.describe('Attribute Management', () => {
 
     // Step 1: Navigate to Attributes list and open Add form
     await attribute.gotoList();
-    await expect(page.locator('text=Attributes').first()).toBeVisible();
+    await expect(page.getByRole('main').getByText('Attributes', { exact: true })).toBeVisible();
 
     await attribute.addButton.click();
     await page.waitForURL('**/add-attributes');

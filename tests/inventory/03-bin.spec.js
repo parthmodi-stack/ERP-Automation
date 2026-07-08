@@ -15,13 +15,20 @@ test.describe('Bin Management', () => {
     page = await context.newPage();
     bin  = new BinPage(page);
 
-    // Ensure the required location exists so bin tests can run standalone
+    // Ensure the required location exists so bin tests can run standalone.
+    // The list can still be rendering right after navigation, so an instant
+    // .count() can race a location another spec just created — use a
+    // retrying visibility check instead of trusting an immediate count.
     const location = new LocationPage(page);
+    const existsInList = (name) =>
+      expect(page.getByRole('link', { name, exact: true }).first()).toBeVisible({ timeout: 5000 })
+        .then(() => true).catch(() => false);
+
     await location.gotoList();
-    const updatedExists = await page.getByRole('link', { name: locData.updatedName, exact: true }).count();
-    if (updatedExists === 0) {
-      const originalExists = await page.getByRole('link', { name: locData.name, exact: true }).count();
-      if (originalExists === 0) {
+    const updatedExists = await existsInList(locData.updatedName);
+    if (!updatedExists) {
+      const originalExists = await existsInList(locData.name);
+      if (!originalExists) {
         // Create the location from scratch
         await location.addButton.click();
         await page.waitForURL('**/add-location');
@@ -29,8 +36,17 @@ test.describe('Bin Management', () => {
         await location.fillForm(locData);
         await location.ensureInventoryAvailable();
         await location.save();
-        await page.waitForURL('**/configuration/location', { timeout: 10000 });
-        await page.waitForLoadState('networkidle');
+
+        // Another spec may have created this exact location moments ago —
+        // the retrying check above just missed it. Treat the resulting
+        // duplicate-name error the same as a successful create.
+        const createDuplicate = await location.duplicateNameError.isVisible({ timeout: 3000 }).catch(() => false);
+        if (createDuplicate) {
+          await location.gotoList();
+        } else {
+          await page.waitForURL('**/configuration/location', { timeout: 10000 });
+          await page.waitForLoadState('networkidle');
+        }
       }
       // Rename original name → updatedName (mirrors what TC-LOC-02 does)
       await location.openEdit(locData.name);
@@ -107,7 +123,7 @@ test.describe('Bin Management', () => {
 
     // Step 1: Navigate to Bins list and open Add form
     await bin.gotoList();
-    await expect(page.locator('text=Bins').first()).toBeVisible();
+    await expect(page.getByRole('main').getByText('Bins', { exact: true })).toBeVisible();
     await bin.addButton.click();
     await page.waitForURL('**/add-bins');
     await page.waitForLoadState('networkidle');

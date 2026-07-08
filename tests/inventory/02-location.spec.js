@@ -11,13 +11,13 @@ test.describe('Location Management', () => {
 
     // Navigate to list and verify page loaded
     await location.gotoList();
-    await expect(page.locator('text=Location').first()).toBeVisible();
+    await expect(page.getByRole('main').getByText('Location', { exact: true })).toBeVisible();
 
     // Open Add Location form
     await location.addButton.click();
     await page.waitForURL('**/add-location');
     await page.waitForLoadState('networkidle');
-    await expect(page.getByText('Add Location')).toBeVisible();
+    await expect(page.getByRole('main').getByText('Add Location')).toBeVisible();
 
     // Fill all form fields
     await location.fillForm(data);
@@ -55,7 +55,7 @@ test.describe('Location Management', () => {
 
     // Find the location created by TC-LOC-01 and open its edit form
     await location.openEdit(data.name);
-    await expect(page.getByText('Edit Location')).toBeVisible();
+    await expect(page.getByRole('main').getByText('Edit Location')).toBeVisible();
 
     // Verify the name field has the original name
     await expect(location.nameInput).toHaveValue(new RegExp(data.name));
@@ -106,7 +106,7 @@ test.describe('Location Management', () => {
 
     // Open edit form
     await location.openEdit(data.updatedName);
-    await expect(page.getByText('Edit Location')).toBeVisible();
+    await expect(page.getByRole('main').getByText('Edit Location')).toBeVisible();
 
     // Verify Active, then toggle to Inactive
     await expect(location.statusToggle).toBeChecked();
@@ -130,7 +130,7 @@ test.describe('Location Management', () => {
 
     // Open edit form (location currently Inactive from TC-LOC-04)
     await location.openEdit(data.updatedName);
-    await expect(page.getByText('Edit Location')).toBeVisible();
+    await expect(page.getByRole('main').getByText('Edit Location')).toBeVisible();
 
     // Verify Inactive, then toggle back to Active
     await expect(location.statusToggle).not.toBeChecked();
@@ -154,7 +154,7 @@ test.describe('Location Management', () => {
 
     // Open edit form
     await location.openEdit(data.updatedName);
-    await expect(page.getByText('Edit Location')).toBeVisible();
+    await expect(page.getByRole('main').getByText('Edit Location')).toBeVisible();
 
     // Update Address 1, City, ZIP Code
     await location.address1Input.clear();
@@ -189,7 +189,7 @@ test.describe('Location Management', () => {
 
     // Open edit form
     await location.openEdit(data.updatedName);
-    await expect(page.getByText('Edit Location')).toBeVisible();
+    await expect(page.getByRole('main').getByText('Edit Location')).toBeVisible();
 
     // Verify inventory is currently checked
     await expect(location.inventoryCheckbox).toBeChecked();
@@ -235,7 +235,7 @@ test.describe('Location Management', () => {
     // Duplicate opens the add-location form pre-filled with copied data
     await page.waitForURL('**/add-location');
     await page.waitForLoadState('networkidle');
-    await expect(page.getByText('Add Location')).toBeVisible();
+    await expect(page.getByRole('main').getByText('Add Location')).toBeVisible();
 
     // Verify the name field is pre-filled with the original (updatedName)
     await expect(location.nameInput).toHaveValue(data.updatedName);
