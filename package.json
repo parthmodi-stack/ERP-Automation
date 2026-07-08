@@ -1,0 +1,18 @@
+{
+  "name": "erpforce-automation",
+  "version": "1.0.0",
+  "description": "Playwright automation tests for ERPForce",
+  "scripts": {
+    "test":            "playwright test",
+    "test:headed":     "playwright test --headed",
+    "test:debug":      "playwright test --debug",
+    "test:report":     "playwright show-report",
+    "test:login":      "playwright test tests/auth/login.spec.js",
+    "test:uom":        "playwright test tests/inventory/uom.spec.js",
+    "test:smoke":      "playwright test --grep @smoke",
+    "test:regression": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.45.0"
+  }
+}
