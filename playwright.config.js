@@ -3,9 +3,12 @@ const { defineConfig, devices } = require('@playwright/test');
 module.exports = defineConfig({
   testDir: './tests',
 
-  // Run tests sequentially to avoid race conditions on shared data
+  // fullyParallel stays false: tests within a single spec file share module-level state
+  // (e.g. a record created in one test is edited/deleted by a later test in the same file) and
+  // must keep running in their written order on one worker. workers > 1 still parallelizes
+  // across different spec FILES, which don't depend on each other's state.
   fullyParallel: false,
-  workers: 1,
+  workers: 4,
 
   retries: process.env.CI ? 2 : 0,
 

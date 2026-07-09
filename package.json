@@ -9,6 +9,8 @@
     "test:report":     "playwright show-report",
     "test:login":      "playwright test tests/auth/login.spec.js",
     "test:uom":        "playwright test tests/inventory/uom.spec.js",
+    "test:procurement": "playwright test tests/procurement",
+    "test:rfq":         "playwright test tests/procurement/03-rfq.spec.js",
     "test:smoke":      "playwright test --grep @smoke",
     "test:regression": "playwright test"
   },
