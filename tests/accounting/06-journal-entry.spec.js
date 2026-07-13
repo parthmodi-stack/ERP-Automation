@@ -50,6 +50,10 @@ test.describe('Journal Entry Management', () => {
   });
 
   test('TC-JE-02 [+] Create a balanced Journal Entry with two line items', { tag: '@smoke' }, async ({ page }) => {
+    // Two line-item modals plus header/list navigation, each with dropdown selections, is
+    // marginal against the 30s default with this suite's global slowMo: 500 (same reasoning as
+    // settings-entity.contract.js's TC-05 and 09-customer-vendor.spec.js's create tests).
+    test.setTimeout(60000);
     const je = new JournalEntryPage(page);
     await je.openAdd();
     await je.selectField('journal_type_id', data.valid.header.journalTypeId);

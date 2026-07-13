@@ -18,7 +18,8 @@ module.exports = defineConfig({
   globalSetup: require.resolve('./global-setup'),
 
   use: {
-    baseURL:           'https://dev.erpforce.co',
+    // baseURL:           'https://dev.erpforce.co',
+    baseURL:           'http://localhost:7172',
     storageState:      'auth.json',
     headless:          false,
     slowMo:            500,
