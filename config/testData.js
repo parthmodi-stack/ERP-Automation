@@ -389,7 +389,7 @@ const testData = {
       // No vatNumber/crn — VAT requires exactly 15 digits, CRN exactly 10 digits;
       // invalid values show inline errors that block the Next button.
       address: {
-        addressType:    'Billing',
+        addressType:    'Office',
         contactName:    'Auto Cust Contact',
         street1:        '10 Automation Avenue',
         zipCode:        '100001',
@@ -411,7 +411,7 @@ const testData = {
       companyName:        `AutoCorp_${ts}`,
       // No vatNumber/crn for same reason
       address: {
-        addressType:    'Billing',
+        addressType:    'Office',
         contactName:    'Corp Contact',
         street1:        '20 Business Park',
         zipCode:        '200002',
@@ -441,7 +441,7 @@ const testData = {
       firstName:       'Auto',
       lastName:        `Vend_${ts}`,
       address: {
-        addressType:    'Billing',
+        addressType:    'Office',
         contactName:    'Auto Vend Contact',
         street1:        '30 Supplier Lane',
         zipCode:        '300003',
@@ -462,7 +462,7 @@ const testData = {
       accountType:        'Company',
       companyName:        `AutoVendCorp_${ts}`,
       address: {
-        addressType:    'Billing',
+        addressType:    'Office',
         contactName:    'VendCorp Contact',
         street1:        '40 Trade Centre',
         zipCode:        '400004',

@@ -51,6 +51,10 @@ test.describe('Customer Management', () => {
     'TC-CUST-01 [+] Create Individual customer — name, address, contact, accounting tab',
     { tag: '@smoke' },
     async ({ page }) => {
+      // Five tabs, two modal dialogs (Address/Contact), each with several dropdown selections -
+      // exceeds the 30s default with this suite's global slowMo: 500 (see settings-entity
+      // .contract.js's TC-05 for the same reasoning).
+      test.setTimeout(90000);
       const d     = cData.individual;
       const party = new PartyPage(page, 'customer');
       await party.openAdd();
@@ -84,6 +88,7 @@ test.describe('Customer Management', () => {
     'TC-CUST-02 [+] Create Company customer — entity name, address, contact, accounting tab',
     { tag: '@smoke' },
     async ({ page }) => {
+      test.setTimeout(90000);
       const d     = cData.company;
       const party = new PartyPage(page, 'customer');
       await party.openAdd();
@@ -242,6 +247,7 @@ test.describe('Vendor Management', () => {
     'TC-VEND-01 [+] Create Individual vendor — name, address, contact, accounting tab',
     { tag: '@smoke' },
     async ({ page }) => {
+      test.setTimeout(90000);
       const d     = vData.individual;
       const party = new PartyPage(page, 'vendor');
       await party.openAdd();
@@ -273,6 +279,7 @@ test.describe('Vendor Management', () => {
     'TC-VEND-02 [+] Create Company vendor — entity name, address, contact, accounting tab',
     { tag: '@smoke' },
     async ({ page }) => {
+      test.setTimeout(90000);
       const d     = vData.company;
       const party = new PartyPage(page, 'vendor');
       await party.openAdd();

@@ -25,7 +25,8 @@ const { selectDropdown } = require('../../helpers/dropdown');
  *    Company    → company_name (required, label "Entity Name")
  *
  *  Address modal (Tab 2 → Add button → dialog):
- *    address_type  MUI Select  (listbox options: Billing, Shipping …)
+ *    address_type  MUI Select  (listbox options: Delivery, Shipping, Office — confirmed live;
+ *      there is no "Billing" option. "Default billing address" is a separate checkbox.)
  *    contact_name  text input  placeholder "Enter Contact Name"
  *    address1      text input  placeholder "Enter Street"
  *    zip_code      text input  placeholder "Enter Zip Code"
@@ -271,18 +272,26 @@ class PartyPage {
    * While on the Address tab, clicks the Add (+) button to open the AddressModal
    * and fills in address details.
    *
-   * Address modal fields (confirmed from seeder + translations):
-   *   address_type  → MUI Select (options: Billing, Shipping, Other …)
+   * Address modal fields (confirmed live against the running app - the header-comment's
+   * original "Billing, Shipping, Other" guess for address_type was wrong):
+   *   address_type  → MUI Select, real options are Delivery / Shipping / Office (no "Billing" -
+   *                    that's the separate "Default billing address" checkbox below)
    *   contact_name  → text input "Enter Contact Name"
    *   address1      → text input "Enter Street"
    *   zip_code      → text input "Enter Zip Code"
-   *   default_billing_address → checkbox
+   *   state         → required DynamicSearchSelect (Country defaults to UAE, whose state list
+   *                    includes Dubai/Abu Dhabi Emirate/Sharjah Emirate/etc.) - Save silently
+   *                    fails validation and leaves the dialog open if this is left unset
+   *   default_shipping_address / default_billing_address → two separate checkboxes, confirmed
+   *    live to render in that order (shipping first, billing second) - `.first()` is shipping,
+   *    NOT billing
    */
   async addAddress({
-    addressType    = 'Billing',
+    addressType    = 'Office',
     contactName    = '',
     street1        = '123 Test Street',
     zipCode        = '00000',
+    state          = 'Dubai',
     defaultBilling = true,
   } = {}) {
     // The Address tab renders a single table (name="addresses") with an Add (+) button
@@ -322,9 +331,27 @@ class PartyPage {
       if (await f.isVisible({ timeout: 2000 }).catch(() => false)) await f.fill(zipCode);
     }
 
-    // ── default billing checkbox ──
+    // ── state: required searchable select, no default - reuse the app-wide dropdown helper
+    // for its retry/backdrop handling since this trigger lives inside a dialog.
+    //
+    // Located by POSITION (3rd combobox in the dialog: Address Type, Country, State), not by
+    // accessible name - confirmed live that this trigger's accessible name is only "Search
+    // State" before a value is picked; once an option is selected it becomes the selected
+    // value (e.g. "Dubai"). selectDropdown() re-queries the same locator right after clicking
+    // an option to verify the selection registered - a name-based `{ name: /state/i } }` locator
+    // stops resolving at that exact moment (its own accessible name no longer contains "state"),
+    // so the verification always reads as "did not register" and falls into the Escape-key
+    // retry path, which closes this whole dialog instead of just the state dropdown's menu. ──
+    if (state) {
+      const stateTrigger = dialog.getByRole('combobox').nth(2);
+      if (await stateTrigger.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await selectDropdown(this.page, stateTrigger, state, state);
+      }
+    }
+
+    // ── default billing checkbox: the SECOND checkbox in the dialog, not the first ──
     if (defaultBilling) {
-      const cb = dialog.locator('input[type="checkbox"]').first();
+      const cb = dialog.locator('input[type="checkbox"]').nth(1);
       if (await cb.isVisible({ timeout: 2000 }).catch(() => false)) {
         if (!(await cb.isChecked().catch(() => false))) await cb.click();
       }
@@ -343,15 +370,17 @@ class PartyPage {
   /**
    * While on the Contact tab, clicks the Add (+) button to open the ContactModal.
    *
-   * Contact modal fields:
-   *   name         → text "Enter Contact Name"
-   *   designation  → text (label "Designation")
-   *   email        → email input
-   *   mobile       → phone input
+   * Contact modal fields (confirmed live - the original "Enter Contact Name" / "Designation"
+   * guesses below were wrong and left Save silently blocked on "Name is required"):
+   *   name        → required text input, placeholder "Enter Name" ("Enter Contact Name" is the
+   *                 Address modal's contact_name field, a different field on a different modal)
+   *   email       → required text input, placeholder "Enter Email"
+   *   contact_no  → optional phone input (labelled "Contact No")
+   *   There is no separate "Designation" field on this modal - the field only exists on
+   *   Address's contact_name context in the docstring's original (incorrect) notes.
    */
   async addContact({
     name        = 'Auto Contact',
-    designation = '',
     email       = '',
     mobile      = '',
   } = {}) {
@@ -363,26 +392,19 @@ class PartyPage {
     await expect(dialog).toBeVisible({ timeout: 10000 });
 
     // name
-    const nameF = dialog.getByPlaceholder(/Enter Contact Name/i).first();
+    const nameF = dialog.getByPlaceholder('Enter Name', { exact: true });
     if (await nameF.isVisible({ timeout: 3000 }).catch(() => false)) await nameF.fill(name);
-
-    // designation
-    if (designation) {
-      const f = dialog.getByPlaceholder(/designation/i).first()
-        .or(dialog.getByLabel(/designation/i).first());
-      if (await f.isVisible({ timeout: 2000 }).catch(() => false)) await f.fill(designation);
-    }
 
     // email
     if (email) {
-      const f = dialog.locator('input[type="email"]').first();
+      const f = dialog.getByPlaceholder('Enter Email', { exact: true });
       if (await f.isVisible({ timeout: 2000 }).catch(() => false)) await f.fill(email);
     }
 
-    // mobile
+    // mobile / contact_no
     if (mobile) {
       const f = dialog.locator('input[type="tel"]').first()
-        .or(dialog.getByLabel(/Mobile/i).first());
+        .or(dialog.getByLabel(/Contact No/i).first());
       if (await f.isVisible({ timeout: 2000 }).catch(() => false)) await f.fill(mobile);
     }
 
@@ -541,31 +563,30 @@ class PartyPage {
   // ─── search ──────────────────────────────────────────────────────────────────
 
   async search(text) {
-    // Try the hidden-behind-icon pattern (same as SettingsEntityPage)
-    if (!(await this.searchInput.isVisible({ timeout: 1000 }).catch(() => false))) {
-      // Search may be behind a SearchIcon button
-      const searchIcon = this.page.locator('[data-testid="SearchIcon"]').first();
-      if (await searchIcon.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await searchIcon.click();
-        await this.searchInput.waitFor({ state: 'visible', timeout: 5000 });
-      }
+    // Try the hidden-behind-icon pattern (same as SettingsEntityPage). `isVisible()` does NOT
+    // poll/wait however long its `timeout` option says - it's a single, immediate check - so
+    // gating the click behind `searchTrigger.isVisible({ timeout })` is unreliable right after
+    // `gotoList()`'s networkidle wait, when the ActionBar can still be a beat away from
+    // rendering: the check reads "not visible yet" and skips the click entirely, silently
+    // leaving the list unfiltered. Call `.click()` directly instead - like SettingsEntityPage's
+    // version of this method - since click() has its own real auto-wait/retry.
+    //
+    // Must use the ActionBar-scoped `this.searchTrigger`, not a bare `[data-testid="SearchIcon"]`
+    // lookup - confirmed live that an unscoped lookup resolves to the left-nav's global
+    // "Search menu..." icon instead (it renders earlier in the DOM), which opens the wrong
+    // search box entirely.
+    if (!(await this.searchInput.isVisible().catch(() => false))) {
+      await this.searchTrigger.click();
+      await this.searchInput.waitFor({ state: 'visible', timeout: 5000 });
     }
 
-    // If still not visible, try alternative locator patterns for this list's search
-    let input = this.searchInput;
-    if (!(await input.isVisible({ timeout: 1000 }).catch(() => false))) {
-      input = this.page.getByPlaceholder(/search/i).first();
-    }
-
-    if (await input.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await input.fill('');
-      await input.fill(text);
-      // Wait for debounced API call
-      await this.page.waitForLoadState('networkidle').catch(() => {});
-      await this.page.waitForTimeout(600);
-      await this.page.mouse.click(2, 2);
-      await this.page.waitForTimeout(300);
-    }
+    await this.searchInput.fill('');
+    await this.searchInput.fill(text);
+    // Wait for debounced API call
+    await this.page.waitForLoadState('networkidle').catch(() => {});
+    await this.page.waitForTimeout(600);
+    await this.page.mouse.click(2, 2);
+    await this.page.waitForTimeout(300);
   }
 
   row(nameText) {
