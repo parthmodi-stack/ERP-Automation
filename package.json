@@ -3,16 +3,18 @@
   "version": "1.0.0",
   "description": "Playwright automation tests for ERPForce",
   "scripts": {
-    "test":            "playwright test",
-    "test:headed":     "playwright test --headed",
-    "test:debug":      "playwright test --debug",
-    "test:report":     "playwright show-report",
-    "test:login":      "playwright test tests/auth/login.spec.js",
-    "test:uom":        "playwright test tests/inventory/uom.spec.js",
-    "test:smoke":      "playwright test --grep @smoke",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:report": "playwright show-report",
+    "test:login": "playwright test tests/auth/login.spec.js",
+    "test:uom": "playwright test tests/inventory/04-uom.spec.js",
+    "test:accounting": "playwright test tests/accounting",
+    "test:smoke": "playwright test --grep @smoke",
     "test:regression": "playwright test"
   },
   "devDependencies": {
-    "@playwright/test": "^1.45.0"
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^26.1.1"
   }
 }

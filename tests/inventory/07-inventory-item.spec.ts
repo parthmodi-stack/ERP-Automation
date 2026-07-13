@@ -1,7 +1,9 @@
 import { test, expect, Page } from '@playwright/test';
 
 // ─── Configuration ───────────────────────────────────────────────────────────
-const BASE_URL   = 'https://dev.erpforce.co';
+// const BASE_URL   = 'https://dev.erpforce.co';
+const BASE_URL   = 'http://localhost:7172';
+
 const ITEMS_URL  = `${BASE_URL}/dashboard/inventory/product-management/items`;
 
 // Test data
