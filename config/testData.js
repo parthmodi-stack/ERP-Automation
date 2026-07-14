@@ -275,6 +275,136 @@ const testData = {
       },
     },
 
+    // Confirmed against the running app's add-tax-category form: sales_account_id and
+    // purchase_account_id are both COA selects whose default (no-search) option list surfaces
+    // only 4 accounts in this environment - searching "Sales"/"Purchase" by name returns "No data
+    // available" (no COA account is literally named that here), so these two pre-existing
+    // default-list accounts are used instead; the field doesn't appear to filter by account type.
+    taxCategory: {
+      valid: {
+        name:               `Automation_TaxCategory_${ts}`,
+        updatedName:        `Automation_TaxCategory_UPDATED_${ts}`,
+        sales_account_id:   'Employee Expense Reimbursement',
+        purchase_account_id: 'Depreciation Expense',
+        description:        'Created by the Tax Category automation suite',
+      },
+      missingRequired: {
+        name: '',
+      },
+    },
+
+    // Confirmed against the running app's add-tax-template form: `tax_codes` is a searchable
+    // select of existing Tax Code records, and this environment has none surviving by default
+    // (03-tax-code.spec.js's own CRUD lifecycle deletes its record at the end). Tax Code itself
+    // requires a tax_category_id - confirmed live that the 'VAT' category taxCode.valid assumes
+    // no longer exists either (search returns "No data available") - so 12-tax-template.spec.js's
+    // beforeAll seeds BOTH a fresh Tax Category and a Tax Code referencing it, neither ever
+    // deleted, specifically so `valid.tax_codes` always has a real option to select.
+    taxTemplate: {
+      seedTaxCategoryName: `Automation_TaxTemplate_TCAT_${ts}`,
+      seedTaxCodeName: `Automation_TaxTemplate_TC_${ts}`,
+      valid: {
+        name:        `Automation_TaxTemplate_${ts}`,
+        updatedName: `Automation_TaxTemplate_UPDATED_${ts}`,
+        tax_codes:   `Automation_TaxTemplate_TC_${ts}`,
+      },
+      missingRequired: {
+        name: '',
+      },
+    },
+
+    // Confirmed against the running app's add-fiscal-year form: real fields are year_name,
+    // year_start_date, year_end_date, company_ids (only real option in this single-company
+    // environment is "Trootech" - see journalEntry's comment). The list currently has zero rows,
+    // so a far-future date range is used purely to avoid any future overlap-validation surprises,
+    // not because one is currently known to exist.
+    fiscalYear: {
+      valid: {
+        name:            `Automation_FiscalYear_${ts}`,
+        updatedName:     `Automation_FiscalYear_UPDATED_${ts}`,
+        year_start_date: '01-01-2030',
+        year_end_date:   '31-12-2030',
+        company_ids:     'Trootech',
+      },
+      missingRequired: {
+        name: '',
+      },
+    },
+
+    // Confirmed against the running app's add-payment-term form: required fields are name,
+    // due_date_based_on and credit_days; mode_of_payment is optional but included since it's a
+    // real, always-visible field. Existing rows already include "Net 30"/"Gross10" (used
+    // elsewhere as purchase-invoice payment terms), so a fresh timestamped name avoids colliding
+    // with those.
+    paymentTerm: {
+      valid: {
+        name:               `Automation_PaymentTerm_${ts}`,
+        updatedName:        `Automation_PaymentTerm_UPDATED_${ts}`,
+        due_date_based_on:  "Day's after Invoice date",
+        credit_days:        '30',
+        mode_of_payment:    'Bank Draft',
+      },
+      missingRequired: {
+        name: '',
+      },
+    },
+
+    // Confirmed against the running app's add-currency-exchange form: from_currency_id/
+    // to_currency_id are searchable selects scoped to this suite's own custom Currency (Settings
+    // > Currency) records, NOT the broader currency list Purchase Invoice/Payment Entry draw from
+    // ("US Dollars"/"INR" both return "No data available" here). 15-currency-exchange.spec.js's
+    // beforeAll seeds two dedicated, never-deleted Currency records specifically for this pair.
+    currencyExchange: {
+      seedFromCurrencyName: `Automation_CE_From_${ts}`,
+      seedToCurrencyName:   `Automation_CE_To_${ts}`,
+      valid: {
+        date:              '14-07-2026',
+        from_currency_id:  `Automation_CE_From_${ts}`,
+        to_currency_id:    `Automation_CE_To_${ts}`,
+        exchange_rate:     '3.6725',
+        updatedExchangeRate: '3.75',
+      },
+      missingRequired: {
+        date: '14-07-2026',
+        // from_currency_id/to_currency_id/exchange_rate intentionally left unset
+      },
+    },
+
+    // Confirmed against the running app's add-accounting-setting form: company_id, department_id
+    // and location_id are the ONLY required fields (this triple is the row's uniqueness key -
+    // saving a combination that already exists is rejected with a snackbar, not a field error).
+    // "Trootech" is this environment's one company; "Test"/"Delhi" and "Admin"/"Mumbai" are real
+    // seeded Department/Location options confirmed live - picked to avoid colliding with
+    // pre-existing rows for other Company/Department/Location combinations already in this list.
+    accountingSetting: {
+      valid: {
+        company_id:    'Trootech',
+        department_id: 'Test',
+        location_id:   'Delhi',
+      },
+      updatedLocation: 'Houston',
+      duplicate: {
+        company_id:    'Trootech',
+        department_id: 'Admin',
+        location_id:   'Mumbai',
+      },
+    },
+
+    // Confirmed against the running app's add-journal-type form: the only fields are `name` and
+    // `is_payment` (a plain unprefixed checkbox - see JournalTypePage.js). This environment has
+    // no existing custom Journal Type rows, so duplicate-name behavior is unverified - omitted
+    // rather than guessed.
+    journalType: {
+      valid: {
+        name:        `Automation_JournalType_${ts}`,
+        updatedName: `Automation_JournalType_UPDATED_${ts}`,
+        isPayment:   false,
+      },
+      missingRequired: {
+        name: '',
+      },
+    },
+
     // Confirmed against the running app: company_id and currency_id both come pre-defaulted
     // (single company "Trootech", default currency "INR" in this environment) - re-selecting the
     // already-selected option leaves a stale full-viewport MUI Select backdrop that blocks every

@@ -17,6 +17,7 @@ const testData = require('../../config/testData');
 //   TC-PI-CRUD-01..04  Create (Draft) -> View -> Edit -> Delete (from the View/detail page)
 //   TC-PI-CRUD-05..06  Create (Draft) -> Delete (from the list row menu)
 //   TC-PI-CRUD-07      Create via "Save" (not "Save to Draft") lands in a non-Draft status
+//   TC-PI-CRUD-08      Submit For Approval -> accept as the current user moves the invoice out of Pending
 //
 // Both describe.serial blocks below build their own invoice rather than sharing one, so a
 // Delete in one lifecycle can never invalidate a step still pending in the other (same reasoning
@@ -233,5 +234,59 @@ test.describe('Purchase Invoice - CRUD', () => {
 
     await pi.openNewestRow();
     await expect(pi.approvalStatusChipOnView()).not.toHaveText(/Draft/i, { timeout: 15000 });
+  });
+
+  // Confirmed via purchase-invoice.test-cases.md's UX notes: the view page's ApprovalWrapper
+  // only renders a Submit control for Pending/Rejected invoices (unlike Draft, which never gets
+  // one) - so this seeds its own invoice through the same full "Save" path as TC-PI-CRUD-07
+  // rather than reusing a Draft record from the other describe.serial blocks. Flow mirrors
+  // 07-payment-entry.spec.js's TC-PE-CRUD-05, since both drive the same shared ApprovalWrapper
+  // component (see AccountingDocumentPage.js's header comment).
+  test('TC-PI-CRUD-08 [+] Submit For Approval and accept as the current user moves the invoice out of Pending', async ({ page }) => {
+    test.setTimeout(60000);
+    const pi = new PurchaseInvoicePage(page);
+    const vendorInvoiceNo = `${data.valid.vendorInvoiceNo}_APPROVALFLOW`;
+
+    await pi.createItemInvoice(
+      {
+        vendor:          data.vendor,
+        currency:        data.currency,
+        paymentTerm:     data.paymentTerm,
+        vendorInvoiceNo,
+        shippingAddress: data.shippingAddress,
+      },
+      [itemEntry()]
+    );
+    await pi.save();
+    await page.waitForURL(pi.listPath, { timeout: 20000 });
+    await waitForIdle(page);
+
+    await pi.openNewestRow();
+
+    await expect(page.getByRole('button', { name: /^Submit$/i })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: /select merge strategy/i })).toBeVisible({ timeout: 10000 });
+    await page.getByRole('button', { name: /select merge strategy/i }).click();
+    await page.getByRole('menuitem', { name: /Quick Approval/i }).click();
+
+    const approvalDialog = page.getByRole('dialog');
+    await expect(approvalDialog).toBeVisible({ timeout: 10000 });
+    const approverSelect = approvalDialog.getByRole('combobox').first();
+    await approverSelect.click();
+    await page.getByRole('option', { name: /Kashyap Jivani/i, exact: true }).click();
+    // Same MUI multi-select quirk documented in 07-payment-entry.spec.js's TC-PE-CRUD-05:
+    // checking an option leaves the listbox open, covering "Send Request" underneath it.
+    await page.keyboard.press('Escape');
+    await approvalDialog.getByRole('button', { name: /Send Request/i }).click();
+
+    await expect(page.getByRole('button', { name: /^Accept$/i })).toBeVisible({ timeout: 10000 });
+    // Plain split button here (unlike "select merge strategy") - clicking it opens the "Approved
+    // request" confirm dialog directly, with no intermediate dropdown menu item.
+    await page.getByRole('button', { name: /^Accept$/i }).click();
+
+    const acceptDialog = page.getByRole('dialog');
+    await expect(acceptDialog).toBeVisible({ timeout: 10000 });
+    await acceptDialog.getByRole('button', { name: /Submit/i }).click();
+
+    await expect(pi.approvalStatusChipOnView()).toHaveText(/Approved|Accepted/i, { timeout: 15000 });
   });
 });
