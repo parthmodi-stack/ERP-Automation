@@ -347,6 +347,42 @@ const testData = {
       },
     },
 
+    // Seed data confirmed live against the running app (2026-07-14), NOT the values
+    // 08-purchase-invoice-payment-pdc.spec.js uses - that file's vendor ('Keyur  Italiya') and
+    // item ('Test Item') no longer exist in this environment, which was the root cause of
+    // purchase-invoice.crud.spec.js's first run failing end-to-end. Also confirmed live:
+    // - Currency must be 'US Dollars', not 'INR' - searching "INR" collides with an unrelated
+    //   "INR-RAJ1" option and helpers/dropdown.js's fallback silently selects the wrong currency
+    //   instead (no exact single match ever registers for "INR" in this environment).
+    // - A plain "Save" (not Save-to-Draft) additionally requires a Shipping Address on the
+    //   Address & Contact tab ("Shipping Address is required") even though Vendor Address/Contact
+    //   Person auto-fill from the vendor's own saved address - Save-to-Draft skips this check.
+    purchaseInvoice: {
+      vendor:          'Royal Mine Industries',
+      currency:        'US Dollars',
+      paymentTerm:     'Net 30',
+      shippingAddress: 'Rajkot',
+      // `name` is the item's actual display name as it renders inside the invoice's own item
+      // table/view (confirmed live - no SKU prefix there); `dropdownOption` is the full
+      // "<SKU> - <name>" string the item-entry modal's search dropdown requires as its exact,
+      // matchable option text. Keep both - using `dropdownOption` for on-page assertions never
+      // matches, since the SKU prefix isn't part of the rendered cell text.
+      item: {
+        name:           'Playwright Auto Item',
+        dropdownOption: 'ELEC-000071 - Playwright Auto Item',
+        quantity:       '2',
+        rate:           '500',
+        taxTemplate:    'UAE VAT',
+      },
+      valid: {
+        vendorInvoiceNo: `PI-AUTOMATION-${ts}`,
+      },
+      updated: {
+        vendorInvoiceNo: `PI-AUTOMATION-${ts}-UPDATED`,
+        quantity:        '3',
+      },
+    },
+
     // ---- Master Data: Customer Management ----
   //
   // Routes:
