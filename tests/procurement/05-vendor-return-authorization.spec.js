@@ -320,19 +320,14 @@ test.describe('Vendor Return Authorization Management', () => {
       const vra = new VendorReturnAuthorizationPage(page);
       await vra.gotoList();
 
-      let searchKey = editVra?.seriesNumber;
-      if (!searchKey) {
-        // Fallback: read the first row's seriesNumber link from the table
-        const firstRowLink = page.locator('table tbody tr').first().locator('td').nth(2).locator('a');
-        searchKey = await firstRowLink.innerText().catch(() => 'VRA-2026-000114');
-      }
+      let searchKey = editVra?.seriesNumber || (await vra.getFirstRowSeriesNumber()) || 'VRA-2026-000114';
 
       await vra.searchList(searchKey);
       await expect(vra.rowBySeriesNumber(searchKey)).toBeVisible();
 
       await vra.searchList('no-such-vendor-return-zzz-999');
       await expect(vra.noDataRow()).toBeVisible();
-      await expect(page.locator('table tbody tr a')).toHaveCount(0);
+      await expect(page.locator('table tbody tr').filter({ has: page.locator('a') })).toHaveCount(0);
 
       await vra.clearSearch();
     });
@@ -386,11 +381,7 @@ test.describe('Vendor Return Authorization Management', () => {
       const vra = new VendorReturnAuthorizationPage(page);
       await vra.gotoList();
 
-      let searchKey = editVra?.seriesNumber;
-      if (!searchKey) {
-        const firstRowLink = page.locator('table tbody tr').first().locator('td').nth(2).locator('a');
-        searchKey = await firstRowLink.innerText().catch(() => 'VRA-2026-000137');
-      }
+      let searchKey = editVra?.seriesNumber || (await vra.getFirstRowSeriesNumber()) || 'VRA-2026-000137';
 
       await vra.searchList(searchKey);
       expect(await vra.isRowActionDisabled(searchKey, 'Edit')).toBe(false);

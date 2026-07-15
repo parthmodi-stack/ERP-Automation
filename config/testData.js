@@ -397,6 +397,15 @@ const testData = {
     // for why. Matches credentials.valid = dipen.modi@trootech.com.
     approverName: "Dipen Modi",
   },
+
+  landedCost: {
+    valid: {
+      receipt: "PO-GRN-2026-000246",
+      itemName: "345 - act",
+      narration: "Automation Landed Cost",
+      cost: "100",
+    }
+  }
 };
 
 module.exports = testData;
