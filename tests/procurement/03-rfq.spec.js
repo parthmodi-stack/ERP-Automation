@@ -25,6 +25,7 @@ test.describe('RFQ (Request for Quote) Management', () => {
       purchaseRepresentative:  data.purchaseRepresentative,
       narration:               data.narration,
     });
+    await rfq.fillAddressContact({ contactPerson: data.contactPerson, shippingAddress: data.shippingAddress, vendorAddress: data.vendorAddress });
     await rfq.addItem({ itemName: data.itemName, requestedQuantity: data.requestedQuantity });
 
     createdRfq = await rfq.saveAsDraft();
@@ -43,11 +44,12 @@ test.describe('RFQ (Request for Quote) Management', () => {
     await rfq.editFromList(createdRfq.id, createdRfq.seriesNumber);
 
     await rfq.setDateToToday();
-    // Re-select vendor to ensure dependent fields (Company, Currency) are populated for save.
+    // Re-select vendor to ensure dependent fields (Entity, Currency) are populated for save.
     await rfq.fillBasicDetails({
       vendor:    data.vendor,
       narration: data.updatedNarration,
     });
+    await rfq.fillAddressContact({ contactPerson: data.contactPerson, shippingAddress: data.shippingAddress, vendorAddress: data.vendorAddress });
     await rfq.editFirstItem({ requestedQuantity: data.updatedRequestedQuantity });
 
     // saveAsDraft keeps status Draft; TC-RFQ-05 separately drives the status transition.
@@ -78,6 +80,7 @@ test.describe('RFQ (Request for Quote) Management', () => {
     await rfq.setDateToToday();
     // Re-select vendor to ensure dependent fields are populated for save.
     await rfq.fillBasicDetails({ vendor: data.vendor });
+    await rfq.fillAddressContact({ contactPerson: data.contactPerson, shippingAddress: data.shippingAddress, vendorAddress: data.vendorAddress });
     await rfq.save();
 
     await rfq.gotoView(createdRfq.id);
@@ -108,6 +111,7 @@ test.describe('RFQ (Request for Quote) Management', () => {
       purchaseRepresentative: data.purchaseRepresentative,
       narration:              'TC-RFQ-06 create-button visibility check',
     });
+    await rfq.fillAddressContact({ contactPerson: data.contactPerson, shippingAddress: data.shippingAddress, vendorAddress: data.vendorAddress });
     await rfq.addItem({ itemName: data.itemName, requestedQuantity: '2' });
 
     approvedRfq = await rfq.save(); // plain save on new record → Open
@@ -147,6 +151,7 @@ test.describe('RFQ (Request for Quote) Management', () => {
       purchaseRepresentative: data.purchaseRepresentative,
       narration:              'TC-RFQ-09 full-field auto-fill check',
     });
+    await rfq.fillAddressContact({ contactPerson: data.contactPerson, shippingAddress: data.shippingAddress, vendorAddress: data.vendorAddress });
     await rfq.addItem({ itemName: data.itemName, requestedQuantity: '4' });
 
     editRfq = await rfq.saveAsDraft();
@@ -187,6 +192,7 @@ test.describe('RFQ (Request for Quote) Management', () => {
       vendor:    data.vendor,
       narration: 'TC-RFQ-11 - ONLY narration changed',
     });
+    await rfq.fillAddressContact({ contactPerson: data.contactPerson, shippingAddress: data.shippingAddress, vendorAddress: data.vendorAddress });
     await rfq.saveAsDraft();
 
     await rfq.gotoView(editRfq.id);
@@ -200,14 +206,7 @@ test.describe('RFQ (Request for Quote) Management', () => {
   // Returns { id, seriesNumber }, same shape as saveAsDraft()/save().
   async function createDraftRfq(rfq, narration) {
     const data = testData.rfq.valid;
-    await rfq.gotoAdd();
-    await rfq.fillBasicDetails({
-      vendor:                 data.vendor,
-      purchaseRepresentative: data.purchaseRepresentative,
-      narration,
-    });
-    await rfq.addItem({ itemName: data.itemName, requestedQuantity: '1' });
-    return rfq.saveAsDraft();
+    return rfq.createDraft({ ...data, narration, requestedQuantity: '1' });
   }
 
   // ── TC-RFQ-12: Delete a Draft RFQ ──────────────────────────────────────────
@@ -270,6 +269,129 @@ test.describe('RFQ (Request for Quote) Management', () => {
 
     // At least one inline error message should be visible.
     await expect(page.getByText(/required/i).first()).toBeVisible({ timeout: 5000 });
+  });
+
+  // ── TC-RFQ-V03: Known gap - Requested Quantity has no positive-value rule ──
+  test('TC-RFQ-V03 [-] Known gap: Requested Quantity accepts zero/negative values', async ({ page }) => {
+    // generateItemValiadtionSchema() in the RFQ item modal's validator only checks item_id/
+    // vendor_name/uom_id - requested_quantity has no Yup rule and no HTML min= constraint, so
+    // 0/negative values are never rejected (confirmed via source read, not live - see the
+    // migration notes/memory for why this suite can't drive a full live run in this pass).
+    // Track the gap rather than silently asserting the (missing) validation as if it existed.
+    test.fail(true, 'Known gap: Requested Quantity has no positive-value validation rule.');
+
+    const rfq  = new RfqPage(page);
+    const data = testData.rfq.valid;
+
+    await rfq.gotoAdd();
+    await rfq.fillBasicDetails({
+      vendor:                 data.vendor,
+      purchaseRepresentative: data.purchaseRepresentative,
+      narration:              'TC-RFQ-V03 zero-quantity validation check',
+    });
+    await rfq.fillAddressContact({ contactPerson: data.contactPerson, shippingAddress: data.shippingAddress, vendorAddress: data.vendorAddress });
+    await rfq.addItem({ itemName: data.itemName, requestedQuantity: '0' });
+    await rfq.saveAsDraft();
+
+    // Expected (currently failing) behavior: a validation error should have blocked the save.
+    await expect(page.getByText(/greater than 0|must be positive/i).first()).toBeVisible({ timeout: 5000 });
+  });
+
+  // ── Listing Page (TC-RFQ-L01 - TC-RFQ-L05) ─────────────────────────────────
+  // Reuses records already created/status-transitioned by the lifecycle tests above
+  // (editRfq=Draft, approvedRfq=Open, createdRfq=Cancelled after TC-RFQ-05).
+  test.describe('Listing Page', () => {
+    test('TC-RFQ-L01 [+] Search/filter the list', async ({ page }) => {
+      const rfq = new RfqPage(page);
+      await rfq.gotoList();
+
+      await rfq.searchList(editRfq.seriesNumber);
+      await expect(rfq.rowBySeriesNumber(editRfq.seriesNumber)).toBeVisible();
+
+      await rfq.searchList('no-such-rfq-zzz-999');
+      await expect(rfq.noDataRow()).toBeVisible();
+      await expect(page.locator('table tbody tr').filter({ has: page.locator('a') })).toHaveCount(0);
+
+      await rfq.clearSearch();
+    });
+
+    test('TC-RFQ-L02 [+] Sort a column ascending/descending', async ({ page }) => {
+      const rfq = new RfqPage(page);
+      await rfq.gotoList();
+
+      const initialSort = await rfq.getColumnAriaSort('Date');
+      expect(initialSort).toBe('none');
+
+      await rfq.clickColumnHeader('Date');
+      const afterFirstClick = await rfq.getColumnAriaSort('Date');
+      expect(['ascending', 'descending']).toContain(afterFirstClick);
+
+      await rfq.clickColumnHeader('Date');
+      const afterSecondClick = await rfq.getColumnAriaSort('Date');
+      expect(afterSecondClick).not.toBe(afterFirstClick);
+      expect(['ascending', 'descending']).toContain(afterSecondClick);
+    });
+
+    test('TC-RFQ-L03 [+] Paginate between pages', async ({ page }) => {
+      const rfq = new RfqPage(page);
+      await rfq.gotoList();
+
+      await expect(rfq.prevPageButton()).toBeDisabled();
+      expect(await rfq.getPaginationLabel()).toMatch(/Page\s*1\s*of\s*\d+/);
+
+      await rfq.nextPageButton().click();
+      await page.waitForLoadState('networkidle');
+      expect(await rfq.getPaginationLabel()).toMatch(/Page\s*2\s*of\s*\d+/);
+      await expect(rfq.prevPageButton()).toBeEnabled();
+
+      await rfq.prevPageButton().click();
+      await page.waitForLoadState('networkidle');
+      expect(await rfq.getPaginationLabel()).toMatch(/Page\s*1\s*of\s*\d+/);
+
+      await rfq.goToPage(2);
+      await page.waitForLoadState('networkidle');
+      expect(await rfq.getPaginationLabel()).toMatch(/Page\s*2\s*of\s*\d+/);
+    });
+
+    // Unlike Procurement Request/Purchase Agreement, RFQ's row action menu is NOT status-gated
+    // at all - Edit/Duplicate/Delete are only gated by canEdit/canAdd/canDelete permissions
+    // (confirmed via source read: request-for-quote.tsx's rowActionMenu never checks `status`).
+    test('TC-RFQ-L04 [+] Row action menu is permission-gated only, not status-gated', async ({ page }) => {
+      const rfq = new RfqPage(page);
+      await rfq.gotoList();
+
+      await rfq.searchList(editRfq.seriesNumber); // Draft
+      expect(await rfq.isRowActionDisabled(editRfq.seriesNumber, 'Edit')).toBe(false);
+
+      await rfq.searchList(createdRfq.seriesNumber); // Cancelled
+      expect(await rfq.isRowActionDisabled(createdRfq.seriesNumber, 'Edit')).toBe(false);
+
+      await rfq.clearSearch();
+    });
+
+    test('TC-RFQ-L05 [+] Row status badge matches the record\'s lifecycle state', async ({ page }) => {
+      const rfq = new RfqPage(page);
+      await rfq.gotoList();
+
+      expect(await rfq.getRowStatus(editRfq.seriesNumber)).toContain('Draft');
+      expect(await rfq.getRowStatus(approvedRfq.seriesNumber)).toContain('Open');
+      expect(await rfq.getRowStatus(createdRfq.seriesNumber)).toContain('Cancelled');
+    });
+  });
+
+  // ── TC-RFQ-14: Known gap - Delete is not blocked for non-Draft records ─────
+  test('TC-RFQ-14 [-] Known gap: Deleting a non-Draft (Cancelled) RFQ is not blocked', async ({ page }) => {
+    // Same class of gap already documented on the sibling Procurement Request/Purchase
+    // Agreement pages (TC-PREQ-14, TC-PAGR-11): showDeletBtnAction in header-buttons.tsx lists
+    // nearly every status (including Cancelled), and there's no additional status check inside
+    // the delete handler - the View page's Actions menu Delete item shows up and is clickable
+    // regardless of lifecycle state, gated only by the canDelete permission.
+    test.fail(true, 'Known gap: View page Actions menu allows deleting a Cancelled RFQ.');
+
+    const rfq = new RfqPage(page);
+    await rfq.gotoView(createdRfq.id); // Cancelled, via TC-RFQ-05
+    await page.getByRole('button', { name: 'Actions' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Delete' })).toHaveCount(0);
   });
 
 });

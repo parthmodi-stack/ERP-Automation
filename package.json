@@ -3,18 +3,21 @@
   "version": "1.0.0",
   "description": "Playwright automation tests for ERPForce",
   "scripts": {
-    "test":            "playwright test",
-    "test:headed":     "playwright test --headed",
-    "test:debug":      "playwright test --debug",
-    "test:report":     "playwright show-report",
-    "test:login":      "playwright test tests/auth/login.spec.js",
-    "test:uom":        "playwright test tests/inventory/uom.spec.js",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:report": "playwright show-report",
+    "test:login": "playwright test tests/auth/login.spec.js",
+    "test:uom": "playwright test tests/inventory/uom.spec.js",
     "test:procurement": "playwright test tests/procurement",
-    "test:rfq":         "playwright test tests/procurement/03-rfq.spec.js",
-    "test:smoke":      "playwright test --grep @smoke",
+    "test:request": "playwright test tests/procurement/01-procurement-request.spec.js",
+    "test:rfq": "playwright test tests/procurement/03-rfq.spec.js",
+    "test:purchase-order": "playwright test tests/procurement/04-purchase-order.spec.js",
+    "test:smoke": "playwright test --grep @smoke",
     "test:regression": "playwright test"
   },
   "devDependencies": {
+    "@faker-js/faker": "^10.5.0",
     "@playwright/test": "^1.45.0"
   }
 }

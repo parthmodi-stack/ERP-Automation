@@ -12,6 +12,7 @@ test.describe('Purchase Agreement Management', () => {
   // PurchaseAgreementPage.saveAndCaptureId for why both are needed.
   let createdRequest;
   let editRequest;
+  let rejectedRequest;
   const viewValues = {};
 
   // ── TC-PAGR-01: Create Agreement ─────────────────────────────────────────
@@ -125,9 +126,9 @@ test.describe('Purchase Agreement Management', () => {
     await pa.selectLocation(data.location);
     await pa.addItem({ itemName: data.itemName, minOrderQty: data.minOrderQty, rate: data.rate });
 
-    const rejectRequest = await pa.save();
+    rejectedRequest = await pa.save();
 
-    await pa.gotoView(rejectRequest.id);
+    await pa.gotoView(rejectedRequest.id);
     await pa.quickApproval(testData.purchaseAgreement.approverName);
     await expect(page.getByText('Pending Approval')).toBeVisible();
 
@@ -218,17 +219,7 @@ test.describe('Purchase Agreement Management', () => {
   // Returns { id, seriesNumber }, same shape as saveAsDraft()/save().
   async function createDraftWithItem(pa, name) {
     const data = testData.purchaseAgreement.valid;
-    await pa.gotoAdd();
-    await pa.fillBasicDetails({
-      name,
-      agreementType:           data.agreementType,
-      vendor:                 data.vendor,
-      purchaseRepresentative: data.purchaseRepresentative,
-      narration:               name,
-    });
-    await pa.selectLocation(data.location);
-    await pa.addItem({ itemName: data.itemName, minOrderQty: '1', rate: '10' });
-    return pa.saveAsDraft();
+    return pa.createDraft({ ...data, name, narration: name, minOrderQty: '1', rate: '10' });
   }
 
   // ── TC-PAGR-10: Delete a Draft agreement ──────────────────────────────────
@@ -304,6 +295,87 @@ test.describe('Purchase Agreement Management', () => {
     const modal = page.getByRole('dialog').filter({ hasText: /Item/i });
     await modal.getByRole('combobox', { name: /Item/i }).click();
     await expect(page.getByText(data.itemName, { exact: true }).first()).toBeVisible();
+  });
+
+  // ── Listing Page (TC-PAGR-L01 - TC-PAGR-L05) ─────────────────────────────
+  // Reuses records already created/status-transitioned by the lifecycle tests above
+  // (editRequest=Draft, createdRequest=In Progress, rejectedRequest=Rejected).
+  test.describe('Listing Page', () => {
+    test('TC-PAGR-L01 [+] Search/filter the list', async ({ page }) => {
+      const pa = new PurchaseAgreementPage(page);
+      await pa.gotoList();
+
+      await pa.searchList(editRequest.seriesNumber);
+      await expect(pa.rowBySeriesNumber(editRequest.seriesNumber)).toBeVisible();
+
+      await pa.searchList('no-such-agreement-zzz-999');
+      await expect(pa.noDataRow()).toBeVisible();
+      await expect(page.locator('table tbody tr').filter({ has: page.locator('a') })).toHaveCount(0);
+
+      await pa.clearSearch();
+    });
+
+    test('TC-PAGR-L02 [+] Sort a column ascending/descending', async ({ page }) => {
+      const pa = new PurchaseAgreementPage(page);
+      await pa.gotoList();
+
+      const initialSort = await pa.getColumnAriaSort('Date');
+      expect(initialSort).toBe('none');
+
+      await pa.clickColumnHeader('Date');
+      const afterFirstClick = await pa.getColumnAriaSort('Date');
+      expect(['ascending', 'descending']).toContain(afterFirstClick);
+
+      await pa.clickColumnHeader('Date');
+      const afterSecondClick = await pa.getColumnAriaSort('Date');
+      expect(afterSecondClick).not.toBe(afterFirstClick);
+      expect(['ascending', 'descending']).toContain(afterSecondClick);
+    });
+
+    test('TC-PAGR-L03 [+] Paginate between pages', async ({ page }) => {
+      const pa = new PurchaseAgreementPage(page);
+      await pa.gotoList();
+
+      await expect(pa.prevPageButton()).toBeDisabled();
+      expect(await pa.getPaginationLabel()).toMatch(/Page\s*1\s*of\s*\d+/);
+
+      await pa.nextPageButton().click();
+      await page.waitForLoadState('networkidle');
+      expect(await pa.getPaginationLabel()).toMatch(/Page\s*2\s*of\s*\d+/);
+      await expect(pa.prevPageButton()).toBeEnabled();
+
+      await pa.prevPageButton().click();
+      await page.waitForLoadState('networkidle');
+      expect(await pa.getPaginationLabel()).toMatch(/Page\s*1\s*of\s*\d+/);
+
+      await pa.goToPage(2);
+      await page.waitForLoadState('networkidle');
+      expect(await pa.getPaginationLabel()).toMatch(/Page\s*2\s*of\s*\d+/);
+    });
+
+    test('TC-PAGR-L04 [+] Row action menu actions reflect status/permission gating', async ({ page }) => {
+      const pa = new PurchaseAgreementPage(page);
+      await pa.gotoList();
+
+      // Unlike the sibling Procurement Request page, Purchase Agreement's Edit action is only
+      // disabled for Closed/Expired status - Draft and In Progress rows both keep it enabled.
+      await pa.searchList(editRequest.seriesNumber);
+      expect(await pa.isRowActionDisabled(editRequest.seriesNumber, 'Edit')).toBe(false);
+
+      await pa.searchList(createdRequest.seriesNumber);
+      expect(await pa.isRowActionDisabled(createdRequest.seriesNumber, 'Edit')).toBe(false);
+
+      await pa.clearSearch();
+    });
+
+    test('TC-PAGR-L05 [+] Row status badge matches the record\'s lifecycle state', async ({ page }) => {
+      const pa = new PurchaseAgreementPage(page);
+      await pa.gotoList();
+
+      expect(await pa.getRowStatus(editRequest.seriesNumber)).toContain('Draft');
+      expect(await pa.getRowStatus(createdRequest.seriesNumber)).toContain('In Progress');
+      expect(await pa.getRowStatus(rejectedRequest.seriesNumber)).toContain('Rejected');
+    });
   });
 
 });

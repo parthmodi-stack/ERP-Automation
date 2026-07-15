@@ -47,67 +47,15 @@ class ProcurementRequestPage extends BasePage {
   }
 
   // ---------- Generic helpers ----------
-  // "Search X" fields are custom combobox triggers, not native inputs - their visible
-  // prompt text is the accessible name, not a real placeholder attribute.
-  async openDropdownAndPick(placeholder, optionText) {
-    const combobox = this.page.getByRole('combobox', { name: placeholder });
-    const option = this.page.getByText(optionText, { exact: true }).first();
-
-    // Same KNOWN APP BUG documented on selectLocation: ANY of these DynamicSelect-family
-    // fields can show "No data available" if a sibling field's selection interrupts this
-    // field's own fetch mid-flight (confirmed live via screenshot on Currency this time, not
-    // just Location) - retrying with an Escape + settle in between reliably recovers it.
-    for (let attempt = 1; attempt <= 6; attempt++) {
-      await combobox.click({ force: true });
-      try {
-        // force: true - fields backed by a native-style MuiSelect (e.g. Currency) can have
-        // their own MuiBackdrop still mid-transition when the option becomes visible,
-        // intercepting the click even though the option itself is genuinely visible/stable.
-        await option.click({ force: true, timeout: 7000 });
-        return;
-      } catch (e) {
-        if (attempt === 6) throw e;
-        await this.page.keyboard.press('Escape');
-        await this.page.waitForTimeout(500);
-      }
-    }
-  }
-
-  // Structural, label-based lookup for DynamicSelect-family fields - unlike name-based lookup
-  // (openDropdownAndPick), this doesn't care whether the combobox's accessible name is currently
-  // the "Search X" prompt or an already-selected value, so it can't race against that value
-  // changing between a caller's own "is it still blank" check and the click itself (confirmed
-  // live on Currency: a `getByRole('combobox', {name:'Search Currency'})` count() check saw it
-  // blank, but the field's name had already changed by the time the click ran moments later).
-  async selectFieldByLabel(labelText, optionText) {
-    const combobox = this.page.getByText(labelText, { exact: true }).locator('xpath=following::*[@role="combobox"][1]');
-    const option = this.page.getByText(optionText, { exact: true }).first();
-
-    // 6 attempts, not 3: each open/close cycle has an empirically ~50% chance of hitting a
-    // freshly-loaded options list rather than the stuck "No data available" state (confirmed
-    // live on Location: option count flipped 0 -> 28 -> 0 across 3 naive same-page attempts) -
-    // 3 attempts has a non-trivial chance of failing purely on bad luck, not a real block.
-    for (let attempt = 1; attempt <= 6; attempt++) {
-      await combobox.click({ force: true });
-      try {
-        await option.click({ force: true, timeout: 7000 });
-        return;
-      } catch (e) {
-        if (attempt === 6) throw e;
-        await this.page.keyboard.press('Escape');
-        await this.page.waitForTimeout(500);
-      }
-    }
-  }
+  // openDropdownAndPick()/selectFieldByLabel() now live on BasePage (identical 6-attempt
+  // retry/escape/wait-500ms skeleton this page and every sibling procurement module relied on
+  // independently) - "Search X" fields are custom combobox triggers, not native inputs, so their
+  // visible prompt text is the accessible name, not a real placeholder attribute.
 
   // Editing a record on a later day than it was created leaves its stored Date in the past,
   // which the form rejects on save ("Date cannot be in the past") - reset it to today first.
   async setDateToToday() {
-    const today = new Date();
-    const dd = String(today.getDate()).padStart(2, '0');
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const yyyy = today.getFullYear();
-    await this.page.getByRole('textbox', { name: 'Select Date' }).fill(`${dd}-${mm}-${yyyy}`);
+    await this.page.getByRole('textbox', { name: 'Select Date' }).fill(this.formatDateToday());
   }
 
   // ---------- Basic Details ----------
@@ -148,7 +96,22 @@ class ProcurementRequestPage extends BasePage {
       .getByText(properLabelText, { exact: true })
       .or(this.page.getByText(brokenLabelText, { exact: true }));
     const combobox = label.locator('xpath=following::*[@role="combobox"][1]');
-    const option = this.page.getByText(locationName, { exact: true }).first();
+    // Scoped to the open listbox popover, not the whole page - unlike every other dropdown
+    // helper in this file, this was previously a page-wide getByText(...).first(), which could
+    // silently resolve to a same-text element outside the popover. Even scoped to the listbox,
+    // this field has a SECOND decoy match: the popover's own search textbox is wrapped in a
+    // role="option" element whose accessible name mirrors whatever's currently typed (confirmed
+    // live via ARIA snapshot: two "option \"Dhule\"" entries after typing "Dhule" - one wrapping
+    // a nested "Search Location" textbox, one a real <paragraph> option below it). `.first()`
+    // resolved to the decoy every time - a force-click on it "succeeds" (no error) but selects
+    // nothing, so the real popover never closes and is left covering whatever renders underneath
+    // it (this is exactly what blocked the Items "Add" button). Exclude any option that contains
+    // a nested textbox to reliably land on the real, selectable one.
+    const option = this.page
+      .getByRole('listbox')
+      .getByRole('option', { name: locationName, exact: true })
+      .filter({ hasNot: this.page.getByRole('textbox') })
+      .first();
     // The visible search box only exists inside the popover once it's open, as its OWN
     // element (not a sibling of the trigger, and not the same as the trigger's hidden
     // `MuiSelect-nativeInput` shadow input - confirmed live those are two different elements).
@@ -199,6 +162,15 @@ class ProcurementRequestPage extends BasePage {
           await this.page.locator('body').click({ position: { x: 2, y: 2 }, force: true });
           await expect(listbox).not.toBeVisible({ timeout: 5000 }).catch(() => {});
         }
+        // Verify the click actually committed a value - confirmed live (TC-PREQ-05) that this
+        // exact sequence can complete with no thrown error while the combobox is still showing
+        // its blank "Search Location" placeholder, later failing Save's own "Location is
+        // required" validation. Don't trust "the click didn't throw" as proof of success; treat
+        // a non-matching combobox value as a failed attempt and let the retry loop try again.
+        const committedValue = (await combobox.innerText().catch(() => '')).replace(/[​﻿]/g, '').trim();
+        if (!committedValue.includes(locationName)) {
+          throw new Error(`selectLocation("${locationName}") did not commit - combobox shows "${committedValue}"`);
+        }
         return;
       } catch (e) {
         if (attempt === 6) throw e;
@@ -209,10 +181,38 @@ class ProcurementRequestPage extends BasePage {
   }
 
   // ---------- Items ----------
+  // A prior dropdown (e.g. Location) can reopen its popover well AFTER the code that selected
+  // a value from it has already moved on - confirmed live: closing it right after selection
+  // (selectLocation's own Escape+backdrop-click) genuinely succeeds in the moment, but it comes
+  // back seconds later regardless, consistently and reproducibly. Root cause: the field's own
+  // debounced search request (fired when its search box was typed into) can still be in flight
+  // under this environment's real network latency - when that LATE response finally lands, the
+  // underlying DynamicSelect component re-renders as "open" simply because it now has options to
+  // show, independent of whether a selection was already made. There's no reliable fixed delay
+  // to wait out here, so any click elsewhere on the page needs to defend against the popover
+  // having silently reappeared in between, not just check for it once beforehand.
+  async closeAnyOpenPopover() {
+    const openListbox = this.page.getByRole('listbox');
+    if (await openListbox.isVisible().catch(() => false)) {
+      await this.page.keyboard.press('Escape');
+      await this.page.locator('body').click({ position: { x: 2, y: 2 }, force: true });
+      await expect(openListbox).not.toBeVisible({ timeout: 5000 }).catch(() => {});
+    }
+  }
+
   async addItem({ itemName, quantity, rate }) {
     // exact: true avoids matching the "Items*Please add atleast one Item" accordion header,
     // whose accessible name contains "add" as a case-insensitive substring.
-    await this.page.getByRole('button', { name: 'Add', exact: true }).click();
+    const addButton = this.page.getByRole('button', { name: 'Add', exact: true });
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      await this.closeAnyOpenPopover();
+      try {
+        await addButton.click({ timeout: 5000 });
+        break;
+      } catch (e) {
+        if (attempt === 4) throw e;
+      }
+    }
 
     const modal = this.page.getByRole('dialog').filter({ hasText: 'Edit Item' });
     await modal.getByRole('combobox', { name: 'Search Item' }).click();
@@ -229,8 +229,26 @@ class ProcurementRequestPage extends BasePage {
   async editFirstItem({ quantity, rate } = {}) {
     // Scoped to tbody rows: `table.getByRole('button')` would match the column header's
     // sort/arrow-icon buttons first, not the row's own edit/delete icon buttons.
-    await this.page.locator('table tbody tr').first().locator('button').first().click(); // pencil/edit icon
+    // A prior dropdown (e.g. Location) can reopen its popover asynchronously well AFTER a
+    // one-time close check already passed (see closeAnyOpenPopover's comment) - a single
+    // check-then-click isn't enough. NOT force:true here: a forced click still dispatches at
+    // the target's real screen coordinates, so if the popover is genuinely covering that exact
+    // position when the click fires, force just clicks the popover instead of failing loudly -
+    // the modal then never opens and every later step fails deep inside `modal.locator(...)`
+    // with a confusing error. A normal (non-forced) click blocks on real obscuring elements and
+    // throws if one's still there, so the retry loop below can react to a genuine miss.
+    const editIcon = this.page.locator('table tbody tr').first().locator('button').first();
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      await this.closeAnyOpenPopover();
+      try {
+        await editIcon.click({ timeout: 5000 });
+        break;
+      } catch (e) {
+        if (attempt === 4) throw e;
+      }
+    }
     const modal = this.page.getByRole('dialog').filter({ hasText: 'Edit Item' });
+    await modal.waitFor({ state: 'visible', timeout: 10000 });
 
     if (quantity) {
       await modal.locator('text=Quantity *').locator('xpath=following::input[1]').fill(quantity);
@@ -255,13 +273,34 @@ class ProcurementRequestPage extends BasePage {
   // string actually rendered in the list's ID column, e.g. "PR-2026-000151"). Callers need
   // `id` for gotoEdit/gotoView and `seriesNumber` for anything that finds the row in the list.
   async saveAndCaptureId(buttonName, exact) {
-    const [, listResponse] = await Promise.all([
-      this.page.getByRole('button', { name: buttonName, exact }).click(),
-      this.page.waitForResponse((r) => r.url().includes('/purchase/v1/purchase-requests/?')),
-    ]);
+    // Same lingering-popover class of issue as addItem()/editFirstItem() above - NOT force:true
+    // for the same reason documented on editFirstItem()'s edit-icon click: a forced click can
+    // silently land on the popover instead of Save, leaving the subsequent waitForResponse
+    // hanging on a request that never fires.
+    const saveButton = this.page.getByRole('button', { name: buttonName, exact });
+    let listResponsePromise;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      await this.closeAnyOpenPopover();
+      listResponsePromise = this.page.waitForResponse((r) => r.url().includes('/purchase/v1/purchase-requests/?'));
+      try {
+        await saveButton.click({ timeout: 5000 });
+        break;
+      } catch (e) {
+        if (attempt === 4) throw e;
+      }
+    }
+    const listResponse = await listResponsePromise;
     await this.page.waitForLoadState('networkidle');
     const record = (await listResponse.json()).data.purchase_requests[0];
-    return { id: String(record.id), seriesNumber: record.series_number };
+    // The "ID" column renders a FORMATTED display string (e.g. "PR-2026-000349"), not the raw
+    // numeric `id` (confirmed live via ARIA snapshot/screenshot - series_number itself does NOT
+    // exist as an API field for this module, so this must be a client-side cell formatter, and
+    // guessing its exact prefix/year/padding convention is fragile). Read it directly from the
+    // list's own first row instead: `record` above IS that same first row (both come from the
+    // identical API response the table renders from), so there's no ambiguity about which row.
+    await this.page.getByRole('button', { name: 'Add' }).first().waitFor({ state: 'visible', timeout: 15000 });
+    const seriesNumber = await this.page.locator('table tbody tr').first().getByRole('link').first().innerText();
+    return { id: String(record.id), seriesNumber };
   }
 
   async saveAsDraft() {
@@ -280,8 +319,19 @@ class ProcurementRequestPage extends BasePage {
   }
 
   async getRowStatus(seriesNumber) {
-    const row = this.rowBySeriesNumber(seriesNumber);
-    return (await row.getByText(/Draft|Pending|In Progress|Completed|Rejected/).first().textContent()) ?? '';
+    // Callers reach this right after a save's own redirect - networkidle can fire before the
+    // list page has actually mounted its search bar (same class of issue documented on
+    // gotoList()), so searchList() below can otherwise time out waiting for a placeholder that
+    // hasn't rendered yet.
+    await this.page.getByRole('button', { name: 'Add' }).first().waitFor({ state: 'visible', timeout: 15000 });
+    // This shared, ever-growing dataset can easily exceed the list's default page size (10) -
+    // the just-created/edited record isn't guaranteed to land on the currently displayed page
+    // (confirmed live: a timeout waiting for a row that genuinely exists, just not on page 1).
+    // Search for it explicitly rather than assuming it's already visible.
+    await this.searchList(seriesNumber);
+    const status = await this.getRowStatusMatching(seriesNumber, /Draft|Pending|In Progress|Completed|Rejected/);
+    await this.clearSearch();
+    return status;
   }
 
   // ---------- Edit page value readers ----------
@@ -289,49 +339,11 @@ class ProcurementRequestPage extends BasePage {
     return this.page.getByRole('textbox', { name: 'ID', exact: true }).isDisabled();
   }
 
-  // ---------- Delete ----------
-  async confirmDelete() {
-    const dialog = this.page.getByRole('dialog');
-    await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
-    // No toast-text assertion here (the exact wording/id format it embeds is unverified on this
-    // account) - the caller verifies the row/record is actually gone afterward instead, which is
-    // the durable signal that the action took effect.
-    await expect(dialog).not.toBeVisible();
-  }
-
-  // ---------- Approval flow ----------
-  async quickApproval(userName) {
-    await this.openSubmitMenu();
-    await this.page.getByText('Quick Approval', { exact: true }).click();
-
-    const dialog = this.page.getByRole('dialog').filter({ hasText: 'Quick Approval' });
-    await dialog.getByText('Select').click();
-    // The options list renders as a portal outside the dialog's DOM subtree, so it must be
-    // queried at the page level even though it appears visually inside the modal. A
-    // case-sensitive RegExp gives a substring match, which is needed if the user list ever
-    // has near-duplicate entries differing only by case (see purchaseAgreement.page.ts).
-    await this.page.getByRole('option', { name: new RegExp(userName) }).click();
-    await this.page.keyboard.press('Escape'); // close the dropdown panel
-
-    await dialog.getByRole('button', { name: 'Send Request' }).click();
-    await expect(this.page.getByText('Requests has been submitted for approval.')).toBeVisible();
-  }
-
-  async accept() {
-    await this.openSubmitMenu();
-    // menuitem role disambiguates from the underlying main "Accept" button, which shares
-    // the same exact text and stays in the DOM under the open menu.
-    await this.page.getByRole('menuitem', { name: 'Accept', exact: true }).click();
-    await this.page.getByRole('button', { name: 'Submit' }).click(); // confirmation dialog
-    await expect(this.page.getByText('Requests has been approved successfully.')).toBeVisible();
-  }
-
-  async reject() {
-    await this.openSubmitMenu();
-    await this.page.getByRole('menuitem', { name: 'Reject', exact: true }).click();
-    await this.page.getByRole('button', { name: 'Submit' }).click(); // confirmation dialog
-    await expect(this.page.getByText('Requests has been rejected successfully.')).toBeVisible();
-  }
+  // ---------- Delete / Approval flow ----------
+  // confirmDelete()/quickApproval()/accept()/reject() now live on BasePage - this module's own
+  // toast wording ('Requests has been submitted for approval.' / '...approved successfully.' /
+  // '...rejected successfully.') already matches BasePage's default toast regexes, so no override
+  // is needed here.
 
   // ---------- Create Order / RFQ ----------
   // "Create" is another split-button (same "select merge strategy" caret pattern as
@@ -346,6 +358,22 @@ class ProcurementRequestPage extends BasePage {
   async createRfq() {
     await this.openSubmitMenu();
     await this.page.getByRole('menuitem', { name: 'RFQ', exact: true }).click();
+  }
+
+  // ---------- Module-level business method ----------
+  // Matches the spec files' own local createDraftWithItem() helper body exactly - centralizes it
+  // here so every spec that needs "a throwaway draft record with one item" calls the same method
+  // instead of redefining it per file.
+  async createDraft(data) {
+    await this.gotoAdd();
+    await this.fillBasicDetails({
+      purchaseRepresentative: data.purchaseRepresentative,
+      vendor: data.vendor,
+      narration: data.narration,
+    });
+    await this.selectLocation(data.location);
+    await this.addItem({ itemName: data.itemName, quantity: data.quantity, rate: data.rate });
+    return this.saveAsDraft();
   }
 }
 

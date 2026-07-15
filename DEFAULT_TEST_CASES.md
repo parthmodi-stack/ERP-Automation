@@ -119,6 +119,23 @@ should be reused as-is unless a module has a concrete reason to deviate.
   accessible text/innerText, not `getByPlaceholder`, and strip stray
   zero-width space / BOM characters (`/[​﻿]/g`) that MUI's
   clear-selection icon can leave behind.
+- **Listing page (shared across every module)**: the search input's only
+  accessible name is its hardcoded `"Search"` placeholder; the row `"..."`
+  menu's own accessible name is `"More Icon"` (from its icon's alt text, not
+  a label); column sort is stock `material-react-table`/MUI `aria-sort`
+  behavior with no per-module custom code; the empty-state row renders
+  `"No Data"` (`common.noData`) inside a non-`<tr>` `Box`, not a real table
+  row. The shared `Pagination` component's Prev/Next buttons are bare
+  `IconButton`s with **no `aria-label`** - locate them structurally (e.g. off
+  the `"Go To :"` label) rather than by accessible name. The `"Go To"` page
+  number input has **no associated `<label>`** (`id="outlined-required"`,
+  no `htmlFor`), so it isn't reachable via a name-based role query either.
+  `"Page X of Y"` renders as several separate text nodes, not one string -
+  regex-match the container's collapsed text content instead of an
+  exact-text locator. `BasePage.js` has reusable helpers for all of this
+  (`searchList`, `noDataRow`, `columnHeader`/`getColumnAriaSort`,
+  `prevPageButton`/`nextPageButton`/`goToPage`/`getPaginationLabel`,
+  `isRowActionDisabled`).
 
 ## Adapting to a New Module
 

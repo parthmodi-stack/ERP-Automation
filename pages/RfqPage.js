@@ -1,14 +1,15 @@
 const { expect } = require('@playwright/test');
+const BasePage = require('./BasePage');
 
-class RfqPage {
-  constructor(page) {
-    this.page = page;
-  }
-
+class RfqPage extends BasePage {
   // ---------- Navigation ----------
   async gotoList() {
     await this.page.goto('/dashboard/procurement/orders/request-for-quote', { timeout: 60000 });
     await this.page.waitForLoadState('networkidle');
+    // networkidle can fire before the page has actually rendered anything under this
+    // environment's latency (same class of issue documented on the sibling Procurement
+    // Request/Purchase Agreement pages) - wait for the "Add" button, always present once ready.
+    await this.page.getByRole('button', { name: 'Add' }).first().waitFor({ state: 'visible', timeout: 15000 });
   }
 
   async gotoAdd() {
@@ -24,8 +25,6 @@ class RfqPage {
     if (!id) throw new Error(`gotoEdit() called with a falsy id (${id}) - a prior create/save step likely failed.`);
     await this.page.goto(`/dashboard/procurement/orders/request-for-quote/${id}/edit-request-for-quote`, { timeout: 60000 });
     await this.page.waitForLoadState('networkidle');
-    // networkidle can fire before the form has actually finished rendering - wait for a field
-    // that's always present once the form is ready.
     await this.page.getByRole('textbox', { name: 'Select Date' }).first().waitFor({ state: 'visible', timeout: 15000 });
   }
 
@@ -33,79 +32,118 @@ class RfqPage {
     if (!id) throw new Error(`gotoView() called with a falsy id (${id}) - a prior create/save step likely failed.`);
     await this.page.goto(`/dashboard/procurement/orders/request-for-quote/${id}/view-request-for-quote`);
     await this.page.waitForLoadState('networkidle');
+    await this.page.getByText(/^ID:/).first().waitFor({ state: 'visible', timeout: 15000 });
   }
 
   // ---------- Generic helpers ----------
-  getComboboxByLabel(labelText) {
-    // Matches the label text, optionally followed by an asterisk, case-insensitive.
-    // e.g. "Company" or "Company *".
-    const labelRegex = new RegExp(`^${labelText}\\s*\\*?$`, 'i');
-    return this.page.locator('label, p, span, div').filter({ hasText: labelRegex }).first().locator('xpath=following::*[@role="combobox"][1]');
-  }
+  // openDropdownAndPick()/selectFieldByLabel() now live on BasePage - "Search X" fields are
+  // custom combobox triggers, not native inputs, so their visible prompt text is the accessible
+  // name, not a real placeholder attribute. This module always attempts combobox.fill() (see the
+  // `tryFill: true` passed at each call site below).
 
-  // "Search X" fields are custom combobox triggers, not native inputs - their visible
-  // prompt text is the accessible name, not a real placeholder attribute.
-  async openDropdownAndPick(labelOrName, optionText) {
-    let combobox = this.page.getByRole('combobox', { name: labelOrName }).first();
-    if (await combobox.count() === 0) {
-      const labelText = typeof labelOrName === 'string' ? labelOrName : labelOrName.source || '';
-      // Strip out regex delimiters and flags if regex was passed
-      const cleanLabel = labelText.replace(/\\s\*\\\*\?/g, '').replace(/[\/\^i]/g, '').trim();
-      combobox = this.getComboboxByLabel(cleanLabel);
-    }
-    await combobox.click();
-    try {
-      await combobox.fill(optionText);
-    } catch (e) {
-      // Ignore if not a text input
-    }
-    // Scope to the open listbox popover, not the whole page, to avoid clicking stray same-text
-    // matches behind the backdrop (e.g. the Summary sidebar echoes field values).
-    await this.page.getByRole('listbox').getByText(optionText, { exact: true }).first().click();
-  }
-
-  // Selecting a Vendor in the RFQ form cascades: it auto-populates Company, Currency,
-  // Exchange Rate, and Payment Term from the vendor's master data. These fields are
-  // set asynchronously via Redux after a customer-data fetch, so we must wait for the
-  // dependent Company combobox to update before interacting with other fields.
+  // Selecting a Vendor in the RFQ form cascades: it auto-populates Entity, Currency, Exchange
+  // Rate, and Payment Term from the vendor's master data. These fields are set asynchronously
+  // via Redux after a customer-data fetch, so we must wait for the dependent Entity combobox to
+  // update before interacting with other fields.
+  // NOT "Company": the underlying field name is `company_id`, but its rendered paragraph label
+  // is literally "Entity *" (confirmed live via ARIA snapshot) - same field-name-vs-label-text
+  // mismatch already documented on the sibling Procurement Request/Purchase Agreement pages.
   async waitForVendorDependentFields() {
-    // Locate the Company combobox structurally starting from its label to avoid translation/name mismatch.
-    const companyLabel = this.page.getByText('Company', { exact: false }).first();
-    const companyCombobox = companyLabel.locator('xpath=following::*[@role="combobox"][1]');
-    await expect(companyCombobox).not.toHaveText('', { timeout: 15000 });
+    const entityLabel = this.page.getByText('Entity', { exact: false }).first();
+    const entityCombobox = entityLabel.locator('xpath=following::*[@role="combobox"][1]');
+    await expect(entityCombobox).not.toHaveText('', { timeout: 15000 });
     // Additional settle time for Currency and Exchange Rate fields.
     await this.page.waitForTimeout(1500);
+  }
+
+  // KNOWN APP QUIRK, confirmed live: the Address & Contact tab's Shipping Address field only
+  // populates its options once Entity is marked "dirty" via an explicit re-selection - even to
+  // its own current value. Entity already holds a default value from page load (or from the
+  // vendor cascade), but the location-fetch effect that feeds Shipping Address's options never
+  // runs until the user actively re-selects it (confirmed via network capture: zero
+  // location-fetch requests fire otherwise, and Shipping Address's option list stays empty).
+  async reselectEntityToTriggerShippingAddress() {
+    const entityCombobox = this.page.getByText('Entity', { exact: false }).first().locator('xpath=following::*[@role="combobox"][1]');
+    const currentValue = ((await entityCombobox.textContent()) || '').replace(/[\u200B\uFEFF]/g, "").trim();
+
+    // Same known DynamicSelect stuck-fetch/MuiBackdrop-intercept bug as every other dropdown in
+    // this suite - retry with an Escape + settle in between.
+    for (let attempt = 1; attempt <= 6; attempt++) {
+      await entityCombobox.click({ force: true });
+      try {
+        const found = await this.selectOptionFromListbox(currentValue);
+        if (found) {
+          await this.page.waitForTimeout(1500);
+          return;
+        }
+        throw new Error(`Option "${currentValue}" not found in listbox`);
+      } catch (e) {
+        if (attempt === 6) throw e;
+        await this.page.keyboard.press('Escape');
+        await this.page.waitForTimeout(500);
+      }
+    }
   }
 
   // Editing a record on a later day than it was created leaves its stored Date in the past,
   // which the form rejects on save ("Date cannot be in the past") - reset it to today first.
   async setDateToToday() {
-    const today = new Date();
-    const dd = String(today.getDate()).padStart(2, '0');
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const yyyy = today.getFullYear();
-    await this.page.getByRole('textbox', { name: 'Select Date' }).first().fill(`${dd}-${mm}-${yyyy}`);
+    await this.page.getByRole('textbox', { name: 'Select Date' }).first().fill(this.formatDateToday());
   }
 
   // ---------- Basic Details ----------
   async fillBasicDetails({ vendor, purchaseRepresentative, narration } = {}) {
     if (vendor) {
-      await this.openDropdownAndPick(/Vendor/i, vendor);
-      // Wait for vendor-dependent fields (Company, Currency, Exchange Rate) to cascade.
+      await this.openDropdownAndPick(/Vendor/i, vendor, { tryFill: true });
+      // Wait for vendor-dependent fields (Entity, Currency, Exchange Rate) to cascade.
       await this.waitForVendorDependentFields();
     }
     if (purchaseRepresentative) {
-      await this.openDropdownAndPick(/Representative/i, purchaseRepresentative);
+      await this.openDropdownAndPick(/Representative/i, purchaseRepresentative, { tryFill: true });
     }
     if (narration) {
       await this.page.getByPlaceholder('Enter Narration').fill(narration);
     }
   }
 
+  // ---------- Address & Contact ----------
+  // Contact Person and Shipping Address are BOTH required fields on this tab that Vendor
+  // selection does NOT auto-populate (confirmed live: only Vendor Address auto-fills) - Save
+  // fails validation without them. Must be called after fillBasicDetails's vendor selection,
+  // while still on the Basic Details tab (re-selecting Entity happens there), before this
+  // method switches to the Address & Contact tab itself.
+  async fillAddressContact({ contactPerson, shippingAddress, vendorAddress } = {}) {
+    await this.reselectEntityToTriggerShippingAddress();
+    await this.page.getByText('Address & Contact', { exact: true }).click();
+    await this.page.waitForTimeout(1000);
+    if (vendorAddress) {
+      await this.selectFieldByLabel('Vendor Address *', vendorAddress);
+    }
+    if (contactPerson) {
+      await this.selectFieldByLabel('Contact Person *', contactPerson);
+    }
+    if (shippingAddress) {
+      await this.selectFieldByLabel('Shipping Address *', shippingAddress);
+    }
+    // The Items accordion (addItem()) lives on Basic Details, not this tab - switch back so
+    // callers can chain straight into addItem() without needing to know about tabs themselves.
+    // KNOWN APP QUIRK: selectFieldByLabel uses `force: true` to click the Shipping Address
+    // option (bypassing the MUI Backdrop's pointer-event interception), but the underlying
+    // MuiMenu/Popover component (`menu-rfq_contacts.shipping_address`) can remain mounted in
+    // the DOM with its invisible Backdrop still intercepting pointer events on the rest of the
+    // page - Escape explicitly closes it before we attempt the tab switch.
+    await this.page.keyboard.press('Escape');
+    await this.page.waitForTimeout(500);
+    await this.page.getByText('Basic Details', { exact: true }).click();
+    await this.page.waitForTimeout(500);
+  }
+
   // ---------- Items ----------
   async addItem({ itemName, requestedQuantity }) {
     // exact: true avoids matching the "Items*Please add atleast one Item" accordion header.
-    await this.page.getByRole('button', { name: 'Add', exact: true }).click();
+    // .first(): the Basic Details tab also has a "Call For Tender" accordion with its own
+    // identically-labeled "Add" button further down the page - Items comes first in DOM order.
+    await this.page.getByRole('button', { name: 'Add', exact: true }).first().click();
 
     const modal = this.page.getByRole('dialog');
     let combobox = modal.getByRole('combobox', { name: /Item/i }).first();
@@ -117,11 +155,9 @@ class RfqPage {
     await this.page.getByText(itemName, { exact: true }).first().click();
 
     // Wait for item defaults (Vendor Item Name, UOM) to populate from the async item-data fetch.
-    // Vendor Item Name is a disabled text input that populates from the item selection response.
     await this.page.waitForTimeout(2000);
 
     if (requestedQuantity) {
-      // Requested Quantity is a number input; locate via its label text.
       await modal.locator('text=Requested Quantity').locator('xpath=following::input[1]').fill(requestedQuantity);
     }
 
@@ -165,22 +201,7 @@ class RfqPage {
     return this.saveAndCaptureId('Save', true);
   }
 
-  async discard() {
-    await this.page.getByRole('button', { name: 'Discard' }).click();
-  }
-
   // ---------- List actions ----------
-  // seriesNumber is the exact text rendered in the list's ID column (e.g. "RFQ-2026-000149")
-  rowBySeriesNumber(seriesNumber) {
-    return this.page.locator('tr', { has: this.page.getByRole('link', { name: seriesNumber, exact: true }) });
-  }
-
-  async openRowActionMenu(seriesNumber) {
-    if (!seriesNumber) throw new Error(`openRowActionMenu() called with a falsy seriesNumber (${seriesNumber}) - a prior create/save step likely failed.`);
-    const row = this.rowBySeriesNumber(seriesNumber);
-    await row.locator('button').first().click();
-  }
-
   async editFromList(id, seriesNumber) {
     await this.openRowActionMenu(seriesNumber);
     await this.page.getByText('Edit', { exact: true }).click();
@@ -188,28 +209,10 @@ class RfqPage {
   }
 
   async getRowStatus(seriesNumber) {
-    const row = this.rowBySeriesNumber(seriesNumber);
-    return (
-      (await row.getByText(/Draft|Open|RFQ Sent|Response Received|Pending Order|Order|Completed|Cancelled/).first().textContent()) ?? ''
-    );
-  }
-
-  // ---------- View page ----------
-  async getFieldValueOnView(label) {
-    const text = (await this.page.getByText(label, { exact: true }).first().locator('xpath=following::*[1]').first().textContent()) ?? '';
-    return text.trim().replace(/\s+/g, ' ');
+    return this.getRowStatusMatching(seriesNumber, /Draft|Open|RFQ Sent|Response Received|Pending Order|Order|Completed|Cancelled/);
   }
 
   // ---------- Edit page value readers ----------
-  async getEditComboboxValue(label) {
-    const text = await this.page.getByText(label, { exact: true }).first().locator('xpath=following-sibling::*[1]').innerText();
-    return text.replace(/[\u200B\uFEFF]/g, '').trim();
-  }
-
-  async getEditNarrationValue() {
-    return this.page.getByPlaceholder('Enter Narration').inputValue();
-  }
-
   async isIdFieldReadOnly() {
     // The RFQ ID field is a disabled text input.
     const idField = this.page.locator('input[name="rfq.id"]');
@@ -221,26 +224,7 @@ class RfqPage {
   }
 
   // ---------- Delete ----------
-  async confirmDelete() {
-    const dialog = this.page.getByRole('dialog');
-    const deleteBtn = dialog.getByRole('button', { name: /Delete|Confirm/i }).first();
-    await deleteBtn.click();
-    // No toast-text assertion here - the caller verifies the row/record is actually gone
-    // afterward, which is the durable signal that the action took effect.
-    await expect(dialog).not.toBeVisible();
-  }
-
-  async deleteFromList(seriesNumber) {
-    await this.openRowActionMenu(seriesNumber);
-    await this.page.getByRole('menuitem', { name: 'Delete' }).click();
-    await this.confirmDelete();
-  }
-
-  async deleteFromView() {
-    await this.page.getByRole('button', { name: 'Actions' }).click();
-    await this.page.getByRole('menuitem', { name: 'Delete' }).click();
-    await this.confirmDelete();
-  }
+  // confirmDelete() now lives on BasePage unchanged.
 
   // ---------- Status actions (RFQ-specific) ----------
   // The RFQ module does NOT have an approval workflow. Instead, it has:
@@ -258,9 +242,11 @@ class RfqPage {
   }
 
   // ---------- Create Order / Response / Agreement ----------
-  // "Create" is a DropdownButton that only renders for certain statuses.
+  // "Create" is a DropdownButton that only renders for certain statuses, but reuses the exact
+  // same "select merge strategy" caret pattern as the approval-workflow modules' submit menu -
+  // this is just a semantically-named alias for BasePage.openSubmitMenu().
   async openCreateMenu() {
-    await this.page.getByRole('button', { name: 'select merge strategy' }).click();
+    await this.openSubmitMenu();
   }
 
   async createOrder() {
@@ -271,6 +257,24 @@ class RfqPage {
   async createResponse() {
     await this.openCreateMenu();
     await this.page.getByRole('menuitem', { name: /Response/i }).first().click();
+  }
+
+  // ---------- Module-level business method ----------
+  // Matches the spec file's own local createDraftRfq() helper body exactly.
+  async createDraft(data) {
+    await this.gotoAdd();
+    await this.fillBasicDetails({
+      vendor: data.vendor,
+      purchaseRepresentative: data.purchaseRepresentative,
+      narration: data.narration,
+    });
+    await this.fillAddressContact({
+      contactPerson: data.contactPerson,
+      shippingAddress: data.shippingAddress,
+      vendorAddress: data.vendorAddress,
+    });
+    await this.addItem({ itemName: data.itemName, requestedQuantity: data.requestedQuantity });
+    return this.saveAsDraft();
   }
 }
 

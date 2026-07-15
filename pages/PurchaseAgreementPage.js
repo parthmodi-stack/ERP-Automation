@@ -45,70 +45,12 @@ class PurchaseAgreementPage extends BasePage {
   }
 
   // ---------- Generic helpers ----------
-  async openDropdownAndPick(placeholder, optionText) {
-    const combobox = this.page.getByRole('combobox', { name: placeholder }).first();
-    // Scope to the open listbox popover, not the whole page: fields whose value is already
-    // shown elsewhere on the page (e.g. the read-only Summary sidebar echoes "Entity: erp-force")
-    // create a same-text match outside the dropdown, which getByText would otherwise pick up
-    // first - and that stray match sits behind the popover's backdrop, so clicking it hangs.
-    // exact: true - several option lists also have entries that are substrings of each other
-    // (e.g. Location's "Ahmedabad" vs "Naroda (Ahmedabad)"/"South Bhopal(Ahmedabad)").
-    const option = this.page.getByRole('listbox').getByText(optionText, { exact: true }).first();
-
-    // Same KNOWN APP BUG documented on the sibling Procurement Request page: these
-    // DynamicSelect-family fields can show "No data available" if a sibling field's selection
-    // interrupts this field's own fetch mid-flight - retrying with an Escape + settle in
-    // between reliably recovers it.
-    for (let attempt = 1; attempt <= 6; attempt++) {
-      await combobox.click({ force: true });
-      try {
-        await combobox.fill(optionText);
-      } catch (e) {
-        // Ignore if not a text input
-      }
-      try {
-        await option.click({ force: true, timeout: 7000 });
-        return;
-      } catch (e) {
-        if (attempt === 6) throw e;
-        await this.page.keyboard.press('Escape');
-        await this.page.waitForTimeout(500);
-      }
-    }
-  }
-
-  // Unlike Entity, Location correctly pre-populates on Edit for this module - so its combobox's
-  // accessible name is just as often the CURRENT VALUE as the "Search Location" prompt, and a
-  // name-based lookup breaks the moment it already holds something. Locate it structurally via
-  // its stable paragraph label instead, which works whether the field is blank or pre-filled.
-  async selectFieldByLabel(labelText, optionText) {
-    const combobox = this.page.getByText(labelText, { exact: true }).locator('xpath=following::*[@role="combobox"][1]');
-    const option = this.page.getByRole('listbox').getByText(optionText, { exact: true }).first();
-
-    // KNOWN APP BUG, confirmed live via the browser's own DevTools Network tab (zero requests
-    // fire while typing): this field's search box does NOT call any filter API at all, unlike
-    // Procurement Request's equivalent Location field, which searches correctly. So unlike that
-    // sibling page, don't attempt to type here - it can only ever wait out a fetch that never
-    // happens. Only values already in the default unfiltered "25 most-recently-created" list
-    // (`order=id:-1&limit=25`, confirmed via its own API call) are reachable through this field;
-    // callers must pass one of those (see testData.js's comment on purchaseAgreement.valid.location).
-    for (let attempt = 1; attempt <= 6; attempt++) {
-      await combobox.click({ force: true });
-      try {
-        await option.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
-        // force: true - this menu's own MuiBackdrop can still be mid-transition (rendered
-        // "invisible" but still intercepting pointer events) right as the popover opens, the
-        // same class of issue documented on the sibling Procurement Request page's Location
-        // field.
-        await option.click({ force: true, timeout: 10000 });
-        return;
-      } catch (e) {
-        if (attempt === 6) throw e;
-        await this.page.keyboard.press('Escape');
-        await this.page.waitForTimeout(500);
-      }
-    }
-  }
+  // openDropdownAndPick()/selectFieldByLabel() now live on BasePage; this module's own quirks
+  // (always attempts combobox.fill() - see the `tryFill: true` passed at each call site below;
+  // Location needs scrollIntoViewIfNeeded()+a 10000ms option timeout since its search box never
+  // calls a filter API at all, unlike the sibling Procurement Request page's equivalent field -
+  // see the `scrollIntoView: true, timeout: 10000` passed in selectLocation()) are now passed as
+  // options instead of being separately re-implemented here.
 
   async selectAgreementType(type) {
     const dropdown = this.page.locator('div[class*="MuiSelect-select"]').first();
@@ -117,14 +59,10 @@ class PurchaseAgreementPage extends BasePage {
   }
 
   async setDateToToday() {
-    const today = new Date();
-    const dd = String(today.getDate()).padStart(2, '0');
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const yyyy = today.getFullYear();
     // "Date" and "Valid Up To" are both DynamicDate fields sharing the same "Select Date"
     // placeholder/accessible name, so name-based lookup is ambiguous - scope by the field's
     // actual form name instead.
-    await this.page.locator('input[name="purchaseAgreement.date"]').fill(`${dd}-${mm}-${yyyy}`);
+    await this.page.locator('input[name="purchaseAgreement.date"]').fill(this.formatDateToday());
   }
 
   // ---------- Basic Details ----------
@@ -136,11 +74,11 @@ class PurchaseAgreementPage extends BasePage {
       await this.selectAgreementType(agreementType);
     }
     if (vendor) {
-      await this.openDropdownAndPick(/Vendor/i, vendor);
+      await this.openDropdownAndPick(/Vendor/i, vendor, { tryFill: true });
       await this.page.waitForTimeout(1000);
     }
     if (purchaseRepresentative) {
-      await this.openDropdownAndPick(/Representative/i, purchaseRepresentative);
+      await this.openDropdownAndPick(/Representative/i, purchaseRepresentative, { tryFill: true });
     }
     if (entity) {
       // The field's real label/translation is "Entity", not "Company". It only renders blank
@@ -150,7 +88,7 @@ class PurchaseAgreementPage extends BasePage {
       // pick a different option than what's currently saved.
       const stillBlank = await this.page.getByRole('combobox', { name: /Entity/i }).count();
       if (stillBlank > 0) {
-        await this.openDropdownAndPick(/Entity/i, entity);
+        await this.openDropdownAndPick(/Entity/i, entity, { tryFill: true });
         // Location is entity-scoped, and its option list is re-fetched asynchronously after
         // Entity changes - selecting Location immediately after can race that fetch and see
         // the previous entity's (stale) options, intermittently timing out on the new value.
@@ -158,7 +96,7 @@ class PurchaseAgreementPage extends BasePage {
       }
     }
     if (currency) {
-      await this.openDropdownAndPick(/Currency/i, currency);
+      await this.openDropdownAndPick(/Currency/i, currency, { tryFill: true });
     }
     if (narration) {
       await this.page.getByPlaceholder('Enter Narration').fill(narration);
@@ -166,7 +104,7 @@ class PurchaseAgreementPage extends BasePage {
   }
 
   async selectLocation(locationName) {
-    await this.selectFieldByLabel('Location', locationName);
+    await this.selectFieldByLabel('Location', locationName, { scrollIntoView: true, timeout: 10000 });
   }
 
   // ---------- Items ----------
@@ -235,10 +173,6 @@ class PurchaseAgreementPage extends BasePage {
     return this.saveAndCaptureId('Save', true);
   }
 
-  async discard() {
-    await this.page.getByRole('button', { name: 'Discard' }).click();
-  }
-
   // ---------- List actions ----------
   async editFromList(id, seriesNumber) {
     await this.openRowActionMenu(seriesNumber);
@@ -247,10 +181,7 @@ class PurchaseAgreementPage extends BasePage {
   }
 
   async getRowStatus(seriesNumber) {
-    const row = this.rowBySeriesNumber(seriesNumber);
-    return (
-      (await row.getByText(/Draft|Pending|In Progress|Confirmed|Closed|Expired|Rejected/).first().textContent()) ?? ''
-    );
+    return this.getRowStatusMatching(seriesNumber, /Draft|Pending|In Progress|Confirmed|Closed|Expired|Rejected/);
   }
 
   // ---------- Edit page value readers ----------
@@ -260,52 +191,39 @@ class PurchaseAgreementPage extends BasePage {
     return this.page.getByRole('textbox', { name: 'Purchase Agreement ID' }).isDisabled();
   }
 
-  // ---------- Delete ----------
-  async confirmDelete() {
-    const dialog = this.page.getByRole('dialog');
-    const deleteBtn = dialog.getByRole('button', { name: /Delete|Confirm/i }).first();
-    await deleteBtn.click();
-    // The success toast is a short-lived Snackbar that can auto-dismiss before an assertion
-    // polls for it under load; callers verify the row/record is actually gone afterward, which
-    // is the durable signal that the action took effect.
-    await expect(dialog).not.toBeVisible();
-  }
-
-  // ---------- Approval flow ----------
-  async quickApproval(userName) {
-    await this.openSubmitMenu();
-    await this.page.getByText('Quick Approval', { exact: true }).click();
-
-    const dialog = this.page.getByRole('dialog').filter({ hasText: 'Quick Approval' });
-    await dialog.getByText('Select').click();
-    // The user list can have near-duplicate entries differing only by case (separate accounts),
-    // and each option's accessible name also includes its avatar-initials prefix, so `exact:
-    // true` would never match at all; a case-sensitive RegExp gives a substring match instead.
-    await this.page.getByRole('option', { name: new RegExp(userName) }).click();
-    await this.page.keyboard.press('Escape');
-
-    await dialog.getByRole('button', { name: 'Send Request' }).click();
-    await expect(this.page.getByText(/submitted for approval/i)).toBeVisible();
-  }
-
+  // ---------- Delete / Approval flow ----------
+  // confirmDelete()/quickApproval() now live on BasePage unchanged (this module's toast wording
+  // already matches the shared defaults). accept()/reject() deliberately skip the toast assertion
+  // here (it's a short-lived Snackbar that can auto-dismiss before an assertion polls for it
+  // under load; callers verify the resulting status badge instead, which is the durable signal).
   async accept() {
-    await this.openSubmitMenu();
-    await this.page.getByRole('menuitem', { name: 'Accept', exact: true }).click();
-    await this.page.getByRole('button', { name: 'Submit' }).click();
-    // No toast assertion here - the caller verifies the resulting status badge instead, since
-    // the success toast is transient and can auto-dismiss before this could poll for it.
+    return super.accept({ successToast: null });
   }
 
   async reject() {
-    await this.openSubmitMenu();
-    await this.page.getByRole('menuitem', { name: 'Reject', exact: true }).click();
-    await this.page.getByRole('button', { name: 'Submit' }).click();
+    return super.reject({ successToast: null });
   }
 
   async validate() {
     await this.page.getByRole('button', { name: 'Validate' }).click();
     // The confirmation dialog's own button is also labeled "Validate", not "Confirm"/"Submit".
     await this.page.getByRole('dialog').getByRole('button', { name: 'Validate', exact: true }).click();
+  }
+
+  // ---------- Module-level business method ----------
+  // Matches the spec file's own local createDraftWithItem() helper body exactly.
+  async createDraft(data) {
+    await this.gotoAdd();
+    await this.fillBasicDetails({
+      name: data.name,
+      agreementType: data.agreementType,
+      vendor: data.vendor,
+      purchaseRepresentative: data.purchaseRepresentative,
+      narration: data.narration,
+    });
+    await this.selectLocation(data.location);
+    await this.addItem({ itemName: data.itemName, minOrderQty: data.minOrderQty, rate: data.rate });
+    return this.saveAsDraft();
   }
 }
 

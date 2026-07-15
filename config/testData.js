@@ -1,11 +1,13 @@
+require('dotenv').config();
 const ts = Date.now();
+const factory = require("./testDataFactory");
 
 const testData = {
-  baseUrl: "https://dev.erpforce.co",
+  baseUrl: process.env.BASE_URL || "http://localhost:7172",
 
   credentials: {
     valid: {
-      email: "parth.modi+450@trootech.com",
+      email: "dipen.modi@trootech.com",
       password: "Admin@123",
     },
     approverLogin: {
@@ -16,23 +18,26 @@ const testData = {
       email: "notexist@fake.com",
       password: "Admin@123",
     },
+    // email must stay a REAL, valid account (matching credentials.valid) so the only thing
+    // wrong is the password - otherwise TC-AUTH-03 would just be re-testing invalid email.
     wrongPassword: {
-      email: "parth.modi+450@trootech.com",
+      email: "dipen.modi@trootech.com",
       password: "WrongPass@999",
     },
     emptyEmail: {
       email: "",
       password: "Admin@123",
     },
+    // Same reasoning as wrongPassword above - keep the email valid so only the password is empty.
     emptyPassword: {
-      email: "parth.modi+450@trootech.com",
+      email: "dipen.modi@trootech.com",
       password: "",
     },
   },
 
   uom: {
     valid: {
-      unitName: `Automation_UOM_${ts}`,
+      unitName: factory.uniqueName("Automation_UOM"),
       symbol: "AUTO",
       description: "Automation Test UOM",
       entry: {
@@ -74,10 +79,10 @@ const testData = {
 
   attribute: {
     valid: {
-      name: `Test_Attribute_${ts}`,
+      name: factory.uniqueName("Test_Attribute"),
       fieldType: "Select",
       values: ["Value 1", "Value 2"],
-      duplicatedName: `Test_Attribute_COPY_${ts}`,
+      duplicatedName: factory.uniqueName("Test_Attribute_COPY"),
     },
   },
 
@@ -102,21 +107,21 @@ const testData = {
 
   itemCategory: {
     valid: {
-      name: `Automation_Category_${ts}`,
+      name: factory.uniqueName("Automation_Category"),
       description: "Automated test category for electronics",
       skuPrefix: "AUTO",
       startingSku: "1",
       skuPreview: "AUTO-00001",
       attribute: "Iphone Variant",
-      updatedName: `Automation_Category_UPDATED_${ts}`,
-      duplicatedName: `Automation_Category_COPY_${ts}`,
+      updatedName: factory.uniqueName("Automation_Category_UPDATED"),
+      duplicatedName: factory.uniqueName("Automation_Category_COPY"),
     },
   },
 
   discountedItem: {
     valid: {
-      skuNumber: `DISC-AUTO-${ts}`,
-      name: `Automation_Discount_${ts}`,
+      skuNumber: factory.referenceNumber("DISC-AUTO"),
+      name: factory.uniqueName("Automation_Discount"),
       discountType: "Sales",
       account: "Sales Revenue",
       discountCategory: "Rate",
@@ -125,15 +130,17 @@ const testData = {
     },
   },
 
-  // bin.location references the same name that location tests create in TC-LOC-02
+  // bin.location references the same name that location tests create in TC-LOC-02 - keep that
+  // one field's shared `ts` coupling with location.valid.updatedName intact (factory.uniqueName()
+  // generates a fresh, non-matching suffix per call, which would break the cross-reference).
   bin: {
     valid: {
-      name: `Test_Bin_${ts}`,
+      name: factory.uniqueName("Test_Bin"),
       location: `Test_Location_Playwright_UPDATED_${ts}`,
       binType: "Internal Location",
       entity: "erp-force",
-      updatedName: `Test_Bin_UPDATED_${ts}`,
-      duplicatedName: `Test_Bin_COPY_${ts}`,
+      updatedName: factory.uniqueName("Test_Bin_UPDATED"),
+      duplicatedName: factory.uniqueName("Test_Bin_COPY"),
     },
   },
 
@@ -158,8 +165,10 @@ const testData = {
       // needs a value guaranteed to already exist regardless of what else has run.
       location: "Dhule",
       itemName: "Regression_1-00006 - Reg_item1_rental", // corrected: old value did not exist
-      narration: `Automation procurement request ${ts}`,
-      updatedNarration: `Automation procurement request EDITED ${ts}`,
+      narration: factory.narration("Automation procurement request"),
+      updatedNarration: factory.narration(
+        "Automation procurement request EDITED",
+      ),
       // Currency defaults to INR on the Add form, but - like Location - does NOT round-trip
       // onto the Edit form (confirmed live: blank "Search Currency" immediately after
       // navigating to Edit, before any other field is touched). Any Edit+Save flow must
@@ -171,7 +180,7 @@ const testData = {
     },
     reject: {
       purchaseRepresentative: "Vivek  Kansara",
-      vendor: "venugopal  ", // trailing double space is part of the real name
+      vendor: "PC new Vendor", // trailing double space is part of the real name
       // NOT "Junagadh WC-1": confirmed live via network inspection that the Location field's
       // own API call (`inventory/v1/warehouse-location/?...&order=id:-1&limit=25`) always
       // returns only the 25 most-recently-created records with NO working name/search filter
@@ -181,24 +190,27 @@ const testData = {
       // depends on how much other Location-suite junk data has piled up since.
       location: "Dhule",
       itemName: "Regression_1-00006 - Reg_item1_rental", // corrected: old value did not exist
-      narration: `Automation procurement request reject flow ${ts}`,
+      narration: factory.narration(
+        "Automation procurement request reject flow",
+      ),
       currency: "INR",
       quantity: "3",
       rate: "50",
     },
-    // Must be the CURRENTLY LOGGED-IN test user (credentials.valid = parth.modi+450@trootech.com,
-    // displayed in the app header as "Parth regression"), not an arbitrary employee - the
-    // Accept/Reject split-button on a record's View page only renders for whoever the pending
-    // approval was actually sent to. Sending it to a different employee (this was "Dipen Modi"
-    // before) leaves the logged-in session with only a lone "Cancel" button and no way to accept
-    // (confirmed live via repeated polling - no split-button ever appears in that case, at any
-    // point after Quick Approval). Matches the option "Pr Parth regression" in the same picker.
-    approverName: "Parth regression",
+    // Must be the CURRENTLY LOGGED-IN test user, not an arbitrary employee - the Accept/Reject
+    // split-button on a record's View page only renders for whoever the pending approval was
+    // actually sent to. Sending it to a different employee (this was "Dipen Modi" before) leaves
+    // the logged-in session with only a lone "Cancel" button and no way to accept (confirmed
+    // live via repeated polling - no split-button ever appears in that case, at any point after
+    // Quick Approval).
+    // Matches credentials.valid = dipen.modi@trootech.com, confirmed live in the app header
+    // ("D / Dipen Modi / Admin") - keep this in sync if credentials.valid ever changes again.
+    approverName: "Dipen Modi",
   },
 
   purchaseAgreement: {
     valid: {
-      name: `Automation purchase agreement ${ts}`,
+      name: factory.uniqueName("Automation_purchase_agreement"),
       agreementType: "Blanket",
       purchaseRepresentative: "Dipen  Modi",
       vendor: "PC new Vendor",
@@ -210,8 +222,10 @@ const testData = {
       // without searching.
       location: "Dhule",
       itemName: "Regression_1-00006 - Reg_item1_rental", // corrected: old value did not exist
-      narration: `Automation purchase agreement ${ts}`,
-      updatedNarration: `Automation purchase agreement EDITED ${ts}`,
+      narration: factory.narration("Automation purchase agreement"),
+      updatedNarration: factory.narration(
+        "Automation purchase agreement EDITED",
+      ),
       entity: "erp-force", // verified - default/only entity option
       updatedLocation: "Dhule", // verified - exists exactly as written
       minOrderQty: "5",
@@ -219,7 +233,7 @@ const testData = {
       rate: "100",
     },
     reject: {
-      name: `Automation purchase agreement reject flow ${ts}`,
+      name: factory.uniqueName("Automation_purchase_agreement_reject_flow"),
       agreementType: "Blanket",
       purchaseRepresentative: "Dipen  Modi",
       vendor: "Royal Mine Industries",
@@ -231,7 +245,7 @@ const testData = {
       // without searching.
       location: "Dhule",
       itemName: "Regression_1-00006 - Reg_item1_rental", // corrected: old value did not exist
-      narration: `Automation purchase agreement reject flow ${ts}`,
+      narration: factory.narration("Automation purchase agreement reject flow"),
       // NOT "INR": confirmed live via screenshot that vendor "Royal Mine Industries"' own linked
       // currency list doesn't contain a plain "INR" entry (only "INR-RAJ1", a different exact
       // string, alongside Morocco/Irani Rial/Paraguayan guarani/etc.) - Currency's options are
@@ -240,33 +254,148 @@ const testData = {
       minOrderQty: "3",
       rate: "50",
     },
-    // Must be the CURRENTLY LOGGED-IN test user (credentials.valid = parth.modi+450@trootech.com,
-    // displayed in the app header as "Parth regression"), not an arbitrary employee - the
-    // Accept/Reject split-button on a record's View page only renders for whoever the pending
-    // approval was actually sent to. Sending it to a different employee (this was "Dipen Modi"
-    // before) leaves the logged-in session with only a lone "Cancel" button and no way to accept
-    // (confirmed live via repeated polling - no split-button ever appears in that case, at any
-    // point after Quick Approval). Matches the option "Pr Parth regression" in the same picker.
-    approverName: "Parth regression",
+    // Must be the CURRENTLY LOGGED-IN test user, not an arbitrary employee - the Accept/Reject
+    // split-button on a record's View page only renders for whoever the pending approval was
+    // actually sent to. Sending it to a different employee (this was "Dipen Modi" before) leaves
+    // the logged-in session with only a lone "Cancel" button and no way to accept (confirmed
+    // live via repeated polling - no split-button ever appears in that case, at any point after
+    // Quick Approval).
+    // Matches credentials.valid = dipen.modi@trootech.com, confirmed live in the app header
+    // ("D / Dipen Modi / Admin") - keep this in sync if credentials.valid ever changes again.
+    approverName: "Dipen Modi",
+  },
+
+  purchaseOrder: {
+    // Vendor/entity/location/item/approver values are pinned to the same live-verified master
+    // data already proven reachable by the sibling Procurement Request/Purchase Agreement
+    // suites - not independently re-verified for Purchase Order specifically. Payment Terms/
+    // Vendor Address/Contact Person/Shipping Address are required fields whose exact option
+    // text in this account is unverified, so PurchaseOrderPage selects whichever option renders
+    // first for those instead of a guessed literal string (see selectFirstOptionByLabel).
+    valid: {
+      vendor: "PC new Vendor",
+      entity: "erp-force",
+      currency: "INR",
+      purchaseRepresentative: "QA  Nikita", // renders with a double space in the live DOM
+      location: "Dhule",
+      itemName: "Regression_1-00006 - Reg_item1_rental",
+      narration: factory.narration("Automation purchase order"),
+      updatedNarration: factory.narration("Automation purchase order EDITED"),
+      quantity: "5",
+      updatedQuantity: "8",
+      rate: "100",
+    },
+    reject: {
+      // Same vendor as valid: PO's Currency field isn't confirmed to be vendor-scoped the way
+      // Purchase Agreement's is, so avoid pairing a different vendor with a currency that may
+      // not be in its linked list.
+      vendor: "PC new Vendor",
+      entity: "erp-force",
+      currency: "INR",
+      purchaseRepresentative: "Dipen  Modi",
+      location: "Dhule",
+      itemName: "Regression_1-00006 - Reg_item1_rental",
+      narration: factory.narration("Automation purchase order reject flow"),
+      quantity: "3",
+      rate: "50",
+    },
+    // Must be the CURRENTLY LOGGED-IN test user - see the identical comment on
+    // procurementRequest.approverName/purchaseAgreement.approverName for why. Matches
+    // credentials.valid = dipen.modi@trootech.com.
+    approverName: "Dipen Modi",
   },
 
   rfq: {
     valid: {
-      vendor: "PC new Vendor",
+      // NOT "PC new Vendor": confirmed live that this vendor has zero configured Contact
+      // Persons (Address & Contact tab's Contact Person dropdown was empty), which is a
+      // required field. "PC vendor" (note: different from "PC new Vendor" - easy to confuse)
+      // has a real contact ("manan") - live-verified via the Contact Person option list.
+      vendor: "PC vendor",
       purchaseRepresentative: "QA  Nikita",
+      // Address & Contact tab fields - both required, NOT auto-filled by Vendor selection
+      // (confirmed live: only Vendor Address auto-fills; Contact Person and Shipping Address
+      // stay blank until explicitly selected, and Save fails validation without them).
+      contactPerson: "manan",
+      shippingAddress: "Dhule", // NOT "Nagpur": pushed out of the 25-most-recent window by accumulated test Location data (same issue as Purchase Agreement's Location field)
       itemName: "Regression_1-00006 - Reg_item1_rental",
-      narration: `Automation RFQ ${ts}`,
-      updatedNarration: `Automation RFQ EDITED ${ts}`,
+      narration: factory.narration("Automation RFQ"),
+      updatedNarration: factory.narration("Automation RFQ EDITED"),
       requestedQuantity: "5",
       updatedRequestedQuantity: "8",
+      vendorAddress: "test address, Maharashtra, India",
     },
     cancel: {
-      vendor: "PC new Vendor",
+      vendor: "PC vendor",
       purchaseRepresentative: "QA  Nikita",
+      contactPerson: "manan",
+      shippingAddress: "Dhule",
       itemName: "Regression_1-00006 - Reg_item1_rental",
-      narration: `Automation RFQ cancel flow ${ts}`,
+      narration: factory.narration("Automation RFQ cancel flow"),
       requestedQuantity: "3",
     },
+  },
+
+  // Vendor/currency/company/location/item values reuse the same live-verified master data
+  // already proven reachable by the sibling Procurement Request/Purchase Order suites, not
+  // independently re-verified for Vendor Return Authorization specifically (this module's page
+  // object/spec were written from erpforce-fe source reading, not iterative live debugging - see
+  // the "UNVERIFIED LIVE" comment on VendorReturnAuthorizationPage.js). Supplier Address/Contact
+  // Person/Shipping Address are required but have no known-good literal value in this account, so
+  // VendorReturnAuthorizationPage.fillAddressContact() picks whichever option renders first for
+  // each instead (same approach PurchaseOrderPage.selectFirstOptionByLabel takes for its own
+  // unverified Vendor Address/Contact Person/Shipping Address fields) - no testData entries are
+  // needed for those three.
+  vendorReturnAuthorization: {
+    valid: {
+      vendor: "PC new Vendor",
+      currency: "INR",
+      exchangeRate: "1",
+      company: "erp-force", // verified elsewhere in this file - default/only company option
+      location: "Dhule",
+      purchaseRepresentative: "QA  Nikita", // renders with a double space in the live DOM
+      referenceNo: factory.referenceNumber("AUTO-VRA"),
+      narration: factory.narration("Automation vendor return authorization"),
+      updatedNarration: factory.narration(
+        "Automation vendor return authorization EDITED",
+      ),
+      // uom is intentionally omitted: item-entry-modal.tsx auto-fills UoM from the selected
+      // Item's own default (autofillItemVendorName -> setValue('vra_items.uom_id', ...)), same as
+      // every sibling module's item modal - no manual selection needed.
+      itemName: "Regression_1-00006 - Reg_item1_rental",
+      quantity: "5",
+      updatedQuantity: "8",
+      rate: "100",
+      supplier_address_id: "test address, Maharashtra, India",
+      contact_person_id: "PC new Vendor",
+      shipping_address_id: "Dhule",
+      approverName: "Dipen Modi",
+    },
+    reject: {
+      // Same vendor as valid: Currency isn't confirmed to be vendor-scoped the way Purchase
+      // Agreement's is for this module, so avoid pairing a different vendor with a currency that
+      // may not be in its linked list (see purchaseAgreement.reject's comment on this class of
+      // issue).
+      vendor: "PC new Vendor",
+      currency: "INR",
+      exchangeRate: "1",
+      company: "erp-force",
+      location: "Dhule",
+      purchaseRepresentative: "Dipen  Modi",
+      narration: factory.narration(
+        "Automation vendor return authorization reject flow",
+      ),
+      itemName: "Regression_1-00006 - Reg_item1_rental",
+      quantity: "3",
+      rate: "50",
+      supplier_address_id: "test address, Maharashtra, India",
+      contact_person_id: "PC new Vendor",
+      shipping_address_id: "Dhule", // verified present in the Shipping Address option list
+    },
+    // Must be the CURRENTLY LOGGED-IN test user - see the identical comment on
+    // procurementRequest.approverName/purchaseAgreement.approverName/purchaseOrder.approverName
+    // for why. Matches credentials.valid = dipen.modi@trootech.com.
+    approverName: "Dipen Modi",
   },
 };
 
