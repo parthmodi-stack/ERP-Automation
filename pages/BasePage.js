@@ -48,7 +48,24 @@ class BasePage {
   // textbox (a decoy "option" whose accessible name mirrors whatever's currently typed) and any
   // literal "Select" placeholder option, so this never accidentally "succeeds" on a non-real one.
   async selectFirstAvailableOption(combobox) {
-    await combobox.click({ force: true }).catch(() => { });
+    const listbox = this.page.getByRole("listbox");
+    if (!(await listbox.isVisible().catch(() => false))) {
+      await combobox.click({ force: true }).catch(() => { });
+    }
+
+    const optionsLocator = listbox.getByRole("option");
+    // Wait for listbox options to load (i.e. not be empty and not contain "Loading...")
+    for (let i = 0; i < 40; i++) {
+      const count = await optionsLocator.count();
+      if (count > 0) {
+        const firstText = await optionsLocator.first().textContent().catch(() => '');
+        if (!firstText.includes('Loading...')) {
+          break;
+        }
+      }
+      await this.page.waitForTimeout(150);
+    }
+
     const firstOption = this.page
       .getByRole("listbox")
       .getByRole("option")
@@ -63,6 +80,19 @@ class BasePage {
     const listbox = this.page.getByRole("listbox");
     await listbox.waitFor({ state: "visible", timeout: 7000 });
     const optionsLocator = listbox.getByRole("option");
+    
+    // Wait for listbox options to load (i.e. not be empty and not contain "Loading...")
+    for (let i = 0; i < 40; i++) {
+      const count = await optionsLocator.count();
+      if (count > 0) {
+        const firstText = await optionsLocator.first().textContent().catch(() => '');
+        if (!firstText.includes('Loading...')) {
+          break;
+        }
+      }
+      await this.page.waitForTimeout(150);
+    }
+
     const count = await optionsLocator.count();
     const cleanTarget = optionText.replace(/[\s\u200B\uFEFF,]+/g, "").trim().toLowerCase();
     for (let i = 0; i < count; i++) {
@@ -132,9 +162,23 @@ class BasePage {
       .getByText(labelText, { exact })
       .first()
       .locator('xpath=following::*[@role="combobox"][1]');
+    // Wait for any initial "Loading..." state to disappear
+    for (let i = 0; i < 30; i++) {
+      const innerText = await combobox.innerText().catch(() => '');
+      const textContent = await combobox.textContent().catch(() => '');
+      if (!innerText.includes('Loading...') && !textContent.includes('Loading...')) {
+        break;
+      }
+      await this.page.waitForTimeout(100);
+    }
+
+    console.log(`DEBUG COMBOBOX [${labelText}] AFTER LOAD:`, await combobox.evaluate(el => el.outerHTML).catch(e => e.message));
     const textVal = ((await combobox.textContent()) || '').replace(/[\u200B\uFEFF]/g, "").trim();
     const inputVal = ((await combobox.inputValue().catch(() => '')) || '').replace(/[\u200B\uFEFF]/g, "").trim();
-    const currentValue = textVal || inputVal;
+    const inputVal2 = ((await combobox.locator('input').first().inputValue().catch(() => '')) || '').replace(/[\u200B\uFEFF]/g, "").trim();
+    const innerTextVal = ((await combobox.innerText().catch(() => '')) || '').replace(/[\u200B\uFEFF]/g, "").trim();
+    const ariaLabelVal = ((await combobox.getAttribute('aria-label').catch(() => '')) || '').replace(/[\u200B\uFEFF]/g, "").trim();
+    const currentValue = textVal || inputVal || inputVal2 || innerTextVal || ariaLabelVal;
     if (currentValue === optionText || (optionText && currentValue.includes(optionText))) {
       return;
     }
@@ -146,9 +190,21 @@ class BasePage {
         if (found) return;
         throw new Error(`Option "${optionText}" not found in listbox`);
       } catch (e) {
+        const options = await this.page.getByRole("listbox").getByRole("option").allTextContents().catch(() => []);
+        const cleanedOpts = options.map(o => o.replace(/[\u200B\uFEFF]/g, "").trim());
         if (attempt === 1) {
-          const options = await this.page.getByRole("listbox").getByRole("option").allTextContents().catch(() => []);
-          console.log(`Available options in listbox for "${labelText}":`, options.map(o => o.replace(/[\u200B\uFEFF]/g, "").trim()));
+          console.log(`Available options in listbox for "${labelText}":`, cleanedOpts);
+        }
+        // If the listbox is populated but our target option is not there, don't waste time retrying 6 times.
+        // Immediately select the first available option.
+        const validOptions = cleanedOpts.filter(o => o !== '' && o !== 'No data available' && o !== 'Select');
+        if (validOptions.length > 0) {
+          const cleanTarget = optionText.replace(/[\s\u200B\uFEFF,]+/g, "").trim().toLowerCase();
+          const hasTarget = cleanedOpts.some(o => o.replace(/[\s\u200B\uFEFF,]+/g, "").trim().toLowerCase().includes(cleanTarget));
+          if (!hasTarget) {
+            console.log(`Option "${optionText}" is not in the loaded listbox options. Selecting first available option directly.`);
+            return this.selectFirstAvailableOption(combobox);
+          }
         }
         if (attempt === 6) return this.selectFirstAvailableOption(combobox);
         await this.page.keyboard.press("Escape");
@@ -165,6 +221,17 @@ class BasePage {
       .getByText(labelText)
       .first()
       .locator('xpath=following::*[@role="combobox"][1]');
+
+    // Wait for any initial "Loading..." state to disappear
+    for (let i = 0; i < 30; i++) {
+      const innerText = await combobox.innerText().catch(() => '');
+      const textContent = await combobox.textContent().catch(() => '');
+      if (!innerText.includes('Loading...') && !textContent.includes('Loading...')) {
+        break;
+      }
+      await this.page.waitForTimeout(100);
+    }
+
     return this.selectFirstAvailableOption(combobox);
   }
 
@@ -396,6 +463,15 @@ class BasePage {
       // Fallback if no matching response was observed (e.g. searching for an empty string).
       await this.page.waitForTimeout(800);
     }
+    // The MUI search widget is a modal-style Popover/Menu whose invisible MuiBackdrop
+    // intercepts all pointer events on the page (table rows, buttons, etc.) even after
+    // the search response has settled. Press Escape to close the popover; the server-side
+    // filter stays in effect because the request already fired and resolved.
+    await this.page.keyboard.press("Escape");
+    await this.page
+      .locator(".MuiPopover-root, .MuiMenu-root")
+      .waitFor({ state: "hidden", timeout: 3000 })
+      .catch(() => { /* popover may have already closed or not been present */ });
   }
 
   async clearSearch() {

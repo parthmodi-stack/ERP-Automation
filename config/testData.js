@@ -397,6 +397,160 @@ const testData = {
     // for why. Matches credentials.valid = dipen.modi@trootech.com.
     approverName: "Dipen Modi",
   },
+ 
+
+  // ========================
+  // ORGANIZATION STRUCTURE
+  // ========================
+  // Unlike Location/Bin/UOM, Company/Location/Designation here are dropdown selections of
+  // EXISTING master records (a React Flow graph builder, not a flat create form) - there's no
+  // free-text company/location entry on this sidebar, so `company`/`location`/`designation`
+  // below are best-effort preferred values, not guaranteed-unique generated names. If this
+  // account's real master data doesn't have them, OrganizationStructurePage.fillCompanySidebar
+  // falls back to whatever option renders first (see BasePage.selectFieldByLabel) and returns
+  // whichever value actually got selected - don't assert against these literal strings directly.
+  organizationStructure: {
+    valid: {
+      company: "erp-force", // matches the Entity value used elsewhere (e.g. LocationPage.entityLabel)
+      location: "Ahmedabad",
+      designation: "Manager",
+      updatedLocation: "Mumbai",
+    },
+    draft: {
+      company: "erp-force",
+      location: "Bangalore",
+      designation: "Manager",
+    },
+  },
+
+  // ========================
+  // DEPARTMENT MASTER
+  // ========================
+  departmentMaster: {
+    valid: {
+      departmentCode: factory.uniqueName("DEPT"),
+      departmentName: factory.uniqueName("Automation_Department"),
+      parentDepartment: "Test Operations",
+      noOfTeams: "3",
+      noOfSubDepartments: "2",
+      status: "Active",
+      description: "Automated test department created by Playwright",
+      updatedDepartmentName: factory.uniqueName("Automation_Department_UPDATED"),
+      updatedParentDepartment: "HR Operations",
+      duplicatedName: factory.uniqueName("Automation_Department_COPY"),
+    },
+    missingCode: {
+      departmentCode: "",
+      departmentName: "Test Department",
+      parentDepartment: "Operations",
+      status: "Active",
+    },
+    missingName: {
+      departmentCode: "DEPT-TEST-001",
+      departmentName: "",
+      parentDepartment: "Operations",
+      status: "Active",
+    },
+    missingParent: {
+      departmentCode: "DEPT-TEST-002",
+      departmentName: "Test Department",
+      parentDepartment: "",
+      status: "Active",
+    },
+    duplicate: {
+      departmentCode: "AUTO-1783589685387",
+      departmentName: "Automation Dept 1783589685387",
+      parentDepartment: "Test Operations",
+      status: "Active",
+    },
+    inactive: {
+      departmentCode: factory.uniqueName("DEPT_INACTIVE"),
+      departmentName: factory.uniqueName("Inactive_Department"),
+      parentDepartment: "Test Operations",
+      status: "Inactive",
+      description: "Inactive department for testing",
+    },
+  },
+
+  // ========================
+  // DESIGNATION MASTER
+  // ========================
+  designationMaster: {
+    valid: {
+      id: `DSG-${ts}`,
+      company: "erp-force",
+      designationCode: factory.uniqueName("DESIG"),
+      designationName: factory.uniqueName("Automation_Designation"),
+      reportsTo: "Manager",
+      level: "5",
+      status: "Active",
+      description: "Automated test designation created by Playwright",
+      updatedDesignationName: factory.uniqueName("Automation_Designation_UPDATED"),
+      updatedLevel: "7",
+      updatedReportsTo: "Senior Manager",
+      duplicatedName: factory.uniqueName("Automation_Designation_COPY"),
+    },
+    missingCode: {
+      designationCode: "",
+      designationName: "Test Designation",
+      company: "erp-force",
+      reportsTo: "Manager",
+      level: "3",
+    },
+    missingName: {
+      designationCode: "DSG-TEST-001",
+      designationName: "",
+      company: "erp-force",
+      reportsTo: "Manager",
+      level: "3",
+    },
+    missingLevel: {
+      designationCode: "DSG-TEST-002",
+      designationName: "Test Designation",
+      company: "erp-force",
+      reportsTo: "Manager",
+      level: "",
+    },
+    duplicate: {
+      designationCode: "QA-TEST-001",
+      designationName: "QA Test Engineer - Updated",
+      company: "erp-force",
+      reportsTo: "CTO",
+      level: "3",
+    },
+    qaEngineer: {
+      designationCode: factory.uniqueName("QA_ENG"),
+      designationName: "QA Engineer",
+      company: "erp-force",
+      reportsTo: "QA Manager",
+      level: "4",
+      status: "Active",
+    },
+    developmentLead: {
+      designationCode: factory.uniqueName("DEV_LEAD"),
+      designationName: "Development Lead",
+      company: "erp-force",
+      reportsTo: "Tech Director",
+      level: "6",
+      status: "Active",
+    },
+    hrSpecialist: {
+      designationCode: factory.uniqueName("HR_SPEC"),
+      designationName: "HR Specialist",
+      company: "erp-force",
+      reportsTo: "HR Manager",
+      level: "3",
+      status: "Active",
+    },
+    supportStaff: {
+      designationCode: factory.uniqueName("SUPPORT"),
+      designationName: "Support Staff",
+      company: "erp-force",
+      reportsTo: "Support Manager",
+      level: "2",
+      status: "Active",
+    },
+  },
 };
 
 module.exports = testData;
