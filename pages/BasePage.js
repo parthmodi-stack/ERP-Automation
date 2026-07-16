@@ -88,6 +88,7 @@ class BasePage {
     }
     await option.scrollIntoViewIfNeeded().catch(() => { });
     await option.click();
+    await expect(this.page.getByRole("listbox")).not.toBeVisible({ timeout: 5000 }).catch(() => {});
     return true;
   }
 
@@ -130,7 +131,7 @@ class BasePage {
     optionText,
     {
       exact = true,
-      scope = this.page,
+      scope = this.page.getByRole('main'),
       timeout = 10000,
     } = {},
   ) {
@@ -162,7 +163,7 @@ class BasePage {
   // For required fields whose exact live option text in a given account's master data is
   // unverified, pick whatever renders first in the popover rather than guessing a literal string
   // that may not exist.
-  async selectFirstOptionByLabel(labelText, { scope = this.page } = {}) {
+  async selectFirstOptionByLabel(labelText, { scope = this.page.getByRole('main') } = {}) {
     const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
     const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, 'i');
     const combobox = scope
@@ -172,6 +173,75 @@ class BasePage {
       .getByRole('combobox')
       .first();
     return this.selectFirstAvailableOption(combobox);
+  }
+
+  // `scope` defaults to 'main' (the original, still-correct default for every plain-form module),
+  // but a Drawer/sidebar-based Location field (e.g. Organization Structure's node sidebars) may
+  // render outside the main landmark - pass that sidebar's own locator as `scope` in that case.
+  async createLocationFromFooter(locationName, companyName, { scope = this.page.getByRole('main') } = {}) {
+    const escapedLabel = 'Location'.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, 'i');
+    const container = scope
+      .getByText(labelRegex)
+      .first()
+      .locator('xpath=..');
+    const combobox = container.getByRole('combobox').first();
+
+    // 1. Click the combobox to open the listbox
+    await combobox.click();
+
+    // 2. Click "+ Create New Location" from the footer
+    await this.page.getByText('Create New Location', { exact: false }).click();
+
+    // 3. Wait for the dialog to be visible
+    const dialog = this.page.getByRole('dialog');
+    await dialog.waitFor({ state: 'visible' });
+
+    // 4. Fill in Location Name and a unique Location Code
+    await dialog.getByPlaceholder('inventory.item.locationModal.location_name_placeholder').fill(locationName);
+    const code = 'LOC-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+    await dialog.getByPlaceholder('inventory.item.locationModal.location_code_placeholder').fill(code);
+
+    // 5. Select Company inside the dialog
+    await this.selectFieldByLabel(
+      'accounting.authorize_commission.fields.company_label',
+      companyName,
+      { exact: false, scope: dialog }
+    );
+
+    // 6. Save the new location
+    await dialog.getByRole('button', { name: 'Save' }).click();
+
+    // 7. Wait for the dialog to close
+    await dialog.waitFor({ state: 'hidden' });
+
+    // 8. Select the newly created location from the open listbox
+    const selected = await this.selectOptionFromListbox(locationName, { timeout: 7000 });
+    if (!selected) {
+      // Ensure any dialog/backdrop is fully hidden/detached before manual selection fallback
+      await this.page.waitForSelector('.MuiDialog-root', { state: 'detached', timeout: 5000 }).catch(() => {});
+      await this.page.waitForSelector('.MuiBackdrop-root', { state: 'detached', timeout: 5000 }).catch(() => {});
+      await this.selectFieldByLabel('Location', locationName, { exact: false, scope });
+    }
+  }
+
+  // Structural lookup for a plain text/number/date input whose visible "label" is a plain <p>,
+  // NOT a real MUI-associated <label> (confirmed live on Leave Policy Master: the paragraph and
+  // its `<input>` are sibling DOM nodes with no `for`/`aria-labelledby` link at all) - getByLabel()
+  // never matches these, and some of these inputs (e.g. a number spinbutton with no placeholder)
+  // have no other accessible name either, so getByPlaceholder isn't a full substitute. Same
+  // trailing-required-asterisk handling as selectFieldByLabel/selectFirstOptionByLabel above.
+  // Apply this ANY time getByLabel/getByPlaceholder times out on a plain input field in a new
+  // module - it's the same underlying app pattern, not a one-off Leave Policy Master quirk.
+  fieldInputByLabel(labelText, { scope = this.page.getByRole('main') } = {}) {
+    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`);
+    return scope
+      .getByText(labelRegex)
+      .first()
+      .locator('xpath=..')
+      .locator('input')
+      .first();
   }
 
   // ---------- Date helpers ----------
@@ -437,16 +507,18 @@ class BasePage {
       // Fallback if no matching response was observed (e.g. searching for an empty string).
       await this.page.waitForTimeout(800);
     }
-    await this.page.keyboard.press("Escape");
-    await this.page.waitForTimeout(300);
+    // Dismiss the search popover by clicking safely outside at the top-left of the page, past the sidebar.
+    await this.page.locator('body').click({ position: { x: 300, y: 10 }, force: true }).catch(() => {});
+    await this.page.locator(".MuiPopover-root, .MuiMenu-root").first().waitFor({ state: "hidden", timeout: 3000 }).catch(() => {});
   }
 
   async clearSearch() {
     const searchInput = await this.ensureSearchInputOpen();
     await searchInput.fill("");
     await this.page.waitForLoadState("networkidle");
-    await this.page.keyboard.press("Escape");
-    await this.page.waitForTimeout(300);
+    // Dismiss the search popover by clicking safely outside at the top-left of the page, past the sidebar.
+    await this.page.locator('body').click({ position: { x: 300, y: 10 }, force: true }).catch(() => {});
+    await this.page.locator(".MuiPopover-root, .MuiMenu-root").first().waitFor({ state: "hidden", timeout: 3000 }).catch(() => {});
   }
 
   async getFirstRowSeriesNumber() {
