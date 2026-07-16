@@ -56,9 +56,9 @@ class DesignationMasterPage extends BasePage {
     if (data.designationName !== undefined) {
       await this.nameInput.fill(data.designationName);
     }
-    if (data.reportsTo) {
-      await this.selectFieldByLabel('Reports To', data.reportsTo, { exact: false });
-    }
+    // if (data.reportsTo) {
+    //   await this.selectFieldByLabel('Reports To', data.reportsTo, { exact: false });
+    // }
 
     if (data.description !== undefined) {
       await this.descriptionInput.fill(data.description);

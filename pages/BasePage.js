@@ -32,7 +32,7 @@ class BasePage {
   async waitForItemAmountsToSettle(modal) {
     const grossAmount = modal
       .locator("text=Gross Amount")
-      .locator("xpath=following::input[1]");
+      .locator("xpath=./following::input[1]");
     await expect(grossAmount).not.toHaveValue("", { timeout: 5000 });
   }
 
@@ -41,104 +41,82 @@ class BasePage {
   }
 
   // ---------- Dropdown helpers (DynamicSelect-family fields) ----------
-  // Shared fallback for every dropdown helper below: if the target option text isn't in the
-  // popover (this account's master data can drift out from under a pinned testData value - a
-  // shared, ever-growing dataset, or a value that's aged off a "25 most-recent" window), select
-  // whatever renders first instead of failing outright. Excludes the popover's own nested search
-  // textbox (a decoy "option" whose accessible name mirrors whatever's currently typed) and any
-  // literal "Select" placeholder option, so this never accidentally "succeeds" on a non-real one.
+  // A DynamicSearchSelect field (erpforce-common-hub-fe's dynamic-select.tsx) mounts its popover
+  // the instant it opens - BEFORE its options fetch resolves - and passes through transient
+  // "Loading..." / "No data available" states in the meantime. The ONLY robust way to interact
+  // with it is a web-first, auto-retrying locator on the target option itself: Playwright keeps
+  // re-evaluating until the real option actually renders, patiently tolerating those transient
+  // states. This mirrors the proven-working Vendor Return Authorization item modal, which selects
+  // its Item purely via `getByText(option).click()` and never inspects a spinner or loading flag.
+  // (An earlier one-shot `count()`+loop here was NOT web-first: it snapshotted the listbox once,
+  // and if that snapshot happened to land in the transient empty window it saw only "No data
+  // available" and failed, even though the options arrived a moment later - the root cause of the
+  // Landed Cost item-modal failures.)
+
+  // Deliberate, explicit opt-in for fields whose exact live option text is unverified in this
+  // account's master data (see selectFirstOptionByLabel) - picking whatever renders first is a
+  // real test decision there, not error recovery, so it stays a distinct, separately-called API.
   async selectFirstAvailableOption(combobox) {
-    const listbox = this.page.getByRole("listbox");
-    if (!(await listbox.isVisible().catch(() => false))) {
-      await combobox.click({ force: true }).catch(() => { });
-    }
-
-    const optionsLocator = listbox.getByRole("option");
-    // Wait for listbox options to load (i.e. not be empty and not contain "Loading...")
-    for (let i = 0; i < 40; i++) {
-      const count = await optionsLocator.count();
-      if (count > 0) {
-        const firstText = await optionsLocator.first().textContent().catch(() => '');
-        if (!firstText.includes('Loading...')) {
-          break;
-        }
-      }
-      await this.page.waitForTimeout(150);
-    }
-
+    await combobox.click().catch(() => { });
     const firstOption = this.page
       .getByRole("listbox")
       .getByRole("option")
       .filter({ hasNot: this.page.locator("input") })
-      .filter({ hasNotText: "Select" })
+      .filter({ hasNotText: /Select|No data available/ })
       .first();
     await firstOption.waitFor({ state: "visible", timeout: 7000 });
-    await firstOption.click({ force: true });
+    await firstOption.click();
   }
 
-  async selectOptionFromListbox(optionText) {
-    const listbox = this.page.getByRole("listbox");
-    await listbox.waitFor({ state: "visible", timeout: 7000 });
-    const optionsLocator = listbox.getByRole("option");
-    
-    // Wait for listbox options to load (i.e. not be empty and not contain "Loading...")
-    for (let i = 0; i < 40; i++) {
-      const count = await optionsLocator.count();
-      if (count > 0) {
-        const firstText = await optionsLocator.first().textContent().catch(() => '');
-        if (!firstText.includes('Loading...')) {
-          break;
-        }
-      }
-      await this.page.waitForTimeout(150);
+  // Web-first option selection. `hasText` (string) already matches case-insensitively and
+  // whitespace-normalized, so it subsumes the manual zero-width/whitespace cleaning the old
+  // one-shot scan did by hand. `expect(...).toBeVisible` auto-retries until the option renders
+  // (or the timeout elapses), which is what lets it ride out the field's transient loading state
+  // instead of racing it. Returns a boolean so callers that branch on presence (e.g. RfqPage's
+  // re-select-Entity flow) keep working unchanged.
+  async selectOptionFromListbox(optionText, { timeout = 10000 } = {}) {
+    const option = this.page
+      .getByRole("listbox")
+      .getByRole("option")
+      .filter({ hasNot: this.page.locator("input") })
+      .filter({ hasText: optionText })
+      .first();
+    try {
+      await expect(option).toBeVisible({ timeout });
+    } catch (e) {
+      return false;
     }
-
-    const count = await optionsLocator.count();
-    const cleanTarget = optionText.replace(/[\s\u200B\uFEFF,]+/g, "").trim().toLowerCase();
-    for (let i = 0; i < count; i++) {
-      const opt = optionsLocator.nth(i);
-      const text = (await opt.textContent() || '').replace(/[\s\u200B\uFEFF,]+/g, "").trim().toLowerCase();
-      if (text === cleanTarget || (cleanTarget && text.includes(cleanTarget))) {
-        await opt.scrollIntoViewIfNeeded().catch(() => { });
-        await opt.click({ force: true });
-        return true;
-      }
-    }
-    return false;
+    await option.scrollIntoViewIfNeeded().catch(() => { });
+    await option.click();
+    await expect(this.page.getByRole("listbox")).not.toBeVisible({ timeout: 5000 }).catch(() => {});
+    return true;
   }
 
   // Name-based lookup: works while a combobox's accessible name is still its "Search X"/"Select
   // X" placeholder prompt. `tryFill` covers the modules whose combobox is itself a text input
   // (typing narrows the option list) - swallowed because not every module's combobox accepts
   // typed input, and forcing it there would throw before the option click ever runs.
-  async openDropdownAndPick(placeholder, optionText, { tryFill = false } = {}) {
+  async openDropdownAndPick(placeholder, optionText, { tryFill = false, timeout = 10000 } = {}) {
     const combobox = this.page
       .getByRole("combobox", { name: placeholder })
       .first();
 
-    // KNOWN APP BUG, confirmed live across every module that uses this helper: these
-    // DynamicSelect-family fields can show "No data available" if a sibling field's selection
-    // interrupts this field's own fetch mid-flight - retrying with an Escape + settle in between
-    // reliably recovers it.
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      await combobox.click({ force: true });
-      if (tryFill) {
-        try {
-          await combobox.fill(optionText);
-        } catch (e) {
-          // Not a text input on this module's field - ignore and fall through to the option click.
-        }
-      }
+    await combobox.click();
+    if (tryFill) {
       try {
-        const found = await this.selectOptionFromListbox(optionText);
-        if (found) return;
-        throw new Error(`Option "${optionText}" not found in listbox`);
+        await combobox.fill(optionText);
       } catch (e) {
-        if (attempt === 3) return this.selectFirstAvailableOption(combobox);
-        await this.page.keyboard.press("Escape");
-        await this.page.waitForTimeout(500);
+        // Not a text input on this module's field - ignore and fall through to the option click.
       }
     }
+
+    const found = await this.selectOptionFromListbox(optionText, { timeout });
+    if (found) return;
+
+    const available = await this.page.getByRole("listbox").getByRole("option").allTextContents();
+    throw new Error(
+      `openDropdownAndPick("${placeholder}"): option "${optionText}" never appeared in the dropdown within ${timeout}ms (waited through any loading state). Available: ${JSON.stringify(available.map((o) => o.replace(/[\u200B\uFEFF]/g, "").trim()))}`
+    );
   }
 
   // Structural, label-based lookup - unlike name-based lookup above, this doesn't care whether
@@ -153,86 +131,117 @@ class BasePage {
     optionText,
     {
       exact = true,
-      scope = this.page,
-      scrollIntoView = false,
-      timeout = 7000,
+      scope = this.page.getByRole('main'),
+      timeout = 10000,
     } = {},
   ) {
-    const combobox = scope
-      .getByText(labelText, { exact })
+    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, 'i');
+    const fieldContainer = scope
+      .getByText(exact ? labelText : labelRegex, { exact })
       .first()
-      .locator('xpath=following::*[@role="combobox"][1]');
-    // Wait for any initial "Loading..." state to disappear
-    for (let i = 0; i < 30; i++) {
-      const innerText = await combobox.innerText().catch(() => '');
-      const textContent = await combobox.textContent().catch(() => '');
-      if (!innerText.includes('Loading...') && !textContent.includes('Loading...')) {
-        break;
-      }
-      await this.page.waitForTimeout(100);
-    }
+      .locator('xpath=..');
+    const combobox = fieldContainer.getByRole('combobox').first();
 
-    console.log(`DEBUG COMBOBOX [${labelText}] AFTER LOAD:`, await combobox.evaluate(el => el.outerHTML).catch(e => e.message));
     const textVal = ((await combobox.textContent()) || '').replace(/[\u200B\uFEFF]/g, "").trim();
     const inputVal = ((await combobox.inputValue().catch(() => '')) || '').replace(/[\u200B\uFEFF]/g, "").trim();
-    const inputVal2 = ((await combobox.locator('input').first().inputValue().catch(() => '')) || '').replace(/[\u200B\uFEFF]/g, "").trim();
-    const innerTextVal = ((await combobox.innerText().catch(() => '')) || '').replace(/[\u200B\uFEFF]/g, "").trim();
-    const ariaLabelVal = ((await combobox.getAttribute('aria-label').catch(() => '')) || '').replace(/[\u200B\uFEFF]/g, "").trim();
-    const currentValue = textVal || inputVal || inputVal2 || innerTextVal || ariaLabelVal;
+    const currentValue = textVal || inputVal;
     if (currentValue === optionText || (optionText && currentValue.includes(optionText))) {
       return;
     }
 
-    for (let attempt = 1; attempt <= 6; attempt++) {
-      await combobox.click({ force: true });
-      try {
-        const found = await this.selectOptionFromListbox(optionText);
-        if (found) return;
-        throw new Error(`Option "${optionText}" not found in listbox`);
-      } catch (e) {
-        const options = await this.page.getByRole("listbox").getByRole("option").allTextContents().catch(() => []);
-        const cleanedOpts = options.map(o => o.replace(/[\u200B\uFEFF]/g, "").trim());
-        if (attempt === 1) {
-          console.log(`Available options in listbox for "${labelText}":`, cleanedOpts);
-        }
-        // If the listbox is populated but our target option is not there, don't waste time retrying 6 times.
-        // Immediately select the first available option.
-        const validOptions = cleanedOpts.filter(o => o !== '' && o !== 'No data available' && o !== 'Select');
-        if (validOptions.length > 0) {
-          const cleanTarget = optionText.replace(/[\s\u200B\uFEFF,]+/g, "").trim().toLowerCase();
-          const hasTarget = cleanedOpts.some(o => o.replace(/[\s\u200B\uFEFF,]+/g, "").trim().toLowerCase().includes(cleanTarget));
-          if (!hasTarget) {
-            console.log(`Option "${optionText}" is not in the loaded listbox options. Selecting first available option directly.`);
-            return this.selectFirstAvailableOption(combobox);
-          }
-        }
-        if (attempt === 6) return this.selectFirstAvailableOption(combobox);
-        await this.page.keyboard.press("Escape");
-        await this.page.waitForTimeout(500);
-      }
-    }
+    await combobox.click();
+    const found = await this.selectOptionFromListbox(optionText, { timeout });
+    if (found) return;
+
+    const available = await this.page.getByRole("listbox").getByRole("option").allTextContents();
+    throw new Error(
+      `selectFieldByLabel("${labelText}"): option "${optionText}" never appeared in the dropdown within ${timeout}ms (waited through any loading state). Available: ${JSON.stringify(available.map((o) => o.replace(/[\u200B\uFEFF]/g, "").trim()))}`
+    );
   }
 
   // For required fields whose exact live option text in a given account's master data is
   // unverified, pick whatever renders first in the popover rather than guessing a literal string
   // that may not exist.
-  async selectFirstOptionByLabel(labelText, { scope = this.page } = {}) {
+  async selectFirstOptionByLabel(labelText, { scope = this.page.getByRole('main') } = {}) {
+    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, 'i');
     const combobox = scope
-      .getByText(labelText)
+      .getByText(labelRegex)
       .first()
-      .locator('xpath=following::*[@role="combobox"][1]');
-
-    // Wait for any initial "Loading..." state to disappear
-    for (let i = 0; i < 30; i++) {
-      const innerText = await combobox.innerText().catch(() => '');
-      const textContent = await combobox.textContent().catch(() => '');
-      if (!innerText.includes('Loading...') && !textContent.includes('Loading...')) {
-        break;
-      }
-      await this.page.waitForTimeout(100);
-    }
-
+      .locator('xpath=..')
+      .getByRole('combobox')
+      .first();
     return this.selectFirstAvailableOption(combobox);
+  }
+
+  // `scope` defaults to 'main' (the original, still-correct default for every plain-form module),
+  // but a Drawer/sidebar-based Location field (e.g. Organization Structure's node sidebars) may
+  // render outside the main landmark - pass that sidebar's own locator as `scope` in that case.
+  async createLocationFromFooter(locationName, companyName, { scope = this.page.getByRole('main') } = {}) {
+    const escapedLabel = 'Location'.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, 'i');
+    const container = scope
+      .getByText(labelRegex)
+      .first()
+      .locator('xpath=..');
+    const combobox = container.getByRole('combobox').first();
+
+    // 1. Click the combobox to open the listbox
+    await combobox.click();
+
+    // 2. Click "+ Create New Location" from the footer
+    await this.page.getByText('Create New Location', { exact: false }).click();
+
+    // 3. Wait for the dialog to be visible
+    const dialog = this.page.getByRole('dialog');
+    await dialog.waitFor({ state: 'visible' });
+
+    // 4. Fill in Location Name and a unique Location Code
+    await dialog.getByPlaceholder('inventory.item.locationModal.location_name_placeholder').fill(locationName);
+    const code = 'LOC-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+    await dialog.getByPlaceholder('inventory.item.locationModal.location_code_placeholder').fill(code);
+
+    // 5. Select Company inside the dialog
+    await this.selectFieldByLabel(
+      'accounting.authorize_commission.fields.company_label',
+      companyName,
+      { exact: false, scope: dialog }
+    );
+
+    // 6. Save the new location
+    await dialog.getByRole('button', { name: 'Save' }).click();
+
+    // 7. Wait for the dialog to close
+    await dialog.waitFor({ state: 'hidden' });
+
+    // 8. Select the newly created location from the open listbox
+    const selected = await this.selectOptionFromListbox(locationName, { timeout: 7000 });
+    if (!selected) {
+      // Ensure any dialog/backdrop is fully hidden/detached before manual selection fallback
+      await this.page.waitForSelector('.MuiDialog-root', { state: 'detached', timeout: 5000 }).catch(() => {});
+      await this.page.waitForSelector('.MuiBackdrop-root', { state: 'detached', timeout: 5000 }).catch(() => {});
+      await this.selectFieldByLabel('Location', locationName, { exact: false, scope });
+    }
+  }
+
+  // Structural lookup for a plain text/number/date input whose visible "label" is a plain <p>,
+  // NOT a real MUI-associated <label> (confirmed live on Leave Policy Master: the paragraph and
+  // its `<input>` are sibling DOM nodes with no `for`/`aria-labelledby` link at all) - getByLabel()
+  // never matches these, and some of these inputs (e.g. a number spinbutton with no placeholder)
+  // have no other accessible name either, so getByPlaceholder isn't a full substitute. Same
+  // trailing-required-asterisk handling as selectFieldByLabel/selectFirstOptionByLabel above.
+  // Apply this ANY time getByLabel/getByPlaceholder times out on a plain input field in a new
+  // module - it's the same underlying app pattern, not a one-off Leave Policy Master quirk.
+  fieldInputByLabel(labelText, { scope = this.page.getByRole('main') } = {}) {
+    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`);
+    return scope
+      .getByText(labelRegex)
+      .first()
+      .locator('xpath=..')
+      .locator('input')
+      .first();
   }
 
   // ---------- Date helpers ----------
@@ -282,7 +291,7 @@ class BasePage {
       (await this.page
         .getByText(label, { exact: true })
         .first()
-        .locator("xpath=following::*[1]")
+        .locator("xpath=./following::*[1]")
         .first()
         .textContent()) ?? "";
     return text.trim().replace(/\s+/g, " ");
@@ -463,21 +472,23 @@ class BasePage {
       // Fallback if no matching response was observed (e.g. searching for an empty string).
       await this.page.waitForTimeout(800);
     }
-    // The MUI search widget is a modal-style Popover/Menu whose invisible MuiBackdrop
-    // intercepts all pointer events on the page (table rows, buttons, etc.) even after
-    // the search response has settled. Press Escape to close the popover; the server-side
-    // filter stays in effect because the request already fired and resolved.
-    await this.page.keyboard.press("Escape");
-    await this.page
-      .locator(".MuiPopover-root, .MuiMenu-root")
-      .waitFor({ state: "hidden", timeout: 3000 })
-      .catch(() => { /* popover may have already closed or not been present */ });
+    // Dismiss the search popover by clicking safely outside at the top-left of the page, past the sidebar.
+    await this.page.locator('body').click({ position: { x: 300, y: 10 }, force: true }).catch(() => {});
+    await this.page.locator(".MuiPopover-root, .MuiMenu-root").first().waitFor({ state: "hidden", timeout: 3000 }).catch(() => {});
   }
 
   async clearSearch() {
     const searchInput = await this.ensureSearchInputOpen();
     await searchInput.fill("");
     await this.page.waitForLoadState("networkidle");
+    // Dismiss the search popover by clicking safely outside at the top-left of the page, past the sidebar.
+    await this.page.locator('body').click({ position: { x: 300, y: 10 }, force: true }).catch(() => {});
+    await this.page.locator(".MuiPopover-root, .MuiMenu-root").first().waitFor({ state: "hidden", timeout: 3000 }).catch(() => {});
+  }
+
+  async getFirstRowSeriesNumber() {
+    const firstRowLink = this.page.locator('table tbody tr').first().locator('td').nth(2).locator('a');
+    return (await firstRowLink.innerText().catch(() => '')).trim();
   }
 
   // t('common.noData') = "No Data" - rendered inside a Box.no-data (an image + this text), not
@@ -506,7 +517,7 @@ class BasePage {
   prevPageButton() {
     return this.page
       .getByText("Go To :", { exact: true })
-      .locator("xpath=following::button[1]");
+      .locator("xpath=./following::button[1]");
   }
 
   nextPageButton() {

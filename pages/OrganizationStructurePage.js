@@ -112,10 +112,12 @@ class OrganizationStructurePage extends BasePage {
     return text.replace(/[\u200B\uFEFF]/g, "").trim();
   }
 
-  // Fills the Company sidebar's fields and reads back whichever values actually got selected -
-  // BasePage.selectFieldByLabel falls back to "first available option" when the requested
-  // testData value isn't present in this account's real master data (a shared, ever-growing
-  // dataset), so the caller can't just assume its own testData strings ended up selected.
+  // Fills the Company sidebar's fields and reads back whichever values actually got selected.
+  // NOTE: selectFieldByLabel does NOT fall back to "first available option" on its own (only
+  // selectFirstOptionByLabel does) - it throws if the requested testData value isn't present.
+  // Location specifically has no stable/pinnable set of real names in this account's master
+  // data (confirmed live), so it's always created fresh via the dropdown's own "Create New
+  // Location" footer instead of guessing an existing name.
   // Returns the values actually chosen, for later assertions.
   async fillCompanySidebar({ company, location, designation }) {
     const sidebar = this.page.locator('div').filter({ hasText: 'Save & Add' }).first();
@@ -123,7 +125,7 @@ class OrganizationStructurePage extends BasePage {
       await this.selectFieldByLabel(this.companyNameField, company, { exact: false, scope: sidebar });
     }
     if (location) {
-      await this.selectFieldByLabel(this.locationField, location, { exact: false, scope: sidebar });
+      await this.createLocationFromFooter(location, company || 'erp-force', { scope: sidebar });
     }
     if (designation) {
       await this.selectFieldByLabel(this.designationField, designation, { exact: false, scope: sidebar });
