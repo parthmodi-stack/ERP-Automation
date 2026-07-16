@@ -164,6 +164,10 @@ const testData = {
       // procurement folder in isolation. This module doesn't create its own Location, so it
       // needs a value guaranteed to already exist regardless of what else has run.
       location: "Dhule",
+      // NOT "Entity": basic-details.tsx's own field is genuinely called Company (company_id),
+      // "erp-force" is the same default/only-option value already verified elsewhere in this
+      // file (purchaseAgreement.valid.entity, vendorReturnAuthorization.valid.company).
+      company: "erp-force",
       itemName: "Regression_1-00006 - Reg_item1_rental", // corrected: old value did not exist
       narration: factory.narration("Automation procurement request"),
       updatedNarration: factory.narration(
@@ -177,6 +181,13 @@ const testData = {
       quantity: "5",
       updatedQuantity: "8",
       rate: "100",
+      // Department's option list is scoped to the selected Company (item-entry-modal.tsx /
+      // basic-details.tsx both filter by company_id) and its exact live option text in this
+      // account is unverified - ProcurementRequestPage falls back to "whichever option renders
+      // first" (selectFirstOptionByLabel) rather than a guessed literal string, same approach
+      // already used for Purchase Order's Payment Terms/Contact Person/Shipping Address.
+      invalidRate: "-50",
+      invalidQuantity: "0",
     },
     reject: {
       purchaseRepresentative: "Vivek  Kansara",
