@@ -59,6 +59,16 @@ class ProcurementRequestPage extends BasePage {
   }
 
   // ---------- Basic Details ----------
+  // Company (company_id) - NOT "Entity": basic-details.tsx's real field name is Company, required,
+  // and gates Currency (`disabled={!selectedCompany}`) - selecting it before Currency avoids
+  // racing a disabled combobox. gotoAdd() already waits for the first combobox (Company, the
+  // first DynamicSearchSelect field after the disabled ID input) to hold a non-empty default
+  // value, so this is usually a no-op on Add; it matters on flows that need a NON-default Company
+  // to exercise Location/Department's dependent-reset behavior.
+  async selectCompany(companyName) {
+    await this.selectFieldByLabel('Company *', companyName);
+  }
+
   async fillBasicDetails({ purchaseRepresentative, vendor, currency, narration } = {}) {
     if (purchaseRepresentative) {
       await this.openDropdownAndPick('Search Purchase Representative', purchaseRepresentative);
@@ -180,6 +190,20 @@ class ProcurementRequestPage extends BasePage {
     }
   }
 
+  // Department (department_id, Classification section) - a DynamicDependentField scoped to the
+  // selected Company (`filterFields="company_id"`, source: basic-details.tsx), disabled and
+  // force-remounted (cleared) whenever Company changes. Its exact live option text in this
+  // account is unverified, so pick whichever renders first rather than guessing a literal string
+  // (same approach PurchaseOrderPage.selectFirstOptionByLabel already takes for its own
+  // unverified required fields) unless a caller explicitly needs a specific value.
+  async selectDepartment(departmentName) {
+    if (departmentName) {
+      await this.selectFieldByLabel('Department *', departmentName);
+    } else {
+      await this.selectFirstOptionByLabel('Department *');
+    }
+  }
+
   // ---------- Items ----------
   // A prior dropdown (e.g. Location) can reopen its popover well AFTER the code that selected
   // a value from it has already moved on - confirmed live: closing it right after selection
@@ -224,6 +248,64 @@ class ProcurementRequestPage extends BasePage {
     await this.waitForItemAmountsToSettle(modal);
     await modal.getByRole('button', { name: 'Save' }).click();
     await expect(modal).not.toBeVisible();
+  }
+
+  // Fills every field the "Add Item"/"Edit Item" modal actually exposes (item-entry-modal.tsx),
+  // beyond the minimal Item/Quantity/Rate set addItem() above fills. Tax Template is a required
+  // field that addItem() never sets (this account's Save has been observed to succeed without it
+  // regardless) - here it's filled explicitly since these tests assert on the Tax/computed
+  // columns it drives. Vendor Name/UOM/Description/Available/On Hand/Gross Amount/Discount
+  // Rate/Discount Amount/Net Amount/Tax Code/Tax Rate/Tax Amount/Total Amount are all read-only,
+  // auto-computed fields (source-confirmed disabled inputs) - read back via
+  // getItemModalFieldValue(), never filled.
+  async addItemWithFullDetails({ itemName, quantity, rate, taxTemplate, discountItem, location, department } = {}) {
+    const addButton = this.page.getByRole('button', { name: 'Add', exact: true });
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      await this.closeAnyOpenPopover();
+      try {
+        await addButton.click({ timeout: 5000 });
+        break;
+      } catch (e) {
+        if (attempt === 4) throw e;
+      }
+    }
+
+    const modal = this.page.getByRole('dialog').filter({ hasText: 'Edit Item' });
+    await modal.getByRole('combobox', { name: 'Search Item' }).click();
+    await this.page.getByText(itemName, { exact: true }).first().click();
+
+    await modal.getByPlaceholder('0.00').first().fill(quantity);
+    await modal.locator('text=Rate *').locator('xpath=following::input[1]').fill(rate);
+    await this.waitForItemAmountsToSettle(modal);
+
+    if (taxTemplate) {
+      await this.selectFieldByLabel('Tax Template *', taxTemplate, { scope: modal });
+    } else {
+      await this.selectFirstOptionByLabel('Tax Template *', { scope: modal });
+    }
+    if (discountItem) {
+      await this.selectFieldByLabel('Discounted Item', discountItem, { scope: modal });
+    }
+    // Location/Department here are the ITEM's own classification fields (item-entry-modal.tsx),
+    // a distinct pair from the main form's Classification accordion - Department is additionally
+    // scoped to the request's already-selected Company (`&company_id.eq` filter, source-confirmed).
+    if (location) {
+      await this.selectFieldByLabel('Location', location, { scope: modal, exact: false });
+    }
+    if (department) {
+      await this.selectFieldByLabel('Department', department, { scope: modal, exact: false });
+    }
+
+    await this.waitForItemAmountsToSettle(modal);
+    await modal.getByRole('button', { name: 'Save' }).click();
+    await expect(modal).not.toBeVisible();
+  }
+
+  // Reads a read-only/computed field's current value while the item modal is still open - pass
+  // the exact modal locator returned mid-flow by tests that need to assert BEFORE Save (e.g.
+  // confirming Gross/Net/Tax/Total Amount settled to a non-empty, correctly-computed value).
+  async getItemModalFieldValue(modal, label) {
+    return modal.locator(`text=${label}`).locator('xpath=following::input[1]').inputValue();
   }
 
   async editFirstItem({ quantity, rate } = {}) {
@@ -358,6 +440,34 @@ class ProcurementRequestPage extends BasePage {
   async createRfq() {
     await this.openSubmitMenu();
     await this.page.getByRole('menuitem', { name: 'RFQ', exact: true }).click();
+  }
+
+  // ---------- Summary (View/Edit sidebar accordion) ----------
+  // summary/utils/common.ts's own label strings carry inconsistent trailing whitespace baked
+  // into the source ("Grand Total ", "Subtotal Excluding Taxes ") - match structurally via a
+  // trimmed, whitespace-tolerant regex instead of an exact label string (same class of issue
+  // Location/Currency's trailing-asterisk labels already need selectFieldByLabel's regex for).
+  async getSummaryValue(label) {
+    const escaped = label.trim().replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const labelRegex = new RegExp(`^${escaped}\\s*$`, 'i');
+    const text = await this.page
+      .getByText(labelRegex)
+      .first()
+      .locator('xpath=./following::*[1]')
+      .first()
+      .textContent();
+    return (text ?? '').trim();
+  }
+
+  // ---------- Listing row field visibility ----------
+  // default-data.tsx's column set: ID/Date/Company/Purchase Representative/Vendor/Total
+  // Amount/Status - confirms every field the Listing scenario asks to verify actually exists,
+  // one row scoped lookup instead of five separate whole-page assertions.
+  async verifyListingRowVisible(seriesNumber) {
+    const row = this.rowBySeriesNumber(seriesNumber);
+    await expect(row).toBeVisible();
+    await expect(row.getByText(/Draft|Pending|In Progress|Completed|Rejected/)).toBeVisible();
+    return row;
   }
 
   // ---------- Module-level business method ----------

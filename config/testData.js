@@ -677,6 +677,10 @@ const testData = {
       // procurement folder in isolation. This module doesn't create its own Location, so it
       // needs a value guaranteed to already exist regardless of what else has run.
       location: "Dhule",
+      // NOT "Entity": basic-details.tsx's own field is genuinely called Company (company_id),
+      // "erp-force" is the same default/only-option value already verified elsewhere in this
+      // file (purchaseAgreement.valid.entity, vendorReturnAuthorization.valid.company).
+      company: "erp-force",
       itemName: "Regression_1-00006 - Reg_item1_rental", // corrected: old value did not exist
       narration: factory.narration("Automation procurement request"),
       updatedNarration: factory.narration(
@@ -690,6 +694,13 @@ const testData = {
       quantity: "5",
       updatedQuantity: "8",
       rate: "100",
+      // Department's option list is scoped to the selected Company (item-entry-modal.tsx /
+      // basic-details.tsx both filter by company_id) and its exact live option text in this
+      // account is unverified - ProcurementRequestPage falls back to "whichever option renders
+      // first" (selectFirstOptionByLabel) rather than a guessed literal string, same approach
+      // already used for Purchase Order's Payment Terms/Contact Person/Shipping Address.
+      invalidRate: "-50",
+      invalidQuantity: "0",
     },
     reject: {
       purchaseRepresentative: "Vivek  Kansara",
@@ -911,6 +922,7 @@ const testData = {
     approverName: "Dipen Modi",
   },
 
+
   landedCost: {
     valid: {
       receipt: "PO-GRN-2026-000246",
@@ -918,7 +930,338 @@ const testData = {
       narration: "Automation Landed Cost",
       cost: "100",
     }
-  }
+  },
+  // ========================
+  // ORGANIZATION STRUCTURE
+  // ========================
+  // Unlike Location/Bin/UOM, Company/Location/Designation here are dropdown selections of
+  // EXISTING master records (a React Flow graph builder, not a flat create form) - there's no
+  // free-text company/location entry on this sidebar, so `company`/`designation` below are
+  // best-effort preferred values, not guaranteed-unique generated names - if this account's real
+  // master data doesn't have them, selectFieldByLabel throws (it does NOT silently fall back to
+  // "first available"; only selectFirstOptionByLabel does that) so pick a value confirmed to
+  // exist, or use selectFirstOptionByLabel explicitly instead. `location`/`updatedLocation` are
+  // NOT existing master data at all - confirmed live this account has no stable/pinnable set of
+  // real Location names, so OrganizationStructurePage.fillCompanySidebar always creates a fresh
+  // Location via the dropdown's "Create New Location" footer using these as the NEW location's
+  // name - hence the run-unique suffix, so repeated runs don't pile up identically-named records.
+  organizationStructure: {
+    valid: {
+      company: "erp-force", // matches the Entity value used elsewhere (e.g. LocationPage.entityLabel)
+      location: factory.uniqueName("Automation_Location"),
+      designation: "Manager",
+      updatedLocation: factory.uniqueName("Automation_Location_UPDATED"),
+    },
+    draft: {
+      company: "erp-force",
+      location: factory.uniqueName("Automation_Location_Draft"),
+      designation: "Manager",
+    },
+  },
+
+  // ========================
+  // DEPARTMENT MASTER
+  // ========================
+  departmentMaster: {
+    valid: {
+      departmentCode: factory.uniqueName("DEPT"),
+      departmentName: factory.uniqueName("Automation_Department"),
+      parentDepartment: "Test Operations",
+      noOfTeams: "3",
+      noOfSubDepartments: "2",
+      status: "Active",
+      description: "Automated test department created by Playwright",
+      updatedDepartmentName: factory.uniqueName("Automation_Department_UPDATED"),
+      updatedParentDepartment: "HR Operations",
+      duplicatedName: factory.uniqueName("Automation_Department_COPY"),
+    },
+    missingCode: {
+      departmentCode: "",
+      departmentName: "Test Department",
+      parentDepartment: "Operations",
+      status: "Active",
+    },
+    missingName: {
+      departmentCode: "DEPT-TEST-001",
+      departmentName: "",
+      parentDepartment: "Operations",
+      status: "Active",
+    },
+    missingParent: {
+      departmentCode: "DEPT-TEST-002",
+      departmentName: "Test Department",
+      parentDepartment: "",
+      status: "Active",
+    },
+    duplicate: {
+      departmentCode: "AUTO-1783589685387",
+      departmentName: "Automation Dept 1783589685387",
+      parentDepartment: "Test Operations",
+      status: "Active",
+    },
+    inactive: {
+      departmentCode: factory.uniqueName("DEPT_INACTIVE"),
+      departmentName: factory.uniqueName("Inactive_Department"),
+      parentDepartment: "Test Operations",
+      status: "Inactive",
+      description: "Inactive department for testing",
+    },
+  },
+
+  // ========================
+  // DESIGNATION MASTER
+  // ========================
+  designationMaster: {
+    valid: {
+      id: `DSG-${ts}`,
+      company: "erp-force",
+      designationCode: factory.uniqueName("DESIG"),
+      designationName: factory.uniqueName("Automation_Designation"),
+      reportsTo: "Manager",
+      level: "5",
+      status: "Active",
+      description: "Automated test designation created by Playwright",
+      updatedDesignationName: factory.uniqueName("Automation_Designation_UPDATED"),
+      updatedLevel: "7",
+      updatedReportsTo: "Senior Manager",
+      duplicatedName: factory.uniqueName("Automation_Designation_COPY"),
+    },
+    missingCode: {
+      designationCode: "",
+      designationName: "Test Designation",
+      company: "erp-force",
+      reportsTo: "Manager",
+      level: "3",
+    },
+    missingName: {
+      designationCode: "DSG-TEST-001",
+      designationName: "",
+      company: "erp-force",
+      reportsTo: "Manager",
+      level: "3",
+    },
+    missingLevel: {
+      designationCode: "DSG-TEST-002",
+      designationName: "Test Designation",
+      company: "erp-force",
+      reportsTo: "Manager",
+      level: "",
+    },
+    duplicate: {
+      designationCode: "QA-TEST-001",
+      designationName: "QA Test Engineer - Updated",
+      company: "erp-force",
+      reportsTo: "CTO",
+      level: "3",
+    },
+    qaEngineer: {
+      designationCode: factory.uniqueName("QA_ENG"),
+      designationName: "QA Engineer",
+      company: "erp-force",
+      reportsTo: "QA Manager",
+      level: "4",
+      status: "Active",
+    },
+    developmentLead: {
+      designationCode: factory.uniqueName("DEV_LEAD"),
+      designationName: "Development Lead",
+      company: "erp-force",
+      reportsTo: "Tech Director",
+      level: "6",
+      status: "Active",
+    },
+    hrSpecialist: {
+      designationCode: factory.uniqueName("HR_SPEC"),
+      designationName: "HR Specialist",
+      company: "erp-force",
+      reportsTo: "HR Manager",
+      level: "3",
+      status: "Active",
+    },
+    supportStaff: {
+      designationCode: factory.uniqueName("SUPPORT"),
+      designationName: "Support Staff",
+      company: "erp-force",
+      reportsTo: "Support Manager",
+      level: "2",
+      status: "Active",
+    },
+  },
+
+  // ========================
+  // DOCUMENT MASTER
+  // ========================
+  // Document Type/Document Name/Remarks are free text (factory-generated for uniqueness per run);
+  // Company is a dropdown FK reference, pinned to the same real, live-verified "erp-force" value
+  // used elsewhere in this suite (e.g. bin.valid.entity) - faker cannot invent a valid one.
+  documentMaster: {
+    valid: {
+      documentType: factory.uniqueName("Passport_Verification"),
+      company: "erp-force",
+      documents: [
+        {
+          documentName: factory.uniqueName("Passport"),
+          remarks: "Passport Verification Required",
+          validityCheck: true,
+        },
+        {
+          documentName: factory.uniqueName("PAN_Card"),
+          remarks: "PAN Verification Pending",
+          validityCheck: false,
+        },
+      ],
+      updatedDocumentType: factory.uniqueName("Passport_Verification_UPDATED"),
+      updatedRemarks: factory.narration("Updated remarks"),
+    },
+    onboarding: {
+      documentType: factory.uniqueName("Employee_Onboarding"),
+      company: "erp-force",
+      documents: [
+        { documentName: factory.uniqueName("Aadhaar_Card"), remarks: "Identity Proof", validityCheck: true },
+        { documentName: factory.uniqueName("Driving_License"), remarks: "Address Verification", validityCheck: false },
+      ],
+    },
+    vendorCompliance: {
+      documentType: factory.uniqueName("Vendor_Compliance"),
+      company: "erp-force",
+      status: "Inactive",
+      documents: [
+        { documentName: factory.uniqueName("GST_Certificate"), remarks: "Tax Document", validityCheck: true },
+        { documentName: factory.uniqueName("MSME_Certificate"), remarks: "Government Registration", validityCheck: false },
+      ],
+    },
+    missingDocumentType: {
+      documentType: "",
+      company: "erp-force",
+      documents: [{ documentName: factory.uniqueName("Missing_Doc_Type_Doc") }],
+    },
+    missingCompany: {
+      documentType: factory.uniqueName("Missing_Company_Type"),
+      company: "",
+      documents: [{ documentName: factory.uniqueName("Missing_Company_Doc") }],
+    },
+    noDocuments: {
+      documentType: factory.uniqueName("No_Docs_Type"),
+      company: "erp-force",
+      documents: [],
+    },
+    // Negative/edge-case free-text values for the Document Type and grid Document Name fields -
+    // not tied to any one dataset above, reused across whichever TC-V0x case needs them.
+    negative: {
+      onlySpaces: "   ",
+      specialChars: "<script>alert(1)</script>",
+      sqlInjection: "' OR 1=1 --",
+      longString: "A".repeat(500),
+      hindi: "हिन्दी दस्तावेज़",
+      chinese: "中文文档",
+      japanese: "日本語ドキュメント",
+      emoji: "Document 😀",
+      leadingSpaces: "   Leading_Space_Document",
+      trailingSpaces: "Trailing_Space_Document   ",
+    },
+  },
+
+  // ========================
+  // COMPANY CALENDAR
+  // ========================
+  // Calendar Name is free text (faker.company.name()-based, factory-generated for uniqueness);
+  // Company/Department are dropdown FK references, pinned to the same real, live-verified values
+  // used elsewhere in this suite (bin.valid.entity). Location is NOT pinned to an existing name -
+  // confirmed live this account has no stable/pinnable set of real Location names, so
+  // CompanyCalendarPage.fillClassification always creates a fresh Location via the dropdown's own
+  // "Create New Location" footer using this as the NEW location's name, hence the run-unique
+  // suffix. A new Add form already comes pre-filled with Mon-Fri 09:00-18:00 working hours /
+  // 13:00-14:00 break and Sat/Sun as Week Off (confirmed in erpforce-hrms-fe's default-data.ts) -
+  // `workingDays` below is only needed for tests that explicitly change a day.
+  companyCalendar: {
+    valid: {
+      calendarName: factory.calendarName(),
+      company: "erp-force",
+      location: factory.uniqueName("Automation_Location"),
+      department: "Debug Department",
+      workingHours: { start: "09:00 AM", end: "06:00 PM" },
+      breakTime: { start: "01:00 PM", end: "02:00 PM" },
+      holidays: [
+        {
+          title: "Republic Day",
+          startDate: "26-01-2026",
+          endDate: "26-01-2026",
+          type: "Full Day",
+          description: "National Holiday",
+        },
+        {
+          title: "Diwali",
+          startDate: "08-11-2026",
+          endDate: "09-11-2026",
+          // Real select options are only "Full Day"/"Half Day" (confirmed in
+          // erpforce-hrms-fe/src/views/company-calendar/utils/default-data.ts) - a multi-day
+          // holiday is expressed via Start/End Date spanning two days, not a "Multiple Days" type.
+          type: "Full Day",
+          description: "Festival Holiday",
+        },
+      ],
+      updatedCalendarName: factory.calendarName(),
+    },
+    missingCalendarName: {
+      calendarName: "",
+      company: "erp-force",
+    },
+    onlySpacesCalendarName: {
+      calendarName: "   ",
+      company: "erp-force",
+    },
+    // Cross-field time validation cases - exact messages confirmed in calendar-card.tsx.
+    invalidWorkingHours: { start: "06:00 PM", end: "09:00 AM" }, // start after end
+    breakOutsideWorkingHours: { start: "07:00 AM", end: "08:00 AM" }, // before working hours start
+    holidayMissingTitle: { startDate: "26-01-2026", endDate: "26-01-2026", type: "Full Day" },
+    holidayMissingStartDate: { title: "No Start Date Holiday", endDate: "26-01-2026", type: "Full Day" },
+    holidayMissingEndDate: { title: "No End Date Holiday", startDate: "26-01-2026", type: "Full Day" },
+    holidayEndBeforeStart: {
+      title: "Backwards Holiday",
+      startDate: "26-01-2026",
+      endDate: "20-01-2026",
+      type: "Full Day",
+    },
+  },
+
+  // ========================
+  // LEAVE POLICY MASTER
+  // ========================
+  // Leave Type Title is free text (factory-generated for uniqueness); Company/Leave
+  // Category/Department are dropdown FK references, pinned to the same real, live-verified
+  // "erp-force"/"QA" values used elsewhere in this suite (Company Calendar, Organization
+  // Structure) - NOTE selectFieldByLabel does NOT fall back to "first available" on its own
+  // (confirmed live; only selectFirstOptionByLabel does), so these must be values genuinely
+  // confirmed to exist, not just "best effort". Location is NOT pinned - confirmed live this
+  // account has no stable/pinnable set of real Location names, so
+  // LeavePolicyMasterPage.fillLeaveTypeTab always creates a fresh Location via the dropdown's own
+  // "Create New Location" footer using this as the NEW location's name, hence the run-unique
+  // suffix. "companyB"/"companyWithNoLocations"/etc. below are placeholders per
+  // LEAVE_POLICY_MASTER_TEST_CASES.md's Test Data Matrix - they MUST be identified against the
+  // live/dev environment before use, not fabricated; using "erp-force" for all of them until then
+  // would silently turn every Company-switch test into a same-company no-op.
+  leavePolicyMaster: {
+    valid: {
+      company: "erp-force",
+      leaveCategory: "Sick Leave",
+      title: factory.uniqueName("Automation_LeaveType"),
+      annualEntitlement: "12",
+      accrualType: "Monthly",
+      effectiveFrom: "01-01-2026",
+      location: factory.uniqueName("Automation_Location"),
+      department: "QA",
+      updatedTitle: factory.uniqueName("Automation_LeaveType_UPDATED"),
+    },
+    // TODO: identify a second, real, distinct Company in the live/dev environment before using
+    // this in a Company-switch dependency test - do not default this to "erp-force".
+    companyB: undefined,
+    negative: {
+      onlySpacesTitle: "   ",
+      negativeAnnualEntitlement: "-5",
+      fractionalCarryForwardDays: "2.5",
+    },
+  },
+
 };
 
 // The "full access" RBAC role reuses the one admin login this suite already has - it's a real,

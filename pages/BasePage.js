@@ -88,6 +88,7 @@ class BasePage {
     }
     await option.scrollIntoViewIfNeeded().catch(() => { });
     await option.click();
+    await expect(this.page.getByRole("listbox")).not.toBeVisible({ timeout: 5000 }).catch(() => {});
     return true;
   }
 
@@ -130,7 +131,7 @@ class BasePage {
     optionText,
     {
       exact = true,
-      scope = this.page,
+      scope = this.page.getByRole('main'),
       timeout = 10000,
     } = {},
   ) {
@@ -162,7 +163,7 @@ class BasePage {
   // For required fields whose exact live option text in a given account's master data is
   // unverified, pick whatever renders first in the popover rather than guessing a literal string
   // that may not exist.
-  async selectFirstOptionByLabel(labelText, { scope = this.page } = {}) {
+  async selectFirstOptionByLabel(labelText, { scope = this.page.getByRole('main') } = {}) {
     const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
     const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, 'i');
     const combobox = scope
@@ -172,6 +173,75 @@ class BasePage {
       .getByRole('combobox')
       .first();
     return this.selectFirstAvailableOption(combobox);
+  }
+
+  // `scope` defaults to 'main' (the original, still-correct default for every plain-form module),
+  // but a Drawer/sidebar-based Location field (e.g. Organization Structure's node sidebars) may
+  // render outside the main landmark - pass that sidebar's own locator as `scope` in that case.
+  async createLocationFromFooter(locationName, companyName, { scope = this.page.getByRole('main') } = {}) {
+    const escapedLabel = 'Location'.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, 'i');
+    const container = scope
+      .getByText(labelRegex)
+      .first()
+      .locator('xpath=..');
+    const combobox = container.getByRole('combobox').first();
+
+    // 1. Click the combobox to open the listbox
+    await combobox.click();
+
+    // 2. Click "+ Create New Location" from the footer
+    await this.page.getByText('Create New Location', { exact: false }).click();
+
+    // 3. Wait for the dialog to be visible
+    const dialog = this.page.getByRole('dialog');
+    await dialog.waitFor({ state: 'visible' });
+
+    // 4. Fill in Location Name and a unique Location Code
+    await dialog.getByPlaceholder('inventory.item.locationModal.location_name_placeholder').fill(locationName);
+    const code = 'LOC-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+    await dialog.getByPlaceholder('inventory.item.locationModal.location_code_placeholder').fill(code);
+
+    // 5. Select Company inside the dialog
+    await this.selectFieldByLabel(
+      'accounting.authorize_commission.fields.company_label',
+      companyName,
+      { exact: false, scope: dialog }
+    );
+
+    // 6. Save the new location
+    await dialog.getByRole('button', { name: 'Save' }).click();
+
+    // 7. Wait for the dialog to close
+    await dialog.waitFor({ state: 'hidden' });
+
+    // 8. Select the newly created location from the open listbox
+    const selected = await this.selectOptionFromListbox(locationName, { timeout: 7000 });
+    if (!selected) {
+      // Ensure any dialog/backdrop is fully hidden/detached before manual selection fallback
+      await this.page.waitForSelector('.MuiDialog-root', { state: 'detached', timeout: 5000 }).catch(() => {});
+      await this.page.waitForSelector('.MuiBackdrop-root', { state: 'detached', timeout: 5000 }).catch(() => {});
+      await this.selectFieldByLabel('Location', locationName, { exact: false, scope });
+    }
+  }
+
+  // Structural lookup for a plain text/number/date input whose visible "label" is a plain <p>,
+  // NOT a real MUI-associated <label> (confirmed live on Leave Policy Master: the paragraph and
+  // its `<input>` are sibling DOM nodes with no `for`/`aria-labelledby` link at all) - getByLabel()
+  // never matches these, and some of these inputs (e.g. a number spinbutton with no placeholder)
+  // have no other accessible name either, so getByPlaceholder isn't a full substitute. Same
+  // trailing-required-asterisk handling as selectFieldByLabel/selectFirstOptionByLabel above.
+  // Apply this ANY time getByLabel/getByPlaceholder times out on a plain input field in a new
+  // module - it's the same underlying app pattern, not a one-off Leave Policy Master quirk.
+  fieldInputByLabel(labelText, { scope = this.page.getByRole('main') } = {}) {
+    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`);
+    return scope
+      .getByText(labelRegex)
+      .first()
+      .locator('xpath=..')
+      .locator('input')
+      .first();
   }
 
   // ---------- Date helpers ----------
@@ -290,10 +360,52 @@ class BasePage {
   // action immediately (Submit) or is a no-op (Accept) - the menu with Quick Approval/Accept/
   // Reject only opens via its adjacent caret button (a shared generic accessible name across
   // every such split-button in the app), not the main button itself.
+  // Same class of flaky-click issue as addItem()/editFirstItem()/saveAndCaptureId() elsewhere in
+  // this file (confirmed live, TC-PREQ-05): under real network/render latency the caret's click
+  // can land before the MUI Menu popover is ready to mount, so it silently no-ops and the menu
+  // never opens - a caller then times out waiting for a menuitem/text that was never going to
+  // appear, since nothing here ever retried. Verify the menu actually opened before returning,
+  // and re-click if it didn't.
   async openSubmitMenu() {
-    await this.page
-      .getByRole("button", { name: "select merge strategy" })
-      .click();
+    const caret = this.page.getByRole("button", { name: "select merge strategy" });
+    const menu = this.page.getByRole("menu");
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      await caret.click();
+      try {
+        await menu.waitFor({ state: "visible", timeout: 3000 });
+        return;
+      } catch (e) {
+        if (attempt === 4) throw e;
+        // The menu may have opened then closed again (a stray click can toggle it shut) -
+        // normalize back to a known-closed state before the next attempt.
+        await this.page.keyboard.press("Escape").catch(() => {});
+      }
+    }
+  }
+
+  // Retries the WHOLE open-menu-then-click sequence, not just the click - MUI's Menu popover can
+  // keep remounting its MenuList briefly right after opening (confirmed live, TC-PREQ-05: the
+  // "Reject" menuitem locator resolved, then went unstable, then was reported fully detached from
+  // the DOM mid-click, well within Playwright's own auto-retrying actionability wait). Re-clicking
+  // the SAME stale node can't recover from a detach; a fresh openSubmitMenu() call re-opens onto
+  // a newly-settled menu instead. `byText` covers Quick Approval's own locator (getByText, not a
+  // menuitem-role lookup) so all three approval actions share this one retry path.
+  async clickSubmitMenuItem(name, { byText = false } = {}) {
+    const locatorFor = () =>
+      byText
+        ? this.page.getByText(name, { exact: true })
+        : this.page.getByRole("menuitem", { name, exact: true });
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      await this.openSubmitMenu();
+      try {
+        await locatorFor().click({ timeout: 5000 });
+        return;
+      } catch (e) {
+        if (attempt === 4) throw e;
+        await this.page.keyboard.press("Escape").catch(() => {});
+        await this.page.waitForTimeout(300);
+      }
+    }
   }
 
   // Shared across every approval-workflow module (Procurement Request/Purchase Agreement/
@@ -305,8 +417,7 @@ class BasePage {
     userName,
     { successToast = /submitted for approval/i } = {},
   ) {
-    await this.openSubmitMenu();
-    await this.page.getByText("Quick Approval", { exact: true }).click();
+    await this.clickSubmitMenuItem("Quick Approval", { byText: true });
 
     const dialog = this.page
       .getByRole("dialog")
@@ -328,12 +439,9 @@ class BasePage {
     confirmButtonName = "Submit",
     successToast = /approved successfully/i,
   } = {}) {
-    await this.openSubmitMenu();
     // menuitem role disambiguates from the underlying main "Accept" button, which shares the
     // same exact text and stays in the DOM under the open menu.
-    await this.page
-      .getByRole("menuitem", { name: "Accept", exact: true })
-      .click();
+    await this.clickSubmitMenuItem("Accept");
     await this.page.getByRole("button", { name: confirmButtonName }).click(); // confirmation dialog
     if (successToast) {
       await expect(this.page.getByText(successToast)).toBeVisible();
@@ -344,10 +452,7 @@ class BasePage {
     confirmButtonName = "Submit",
     successToast = /rejected successfully/i,
   } = {}) {
-    await this.openSubmitMenu();
-    await this.page
-      .getByRole("menuitem", { name: "Reject", exact: true })
-      .click();
+    await this.clickSubmitMenuItem("Reject");
     await this.page.getByRole("button", { name: confirmButtonName }).click(); // confirmation dialog
     if (successToast) {
       await expect(this.page.getByText(successToast)).toBeVisible();
@@ -402,16 +507,18 @@ class BasePage {
       // Fallback if no matching response was observed (e.g. searching for an empty string).
       await this.page.waitForTimeout(800);
     }
-    await this.page.keyboard.press("Escape");
-    await this.page.waitForTimeout(300);
+    // Dismiss the search popover by clicking safely outside at the top-left of the page, past the sidebar.
+    await this.page.locator('body').click({ position: { x: 300, y: 10 }, force: true }).catch(() => {});
+    await this.page.locator(".MuiPopover-root, .MuiMenu-root").first().waitFor({ state: "hidden", timeout: 3000 }).catch(() => {});
   }
 
   async clearSearch() {
     const searchInput = await this.ensureSearchInputOpen();
     await searchInput.fill("");
     await this.page.waitForLoadState("networkidle");
-    await this.page.keyboard.press("Escape");
-    await this.page.waitForTimeout(300);
+    // Dismiss the search popover by clicking safely outside at the top-left of the page, past the sidebar.
+    await this.page.locator('body').click({ position: { x: 300, y: 10 }, force: true }).catch(() => {});
+    await this.page.locator(".MuiPopover-root, .MuiMenu-root").first().waitFor({ state: "hidden", timeout: 3000 }).catch(() => {});
   }
 
   async getFirstRowSeriesNumber() {
@@ -467,8 +574,110 @@ class BasePage {
   // exact-text locator against the whole phrase never matches. Read the pagination container's
   // own collapsed text content and let the caller regex-match against it instead.
   async getPaginationLabel() {
+    await this.page.locator(".pagination").waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+    await this.page
+      .locator(".MuiSkeleton-root, .MuiCircularProgress-root, .MuiLinearProgress-root, [role='progressbar']")
+      .first()
+      .waitFor({ state: "detached", timeout: 10000 })
+      .catch(() => {});
+    await this.page.waitForTimeout(200);
     const text = (await this.page.locator(".pagination").textContent()) ?? "";
     return text.replace(/\s+/g, " ").trim();
+  }
+
+  // ---------- Page size (shared pagination.tsx) ----------
+  // "Items per page :" Select renders its own value as a MUI Select (role="combobox" once
+  // MUI resolves it) with no accessible name of its own - the CSS class is the only stable
+  // hook (confirmed in source: pagination.tsx's own `pageSizeOptions = [10, 20, 50]`).
+  pageSizeSelect() {
+    return this.page.locator(".page-size-select-pagination");
+  }
+
+  async changePageSize(size) {
+    await this.pageSizeSelect().click();
+    await this.page.getByRole("option", { name: String(size), exact: true }).click();
+    await this.page.waitForLoadState("networkidle");
+  }
+
+  // ---------- Filters (shared filter.tsx, react-querybuilder + QueryBuilderMaterial) ----------
+  // WRITTEN FROM SOURCE (erpforce-common-hub-fe/src/components/filter/filter.tsx +
+  // components/{field-select,operator-select,value-editor,add-filter}.tsx), NOT YET LIVE-VERIFIED
+  // against a real filter row - same "unverified live" caveat this repo already uses for
+  // VendorReturnAuthorizationPage. This is a generic AND/OR rule-builder, not a fixed panel of
+  // named per-field inputs: a rule is built by picking a Field, then an Operator, then a Value
+  // whose editor type (select/date/text) depends on that field's schema-declared inputType.
+  async openFilters() {
+    await this.page.getByRole("button", { name: "Filter", exact: true }).click();
+    await this.page
+      .getByRole("dialog")
+      .filter({ hasText: "Filters" })
+      .waitFor({ state: "visible", timeout: 10000 });
+  }
+
+  filterDialog() {
+    return this.page.getByRole("dialog").filter({ hasText: "Filters" });
+  }
+
+  // Each call adds one more rule row (react-querybuilder's own "Add Filter" action) - callers
+  // select field/operator/value for that row via the other filter methods below before adding
+  // a second one.
+  async addFilterRule() {
+    await this.filterDialog().getByRole("button", { name: "Add Filter" }).click();
+  }
+
+  // Field/Operator are both plain MUI Selects (field-select.tsx/operator-select.tsx) sharing the
+  // same "select-drps" class with no distinguishing accessible name - `rowIndex` picks which rule
+  // row's pair of selects to act on (each row renders exactly one Field select then one Operator
+  // select, in that DOM order).
+  async selectFilterField(fieldLabel, rowIndex = 0) {
+    const row = this.filterDialog().locator(".rule").nth(rowIndex);
+    await row.locator(".select-drps").first().click();
+    await this.selectOptionFromListbox(fieldLabel);
+  }
+
+  async selectFilterOperator(operatorLabel, rowIndex = 0) {
+    const row = this.filterDialog().locator(".rule").nth(rowIndex);
+    await row.locator(".select-drps").nth(1).click();
+    await this.selectOptionFromListbox(operatorLabel);
+  }
+
+  // value-editor.tsx picks a TextField/DatePicker/SearchableSelect based on the field's own
+  // inputType - a plain `.fill()` covers the TextField/DatePicker cases (DatePicker's slotProps
+  // set a `YYYY-MM-DD` placeholder text input); the `select` case (FK-reference and enum fields
+  // like Status) needs its own popover-option click instead, via selectFilterValueOption below.
+  async fillFilterValue(value, rowIndex = 0) {
+    const row = this.filterDialog().locator(".rule").nth(rowIndex);
+    await row.locator(".select-drps input, .select-drps").last().fill(value);
+  }
+
+  async selectFilterValueOption(optionText, rowIndex = 0) {
+    const row = this.filterDialog().locator(".rule").nth(rowIndex);
+    await row.locator(".select-drps").last().click();
+    await this.selectOptionFromListbox(optionText);
+  }
+
+  async applyFilters() {
+    await this.filterDialog().getByRole("button", { name: "Apply", exact: true }).click();
+    await this.page.waitForLoadState("networkidle");
+  }
+
+  async closeFilterDialog() {
+    await this.filterDialog().getByRole("button", { name: "Cancel", exact: true }).click();
+  }
+
+  // "Clear all filters" (inside the still-open dialog) resets the query builder itself; the
+  // separately-rendered "Clear Filter" button (action-bar.tsx, only visible once at least one
+  // filter chip is already applied) resets the applied list filter without reopening the dialog -
+  // callers use whichever is actually on screen at the time.
+  async clearAllFilters() {
+    const dialog = this.filterDialog();
+    if (await dialog.isVisible().catch(() => false)) {
+      await dialog.getByRole("button", { name: "Clear all filters" }).click();
+      await this.applyFilters();
+      return;
+    }
+    await this.page.getByRole("button", { name: "Clear Filter", exact: true }).click();
+    await this.page.waitForLoadState("networkidle");
   }
 
   // ---------- Row action menu (status/permission gating) ----------
