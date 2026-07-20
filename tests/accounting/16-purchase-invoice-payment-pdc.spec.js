@@ -1,5 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const testData = require('../../config/testData');
+const { selectDropdown } = require('../../helpers/dropdown');
 
 // =============================================================================
 // Purchase Invoice → Payment → Approve → PDC Transfer
@@ -39,10 +40,16 @@ const VENDOR            = 'Keyur  Italiya';        // vendor used throughout
 const PAYMENT_TERM      = 'Net 30';                // existing Payment Term
 const CURRENCY          = 'INR';                   // default currency
 const ACCOUNT_PAYABLE   = 'Accounts Payable';      // payable COA account
-const ITEM_NAME         = 'Test Item';             // purchasable inventory item
+// 'Test Item' no longer exists in this environment (confirmed live, same gap
+// config/testData.js's purchaseInvoice.item comment documents) - ITEM_NAME is the item's plain
+// display name (used for the search's first token and for on-page assertions, which render
+// without the SKU prefix), ITEM_DROPDOWN_OPTION is the exact "<SKU> - <name>" string the
+// item-entry modal's own dropdown requires for an exact option match.
+const ITEM_NAME             = 'Playwright Auto Item';
+const ITEM_DROPDOWN_OPTION  = 'ELEC-000071 - Playwright Auto Item';
 const ITEM_QTY          = '2';
 const ITEM_RATE         = '500';
-const TAX_TEMPLATE      = 'Standard Tax';          // existing tax template
+const TAX_TEMPLATE      = 'UAE VAT';               // existing tax template (confirmed live; 'Standard Tax' does not exist)
 const BANK_ACCOUNT      = 'Test Acc';              // bank account for Cheque payment
 const CHEQUE_NUMBER     = `PDC-CHQ-${Date.now()}`;
 const CHEQUE_DATE       = '30-09-2026';            // future date → post-dated cheque
@@ -81,7 +88,7 @@ async function findInvoiceRowByApprovalStatus(page, status) {
  * then clicks Accept + submits the confirm dialog.
  * Call this while already on a view page (purchase-invoice or payment-entry).
  */
-async function quickApprove(page, approverName = 'Kashyap Jivani') {
+async function quickApprove(page, approverName = testData.accounting.paymentEntry.approverName) {
   // -- Submit for approval (split button's secondary option) --
   const splitMenuTrigger = page.getByRole('button', { name: /select merge strategy/i });
   if (await splitMenuTrigger.isVisible({ timeout: 5000 }).catch(() => false)) {
@@ -106,7 +113,11 @@ async function quickApprove(page, approverName = 'Kashyap Jivani') {
   await expect(approvalDialog).toBeVisible({ timeout: 15000 });
   const approverSelect = approvalDialog.getByRole('combobox').first();
   await approverSelect.click();
-  await page.getByRole('option', { name: approverName, exact: true }).click();
+  // exact: false (not true) - confirmed against the running app that this option's real
+  // accessible name is prefixed with the user's avatar initials (e.g. "DM Dipen Modi"), so an
+  // exact match against the bare name never matches (same fix already applied to
+  // 17-purchase-invoice.crud.spec.js's TC-PI-CRUD-08).
+  await page.getByRole('option', { name: approverName, exact: false }).click();
   await page.keyboard.press('Escape'); // close multi-select listbox
   await approvalDialog.getByRole('button', { name: /Send Request/i }).click();
 
@@ -130,6 +141,11 @@ test.describe.serial('Purchase Invoice → Payment → Approve → PDC Transfer'
   let invoiceViewUrl = '';
   let invoiceSeriesNumber = '';
   let paymentViewUrl = '';
+  // The vendor as it actually ended up selected on the invoice - selectDropdown()'s fallback
+  // cascade can substitute a different real vendor when VENDOR doesn't exist in this environment
+  // (see TC-PI-CREATE-01), so TC-PI-PMT-01's Payment Entry must link to THIS vendor, not the
+  // literal VENDOR constant, or its Bills-required validation won't match the invoice at all.
+  let actualVendor = VENDOR;
 
   // ---------------------------------------------------------------------------
   // STEP 1 – Create Purchase Invoice
@@ -144,13 +160,14 @@ test.describe.serial('Purchase Invoice → Payment → Approve → PDC Transfer'
       await expect(page).toHaveURL(/add-purchase-invoice/);
 
       // ---- Header fields ----
-      // Vendor
-      await page.locator('[id*="mui-component-select-"][id*="vendor"]').first().click();
-      await page.waitForTimeout(400);
-      await page.locator('input[placeholder*="Search"]').last().fill(VENDOR.trim().split(/\s+/)[0]);
-      await page.waitForTimeout(1200);
-      await page.getByRole('option', { name: VENDOR, exact: true }).last().click();
-      await page.mouse.click(2, 2);
+      // Vendor - via the shared selectDropdown helper (not a raw click-search-click sequence)
+      // so a missing/renamed VENDOR falls back to a real, usable vendor instead of hanging on
+      // "No data available" (confirmed live elsewhere in this suite that testData vendor/item/
+      // tax-template names can silently stop existing in a given environment). The trigger's own
+      // text is read back afterward since the fallback can substitute a different real vendor.
+      const vendorTrigger = page.locator('[id*="mui-component-select-"][id*="vendor"]').first();
+      await selectDropdown(page, vendorTrigger, VENDOR, VENDOR);
+      actualVendor = (await vendorTrigger.textContent())?.trim() || VENDOR;
       await waitForIdle(page, 800);
 
       // Currency – pre-defaults to INR in this environment; only override when it differs
@@ -158,12 +175,7 @@ test.describe.serial('Purchase Invoice → Payment → Approve → PDC Transfer'
       const currencyTrigger = page.locator('[id*="mui-component-select-"][id*="currency"]').first();
       const currencyText = (await currencyTrigger.textContent().catch(() => '')) || '';
       if (!currencyText.includes(CURRENCY)) {
-        await currencyTrigger.click();
-        await page.waitForTimeout(400);
-        await page.locator('input[placeholder*="Search"]').last().fill(CURRENCY);
-        await page.waitForTimeout(1200);
-        await page.getByRole('option', { name: CURRENCY, exact: true }).last().click();
-        await page.mouse.click(2, 2);
+        await selectDropdown(page, currencyTrigger, CURRENCY, CURRENCY);
         await waitForIdle(page, 800);
       }
 
@@ -176,8 +188,12 @@ test.describe.serial('Purchase Invoice → Payment → Approve → PDC Transfer'
       }
 
       // ---- Item entry ----
-      // Add Item button is disabled until Vendor + Company are selected; wait for it
-      const addItemBtn = page.getByRole('button', { name: /Add Item|Add Entry/i }).first();
+      // Confirmed against the running app (see PurchaseInvoicePage.js's class comment): both the
+      // Item Entries and Expense Entries "Add" buttons are plain-text "Add" (class
+      // table--AddButton), not "Add Item"/"Add Entry" as the section heading might suggest - Item
+      // Entries renders first in the DOM, so `.first()` is the item-entry Add button. It's
+      // disabled until Vendor + Company are selected; wait for it.
+      const addItemBtn = page.locator('button.table--AddButton').first();
       await expect(addItemBtn).toBeEnabled({ timeout: 15000 });
       await addItemBtn.click();
 
@@ -185,40 +201,42 @@ test.describe.serial('Purchase Invoice → Payment → Approve → PDC Transfer'
       const itemModal = page.getByRole('dialog');
       await expect(itemModal).toBeVisible({ timeout: 10000 });
 
-      // Select item
+      // Select item - via selectDropdown so a missing ITEM_DROPDOWN_OPTION falls back to a real
+      // item instead of hanging on "No data available" (confirmed live: this environment's
+      // "Playwright Auto Item" seed no longer exists either).
       const itemSelect = itemModal.locator('[id*="mui-component-select-"][id*="item"]').first();
-      await itemSelect.click();
-      await page.waitForTimeout(400);
-      await page.locator('input[placeholder*="Search"]').last().fill(ITEM_NAME.split(' ')[0]);
-      await page.waitForTimeout(1200);
-      await page.getByRole('option', { name: ITEM_NAME, exact: true }).last().click();
-      await page.mouse.click(2, 2);
+      await selectDropdown(page, itemSelect, ITEM_DROPDOWN_OPTION, ITEM_DROPDOWN_OPTION);
       await page.waitForTimeout(500);
 
-      // Quantity
+      // Quantity - committed with a blur (Tab), not left after a bare .fill(): confirmed
+      // elsewhere in this suite (PurchaseInvoicePage.js's fillItemEntry) that a bare .fill()
+      // never fires this row's Gross/Net/Total recalculation, so the backend later rejects the
+      // save with "Mismatch found in details" even though quantity/rate look correct in the DOM.
       const qtyField = itemModal.locator('[name*="quantity"], [placeholder*="Quantity"]').first();
       if (await qtyField.isVisible({ timeout: 3000 }).catch(() => false)) {
         await qtyField.fill(ITEM_QTY);
+        await qtyField.press('Tab');
+        await page.waitForTimeout(300);
       }
 
       // Rate
       const rateField = itemModal.locator('[name*="rate"], [placeholder*="Rate"]').first();
       if (await rateField.isVisible({ timeout: 3000 }).catch(() => false)) {
         await rateField.fill(ITEM_RATE);
+        await rateField.press('Tab');
+        await page.waitForTimeout(300);
       }
 
-      // Tax template – select if present
+      // Tax template – select if present. Must run AFTER Quantity/Rate (recomputes Gross/Tax/Net
+      // from whatever the form currently holds) and needs a settle wait afterward - the recompute
+      // isn't instant, and saving before it settles sends a stale tax_amount that the backend's
+      // cross-check rejects (same confirmed-live timing documented in PurchaseInvoicePage.js).
       const taxSelect = itemModal
         .locator('[id*="mui-component-select-"][id*="tax"]')
         .first();
       if (await taxSelect.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await taxSelect.click();
-        await page.waitForTimeout(400);
-        await page.locator('input[placeholder*="Search"]').last().fill(TAX_TEMPLATE.split(' ')[0]);
+        await selectDropdown(page, taxSelect, TAX_TEMPLATE, TAX_TEMPLATE);
         await page.waitForTimeout(1200);
-        await page.getByRole('option', { name: TAX_TEMPLATE, exact: true }).last().click();
-        await page.mouse.click(2, 2);
-        await page.waitForTimeout(500);
       }
 
       // Save the item row
@@ -226,14 +244,28 @@ test.describe.serial('Purchase Invoice → Payment → Approve → PDC Transfer'
       await expect(itemModal).not.toBeVisible({ timeout: 10000 });
       await waitForIdle(page, 800);
 
+      // Shipping Address - required only for a full "Save" (Save-to-Draft skips this check,
+      // confirmed live in PurchaseInvoicePage.js's selectShippingAddress comment). Without it,
+      // Save is silently blocked with a "Please fill all the required fields" toast and the page
+      // never navigates away from the Add form.
+      await page.getByRole('tab', { name: 'Address & Contact' }).click();
+      await page.waitForTimeout(500);
+      const shippingTrigger = page.locator('[id*="mui-component-select-"][id*="shipping"]').first();
+      await selectDropdown(page, shippingTrigger, testData.accounting.purchaseInvoice.shippingAddress, testData.accounting.purchaseInvoice.shippingAddress);
+
       // ---- Save invoice ----
       // "Save" (not "Save to Draft") → creates invoice in Pending status
       const saveButton = page.getByRole('button', { name: /^Save$/i }).last();
       await expect(saveButton).toBeEnabled({ timeout: 10000 });
       await saveButton.click();
 
-      // Should redirect to the purchase-invoice list after a successful save
-      await page.waitForURL(/purchase-invoices/, { timeout: 30000 });
+      // Should redirect to the purchase-invoice list after a successful save. Exact pathname
+      // match, not a substring/regex match on "purchase-invoices" - that also matches the Add
+      // form's own URL (".../invoice/purchase-invoices/add-purchase-invoice"), which is exactly
+      // what happened when Save silently failed validation instead of redirecting (confirmed
+      // live: the "first row" it then tried to read was actually the item-entry table still on
+      // the Add form, which has no link to read innerText from, timing out instead).
+      await page.waitForURL((url) => url.pathname === '/dashboard/accounting/invoice/purchase-invoices', { timeout: 30000 });
       await waitForIdle(page, 1000);
 
       // Capture the newest row (sorted newest-first) – its link is the created invoice
@@ -249,8 +281,9 @@ test.describe.serial('Purchase Invoice → Payment → Approve → PDC Transfer'
       await waitForIdle(page);
       invoiceViewUrl = page.url();
 
-      // Basic sanity: vendor name visible on view page
-      await expect(page.getByText(VENDOR).first()).toBeVisible({ timeout: 15000 });
+      // Basic sanity: vendor name visible on view page (the vendor as it actually ended up
+      // selected - see actualVendor's declaration comment)
+      await expect(page.getByText(actualVendor).first()).toBeVisible({ timeout: 15000 });
       console.log(`Created invoice: ${invoiceSeriesNumber} → ${invoiceViewUrl}`);
     }
   );
@@ -315,25 +348,21 @@ test.describe.serial('Purchase Invoice → Payment → Approve → PDC Transfer'
       await page.goto(invoiceViewUrl);
       await waitForIdle(page);
 
-      // "Apply Payment" button – visible only on Approved invoices with payment permission
-      // (view-purchase-invoice.tsx applyadvancepayment/PaymentEntries.entries.canAdd guard)
-      const applyPaymentBtn = page.getByRole('button', { name: /Apply Payment/i });
-
-      if (!(await applyPaymentBtn.isVisible({ timeout: 5000 }).catch(() => false))) {
-        // Fallback: use Actions → Payment Entry menu item
-        const actionsBtn = page.getByRole('button', { name: /^Actions$/i });
-        await expect(actionsBtn).toBeVisible({ timeout: 10000 });
-        await actionsBtn.click();
-        const paymentEntryItem = page.getByRole('menuitem', { name: /Payment Entry/i });
-        await expect(paymentEntryItem).toBeVisible({ timeout: 10000 });
-        await expect(paymentEntryItem).toBeEnabled();
-        await paymentEntryItem.click();
-      } else {
-        await applyPaymentBtn.click();
-      }
+      // "Apply Payment" opens a dialog for allocating an EXISTING unapplied advance Payment
+      // Entry against this invoice (confirmed live: it never navigates to the Add Payment Entry
+      // form - it's a different feature from what this test needs). To create a brand-new Cheque
+      // payment, use Actions → Payment Entry instead, which does navigate to the Add form and
+      // pre-fills Vendor/Currency/Party Type from the invoice (confirmed live).
+      const actionsBtn = page.getByRole('button', { name: /^Actions$/i });
+      await expect(actionsBtn).toBeVisible({ timeout: 10000 });
+      await actionsBtn.click();
+      const paymentEntryItem = page.getByRole('menuitem', { name: /Payment Entry/i });
+      await expect(paymentEntryItem).toBeVisible({ timeout: 10000 });
+      await expect(paymentEntryItem).toBeEnabled();
+      await paymentEntryItem.click();
 
       // Should land on the Add Payment Entry form (pre-linked to this invoice)
-      await page.waitForURL(/add-payment-entry|payment-entry/, { timeout: 20000 });
+      await page.waitForURL(/add-payment-entry/, { timeout: 20000 });
       await waitForIdle(page, 1500);
 
       // ---- Select payment type: Cheque (post-dated = PDC) ----
@@ -347,29 +376,22 @@ test.describe.serial('Purchase Invoice → Payment → Approve → PDC Transfer'
       if (await partyTypeTrigger.isVisible({ timeout: 3000 }).catch(() => false)) {
         const currentPartyType = (await partyTypeTrigger.textContent().catch(() => '')) || '';
         if (!currentPartyType.toLowerCase().includes('vendor')) {
-          await partyTypeTrigger.click();
-          await page.waitForTimeout(400);
-          await page.locator('input[placeholder*="Search"]').last().fill('Vendor');
-          await page.waitForTimeout(800);
-          await page.getByRole('option', { name: 'Vendor', exact: true }).last().click();
-          await page.mouse.click(2, 2);
+          await selectDropdown(page, partyTypeTrigger, 'Vendor', 'Vendor');
           await waitForIdle(page, 500);
         }
       }
 
-      // Party (entry_id) – the vendor linked to the invoice
+      // Party (entry_id) – the vendor linked to the invoice. Checked against actualVendor (the
+      // vendor that really ended up on the invoice - see its declaration comment), not the
+      // literal VENDOR constant: comparing against a substituted VENDOR would wrongly conclude
+      // the pre-filled party is "wrong" and try to change it to a vendor that may not exist.
       const partyTrigger = page
         .locator('[id*="mui-component-select-"][id*="entry_id"]')
         .first();
       if (await partyTrigger.isVisible({ timeout: 3000 }).catch(() => false)) {
         const currentParty = (await partyTrigger.textContent().catch(() => '')) || '';
-        if (!currentParty.includes(VENDOR.trim().split(/\s+/)[0])) {
-          await partyTrigger.click();
-          await page.waitForTimeout(400);
-          await page.locator('input[placeholder*="Search"]').last().fill(VENDOR.trim().split(/\s+/)[0]);
-          await page.waitForTimeout(1200);
-          await page.getByRole('option', { name: VENDOR, exact: true }).last().click();
-          await page.mouse.click(2, 2);
+        if (!currentParty.includes(actualVendor.trim().split(/\s+/)[0])) {
+          await selectDropdown(page, partyTrigger, actualVendor, actualVendor);
           await waitForIdle(page, 800);
         }
       }
@@ -379,12 +401,7 @@ test.describe.serial('Purchase Invoice → Payment → Approve → PDC Transfer'
         .locator('[id*="mui-component-select-"][id*="bank_account_cheque"]')
         .first();
       if (await bankAccTrigger.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await bankAccTrigger.click();
-        await page.waitForTimeout(400);
-        await page.locator('input[placeholder*="Search"]').last().fill(BANK_ACCOUNT.split(' ')[0]);
-        await page.waitForTimeout(1200);
-        await page.getByRole('option', { name: BANK_ACCOUNT, exact: true }).last().click();
-        await page.mouse.click(2, 2);
+        await selectDropdown(page, bankAccTrigger, BANK_ACCOUNT, BANK_ACCOUNT);
         await waitForIdle(page, 500);
       }
 

@@ -480,6 +480,7 @@ const testData = {
         advance: true,
         // party_type/entry_id/currency/amount all intentionally left unset
       },
+      approverName: "Dipen Modi",
     },
 
     // Seed data confirmed live against the running app (2026-07-14), NOT the values

@@ -90,8 +90,8 @@ class PurchaseInvoicePage extends AccountingDocumentPage {
    * treats as "not found" and silently substitutes an arbitrary fallback option instead of the
    * intended one - so always pass the option's full text as both the search and the match target.
    */
-  async selectHeaderDropdown(fieldFragment, optionText) {
-    await selectDropdown(this.page, this.headerSelectTrigger(fieldFragment), optionText, optionText);
+  async selectHeaderDropdown(fieldFragment, optionText, opts = {}) {
+    await selectDropdown(this.page, this.headerSelectTrigger(fieldFragment), optionText, optionText, opts);
   }
 
   async selectVendor(name) {
@@ -107,8 +107,23 @@ class PurchaseInvoicePage extends AccountingDocumentPage {
     }
   }
 
+  /**
+   * Confirmed against the running app: `payment_term` can have zero real options at all, even
+   * with the search box cleared ("No data available" either way - unlike vendor/currency, which
+   * always have at least one real fallback option to substitute). Unlike vendor/currency though,
+   * this field's dropdown DOES expose its own inline "Create New Payment Terms" footer option, so
+   * the fallback here is to use that directly rather than creating a record via a separate Page
+   * Object on a throwaway tab. Required fields beyond name (confirmed live via the inline modal's
+   * own field names, payment_term.<field>): due_date_based_on (select) and credit_days (number).
+   */
   async selectPaymentTerm(term) {
-    await this.selectHeaderDropdown('payment_term', term);
+    await this.selectHeaderDropdown('payment_term', term, {
+      allowCreateNew: true,
+      createNewFields: {
+        due_date_based_on: "Day's after Invoice date",
+        credit_days: '30',
+      },
+    });
   }
 
   async openAddressContactTab() {
@@ -161,10 +176,18 @@ class PurchaseInvoicePage extends AccountingDocumentPage {
    * even though quantity/rate looked correct in the DOM.
    */
   async fillItemEntry({ item, quantity, rate, taxTemplate } = {}) {
+    let actualItem;
     if (item) {
       const itemTrigger = this.itemModal.locator('[id*="mui-component-select-"][id*="item"]').first();
       await selectDropdown(this.page, itemTrigger, item, item);
       await this.page.waitForTimeout(1000);
+      // The requested dropdown option (testData's "<SKU> - <name>" string) can be stale/
+      // nonexistent in a given environment, in which case selectDropdown()'s search+fallback
+      // cascade silently substitutes a different, real item instead - read what actually ended
+      // up selected from the trigger itself so callers can assert against the real value.
+      const triggerText = (await itemTrigger.textContent())?.trim();
+      const separatorIndex = triggerText?.indexOf(' - ') ?? -1;
+      actualItem = separatorIndex >= 0 ? triggerText.slice(separatorIndex + 3) : triggerText;
     }
     if (quantity !== undefined) {
       const quantityField = this.itemModal.locator('[name*="quantity"], [placeholder*="Quantity"]').first();
@@ -190,6 +213,7 @@ class PurchaseInvoicePage extends AccountingDocumentPage {
         await this.page.waitForTimeout(1200);
       }
     }
+    return actualItem;
   }
 
   async saveItemEntry() {
@@ -200,10 +224,12 @@ class PurchaseInvoicePage extends AccountingDocumentPage {
     await this.page.waitForTimeout(500);
   }
 
+  /** @returns {Promise<string|undefined>} the item's actual display name - see fillItemEntry's comment on why it can differ from the requested one. */
   async addItemEntry(entry) {
     await this.openAddItemModal();
-    await this.fillItemEntry(entry);
+    const actualItem = await this.fillItemEntry(entry);
     await this.saveItemEntry();
+    return actualItem;
   }
 
   /** The row's pencil (Edit) icon button - reopens the item modal pre-filled with that row's values. */
@@ -222,8 +248,49 @@ class PurchaseInvoicePage extends AccountingDocumentPage {
     await this.saveButton.click();
   }
 
+  /**
+   * Clicks the Save-surface button matching `buttonName` and captures the just-created invoice's
+   * id/series_number straight from the save request's own JSON response, instead of re-navigating
+   * to the list to scrape it back out of the DOM. The response listener is registered in the same
+   * `Promise.all` as the click (not awaited beforehand), the standard click-then-response
+   * ordering that avoids missing a response that resolves faster than a separately-awaited
+   * listener could attach.
+   *
+   * Confirmed against the running app: the Save-to-Draft request hits
+   * `.../accounting/v1/purchase-invoices/save-draft` and responds with a SINGULAR `data.invoice`
+   * object (not a `data.invoices` array, id e.g. `56`, series_number e.g. `"BILL-2026-000047"`) -
+   * `dataAccessKey`/`urlKey` must match that shape, or this silently waits out its own timeout
+   * because the response filter never matches anything. Also reuses the constructor's own
+   * `saveButton`/`saveDraftButton` locators (already disambiguated for this screen's "Save As
+   * Draft"/"Save to Draft" wording split) rather than re-deriving a fresh locator from
+   * `buttonName`, which would silently match nothing if the guessed wording is off.
+   */
+  async saveAndCaptureId(buttonName, exact, dataAccessKey = 'invoice', urlKey = 'purchase-invoices') {
+    const saveTrigger = /draft/i.test(buttonName) ? this.saveDraftButton : this.saveButton;
+
+    const [response] = await Promise.all([
+      this.page.waitForResponse(
+        (r) => r.request().method() === 'POST' && r.url().includes(urlKey),
+        { timeout: 15000 }
+      ),
+      saveTrigger.click(),
+    ]);
+    await this.page.waitForLoadState('networkidle');
+
+    const body = await response.json();
+    const record = Array.isArray(body?.data?.[dataAccessKey])
+      ? body.data[dataAccessKey][0]
+      : body?.data?.[dataAccessKey];
+    if (!record?.id) {
+      throw new Error(
+        `saveAndCaptureId: response JSON has no data.${dataAccessKey}.id (got: ${JSON.stringify(body?.data)})`
+      );
+    }
+    return { id: String(record.id), seriesNumber: record.series_number };
+  }
+
   async saveAsDraft() {
-    await this.saveDraftButton.click();
+    return this.saveAndCaptureId('Save to Draft', false, 'invoice', 'purchase-invoices/save-draft');
   }
 
   /**
@@ -233,18 +300,42 @@ class PurchaseInvoicePage extends AccountingDocumentPage {
    * by a full "Save" (Save-to-Draft skips that validation) - see selectShippingAddress().
    * @param {{vendor?: string, currency?: string, paymentTerm?: string, vendorInvoiceNo?: string, shippingAddress?: string}} header
    * @param {Array<object>} items
+   * @returns {Promise<{actualVendor: string|undefined, actualItems: Array<string|undefined>}>} the
+   * vendor/item names as they actually ended up selected - selectVendor()/fillItemEntry()'s
+   * search+fallback cascade (see helpers/dropdown.js) can silently substitute a different, real
+   * vendor/item when the requested testData name doesn't exist in this environment. Callers that
+   * need to assert the vendor/item appears on the saved invoice should use these instead of the
+   * originally-requested names.
    */
   async createItemInvoice(header, items = []) {
     const { shippingAddress, ...rest } = header || {};
     await this.openAdd();
     await this.fillHeader(rest);
+    const actualVendor = rest.vendor
+      ? (await this.headerSelectTrigger('vendor').textContent())?.trim()
+      : undefined;
+    const actualItems = [];
     for (const entry of items) {
-      await this.addItemEntry(entry);
+      actualItems.push(await this.addItemEntry(entry));
     }
     if (shippingAddress) {
       await this.openAddressContactTab();
       await this.selectShippingAddress(shippingAddress);
     }
+    return { actualVendor, actualItems };
+  }
+
+  /**
+   * Navigates straight to the invoice's View page by id - same pattern as
+   * ProcurementRequestPage.gotoView, and the robust alternative to openNewestRow()/re-searching
+   * the list (whose search box is confirmed broken for this module - see the class-level
+   * comment) whenever a create/save step has already captured the invoice's real id.
+   */
+  async gotoView(id) {
+    if (!id) throw new Error(`gotoView() called with a falsy id (${id}) - a prior create/save step likely failed.`);
+    await this.page.goto(`${this.listPath}/${id}/view-purchase-invoice`);
+    await this.page.waitForLoadState('networkidle');
+    await this.page.getByText(/^ID:/).first().waitFor({ state: 'visible', timeout: 15000 });
   }
 
   /** Opens the newest (list is sorted newest-first) row's View page - used to recover a just-created invoice's real id/URL, the same pattern 06-journal-entry.spec.js uses since Save redirects to the plain list rather than to a per-record URL. */

@@ -274,8 +274,8 @@ test.describe('Payment Entry', () => {
         await expect(approvalDialog).toBeVisible({ timeout: 10000 });
         const approverSelect = approvalDialog.getByRole('combobox').first();
         await approverSelect.click();
-        await page.getByRole('option', { name: /Kashyap Jivani/i, exact: true }).click();
-        // Same MUI multi-select quirk as the filter dialog's "Approval Status" value picker:
+        await page.getByRole('option', { name: testData.accounting.paymentEntry.approverName, exact: true }).click();
+        // Same MUI multi-select quirk as the filter dialog's "Approval Status"value picker:
         // checking an option leaves the listbox open (it renders checkboxes, not single-select
         // options), which visually covers "Send Request" underneath it and blocks the click.
         // Close the listbox first.

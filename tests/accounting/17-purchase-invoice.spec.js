@@ -1,4 +1,6 @@
 const { test, expect } = require('@playwright/test');
+const testData = require('../../config/testData');
+const PurchaseInvoicePage = require('../../pages/accounting/PurchaseInvoicePage');
 
 const BASE_URL = 'http://localhost:7172';
 const PURCHASE_INVOICES_URL = `${BASE_URL}/dashboard/accounting/invoice/purchase-invoices`;
@@ -477,5 +479,305 @@ test.describe('Purchase Invoice Management', () => {
         await expect(landedCostButton).toBeEnabled();
       }
     });
+  });
+});
+
+test.describe('Purchase Invoice - CRUD', () => {
+  const data = testData.accounting.purchaseInvoice;
+  // Page-object item entries take the dropdown's exact "<SKU> - <name>" option text under the
+  // `item` key; on-page assertions and row lookups use the plain display name instead (see
+  // testData.js's purchaseInvoice.item comment for why the two differ).
+  const itemEntry = () => ({
+    item:        data.item.dropdownOption,
+    quantity:    data.item.quantity,
+    rate:        data.item.rate,
+    taxTemplate: data.item.taxTemplate,
+  });
+
+  test.describe.serial('Item invoice lifecycle: create -> view -> edit -> delete (from the detail page)', () => {
+    // { id, seriesNumber } once TC-PI-CRUD-01 saves - same shape as
+    // ProcurementRequestPage.saveAndCaptureId, and used the same way: later tests navigate
+    // straight to the record via pi.gotoView(createdRequest.id) instead of re-deriving a URL.
+    let createdRequest;
+    // Captured from the Add form right after createItemInvoice() - data.vendor ("Royal Mine
+    // Industries") doesn't actually exist in this environment, so PurchaseInvoicePage's vendor
+    // select falls back to whatever real vendor is already there instead (confirmed live: lands
+    // on an existing "AutoVendCorp_..." record) rather than the literal testData name - asserting
+    // on that captured value instead of data.vendor keeps this correct regardless of which
+    // vendor the fallback actually picks. Same reasoning for actualItem - data.item's
+    // "ELEC-000071 - Playwright Auto Item" dropdown option can be equally stale.
+    let actualVendor;
+    let actualItem;
+    const vendorInvoiceNo = `${data.valid.vendorInvoiceNo}_VIEWFLOW`;
+    const updatedVendorInvoiceNo = `${data.updated.vendorInvoiceNo}_VIEWFLOW`;
+
+    test('TC-PI-CRUD-01 [+] Create - Save to Draft with one item entry creates a Draft invoice', { tag: '@smoke' }, async ({ page }) => {
+      test.setTimeout(60000);
+      const pi = new PurchaseInvoicePage(page);
+
+      // Sets a Shipping Address even though this is a Draft save (which doesn't itself require
+      // one) because the Edit form has no "Save to Draft" option of its own - editing a Draft
+      // invoice always goes through the same fully-validated "Save" the Add form's plain Save
+      // uses, confirmed live in TC-PI-CRUD-03, so that field has to already be on the record.
+      ({ actualVendor, actualItems: [actualItem] } = await pi.createItemInvoice(
+        {
+          vendor:          data.vendor,
+          currency:        data.currency,
+          paymentTerm:     data.paymentTerm,
+          vendorInvoiceNo,
+          shippingAddress: data.shippingAddress,
+        },
+        [itemEntry()]
+      ));
+      createdRequest = await pi.saveAsDraft();
+      expect(createdRequest.id).toBeTruthy();
+
+      // The list's own search box doesn't actually filter Purchase Invoice results (see this
+      // file's class-level comment / TC-PI-CRUD-06), so status can't be read back via a
+      // search-then-read-row helper the way Procurement Request's getRowStatus does - navigate
+      // straight to the invoice's own view page using the id captured from the save response.
+      await pi.gotoView(createdRequest.id);
+
+      await expect(pi.approvalStatusChipOnView()).toHaveText(/Draft/i, { timeout: 15000 });
+      await expect(page.getByText(createdRequest.seriesNumber).first()).toBeVisible();
+    });
+
+    test('TC-PI-CRUD-02 [+] Read - View page shows the saved vendor, item, invoice no and Draft status', async ({ page }) => {
+      test.skip(!createdRequest, 'depends on TC-PI-CRUD-01 creating an invoice first');
+      const pi = new PurchaseInvoicePage(page);
+
+      await pi.gotoView(createdRequest.id);
+
+      await expect(page.getByText(actualVendor).first()).toBeVisible();
+      await expect(page.getByText(actualItem).first()).toBeVisible();
+      await expect(page.getByText(vendorInvoiceNo).first()).toBeVisible();
+      await expect(pi.approvalStatusChipOnView()).toHaveText(/Draft/i);
+
+      // Draft-only header surface (same rule confirmed in purchase-invoice.spec.js's TC-PI-VIEW-02)
+      await expect(pi.editButton).toBeVisible();
+      await expect(pi.editButton).toBeEnabled();
+      await expect(pi.actionsMenuButton).not.toBeVisible();
+    });
+
+    test('TC-PI-CRUD-03 [+] Update - Edit changes the vendor invoice no and item quantity, and both persist', async ({ page }) => {
+      test.skip(!createdRequest, 'depends on TC-PI-CRUD-01 creating an invoice first');
+      test.setTimeout(60000);
+      const pi = new PurchaseInvoicePage(page);
+
+      await pi.gotoView(createdRequest.id);
+      await pi.editButton.click();
+      await page.waitForURL(/edit-purchase-invoice/, { timeout: 15000 });
+      await waitForIdle(page);
+
+      await pi.fillVendorInvoiceNo(updatedVendorInvoiceNo);
+      // Re-passing taxTemplate here isn't a form change (it was already set) - it's required to
+      // force the row's Gross/Tax/Net recompute at all. Confirmed live: changing only Quantity
+      // and blurring never recalculates those fields on its own, so without re-selecting a tax
+      // template afterwards the saved Gross/Net amounts stay stale at the OLD quantity's values,
+      // and the backend rejects the PUT with the same "Mismatch found in details" 400 the Add
+      // form's item modal hits when Tax Template is skipped entirely (see fillItemEntry's comment).
+      // Filtered by actualItem (the item that really ended up on the invoice - see TC-PI-CRUD-01's
+      // comment), not data.item.name, since the dropdown fallback can have substituted a different
+      // real item.
+      await pi.editItemEntry(actualItem, { quantity: data.updated.quantity, taxTemplate: data.item.taxTemplate });
+      // Confirmed live: the Edit form has no "Save to Draft" button at all, only "Save" - the
+      // same fully-validated Save the Add form's non-draft path uses (see the header comment on
+      // this describe block).
+      await pi.save();
+
+      // Edit redirects to the list on success (same convention confirmed for every other
+      // document/Settings-entity Page Object in this suite).
+      await page.waitForURL(pi.listPath, { timeout: 20000 });
+      await waitForIdle(page);
+
+      await pi.gotoView(createdRequest.id);
+      await expect(page.getByText(updatedVendorInvoiceNo).first()).toBeVisible();
+      await expect(page.getByText(data.updated.quantity, { exact: false }).first()).toBeVisible();
+    });
+
+    test('TC-PI-CRUD-04 [-] Delete (detail page) - Cancel keeps the invoice, Delete removes it and redirects to the list', async ({ page }) => {
+      test.setTimeout(60000);
+      const pi = new PurchaseInvoicePage(page);
+
+      // Seeds its own throwaway Draft invoice rather than reusing createdRequest from
+      // TC-PI-CRUD-01: by this point TC-PI-CRUD-03's edit has already moved that record from
+      // Draft to Pending (the Edit form has no Save-to-Draft option of its own - see that
+      // test's comment), and the header's direct "Delete" button this test exercises only
+      // renders for Draft invoices - non-Draft invoices route Delete behind the "Actions" menu
+      // instead (see PurchaseInvoicePage.js's class comment). Same reasoning
+      // ProcurementRequestPage's createDraft()/createDraftWithItem() apply to their own
+      // delete-flow test cases (TC-PREQ-13..16): a delete test needs a still-Draft record, so
+      // it seeds one fresh instead of depending on a sibling test's mutated one.
+      await pi.createItemInvoice(
+        {
+          vendor: data.vendor,
+          currency: data.currency,
+          paymentTerm: data.paymentTerm,
+          vendorInvoiceNo: `${vendorInvoiceNo}_DELETEFLOW`,
+        },
+        [itemEntry()]
+      );
+      const deleteTarget = await pi.saveAsDraft();
+      expect(deleteTarget.id).toBeTruthy();
+
+      await pi.gotoView(deleteTarget.id);
+      const invoiceUrl = page.url();
+
+      await pi.cancelDeleteFromView();
+      await expect(page.getByRole('dialog')).not.toBeVisible();
+      await expect(page).toHaveURL(invoiceUrl);
+
+      await pi.deleteFromView();
+      await page.waitForURL(new RegExp(pi.listPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), { timeout: 15000 });
+
+      // Confirmed against the running app: the list's own search box does not actually filter
+      // Purchase Invoice results (it always returns the full unfiltered page, a real gap in this
+      // list - see the class-level comment), so re-searching for the deleted record can't be used
+      // to confirm removal either. Re-visiting the deleted invoice's own URL isn't reliable here
+      // either - it neither redirects nor 404s, and the SPA can still render the vendor name from
+      // a client-side cache rather than a fresh fetch. Comparing the list's own newest row against
+      // the deleted invoice's id is a real check: a freshly-fetched GET can't show a deleted row.
+      await waitForIdle(page);
+      const newestRowHref = await page.locator('table tbody tr').first().locator('a').first().getAttribute('href');
+      expect(newestRowHref).not.toContain(`/${deleteTarget.id}/`);
+    });
+  });
+
+  test.describe.serial('Delete from the listing row menu', () => {
+    const vendorInvoiceNo = `${data.valid.vendorInvoiceNo}_LISTFLOW`;
+    let createdRequest;
+
+    test('TC-PI-CRUD-05 [+] Create - a second Draft invoice used by the listing-delete flow', async ({ page }) => {
+      test.setTimeout(60000);
+      const pi = new PurchaseInvoicePage(page);
+
+      await pi.createItemInvoice(
+        { vendor: data.vendor, currency: data.currency, paymentTerm: data.paymentTerm, vendorInvoiceNo },
+        [itemEntry()]
+      );
+      createdRequest = await pi.saveAsDraft();
+      expect(createdRequest.id).toBeTruthy();
+      await page.waitForURL(pi.listPath, { timeout: 20000 });
+    });
+
+    // Confirmed against the running app: the list's ActionBar search box does not actually
+    // filter Purchase Invoice results - typing any query (an invoice's own numeric ID, its
+    // vendor invoice no, or its vendor's name) still returns the same unfiltered first page, so
+    // `SettingsEntityPage.search()`/`openRowMenu()`/`deleteViaMenu()` (which depend on it to find
+    // the row) can't be used here. This test instead targets the topmost row directly - the list
+    // is sorted newest-first and nothing else creates a Purchase Invoice between TC-PI-CRUD-05
+    // and this test, so it's guaranteed to be the one just created.
+    test('TC-PI-CRUD-06 [-] Delete (list row menu) - Cancel keeps the row, Delete removes it', async ({ page }) => {
+      test.skip(!createdRequest, 'depends on TC-PI-CRUD-05 creating an invoice first');
+      const pi = new PurchaseInvoicePage(page);
+
+      await pi.gotoList();
+      const row = page.locator('table tbody tr').first();
+      await expect(row).toBeVisible();
+
+      await row.hover();
+      await row.locator('button').first().click();
+      await expect(page.getByRole('menuitem', { name: 'Delete', exact: true })).toBeVisible();
+      await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
+      await pi.confirmDeleteButton.waitFor({ state: 'visible' });
+      await pi.cancelDeleteButton.click();
+      await expect(page.getByRole('dialog')).not.toBeVisible();
+      await expect(row).toBeVisible();
+
+      await row.hover();
+      await row.locator('button').first().click();
+      await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
+      await pi.confirmDeleteButton.click();
+      await waitForIdle(page);
+
+      // Same real check as TC-PI-CRUD-04: compare the list's own freshly-fetched newest row
+      // against the deleted invoice's id, rather than re-visiting its own URL (confirmed
+      // unreliable there - see that test's comment) or asserting on data.vendor (which was never
+      // actually the vendor used here in the first place - see TC-PI-CRUD-01's comment).
+      const newestRowHref = await page.locator('table tbody tr').first().locator('a').first().getAttribute('href');
+      expect(newestRowHref).not.toContain(`/${createdRequest.id}/`);
+    });
+  });
+
+  test('TC-PI-CRUD-07 [+] Create - "Save" (not "Save to Draft") creates a non-Draft invoice', async ({ page }) => {
+    test.setTimeout(90000);
+    const pi = new PurchaseInvoicePage(page);
+    const vendorInvoiceNo = `${data.valid.vendorInvoiceNo}_SAVEFLOW`;
+
+    await pi.createItemInvoice(
+      {
+        vendor:          data.vendor,
+        currency:        data.currency,
+        paymentTerm:     data.paymentTerm,
+        vendorInvoiceNo,
+        shippingAddress: data.shippingAddress,
+      },
+      [itemEntry()]
+    );
+    await pi.save();
+    await page.waitForURL(pi.listPath, { timeout: 20000 });
+    await waitForIdle(page);
+
+    await pi.openNewestRow();
+    await expect(pi.approvalStatusChipOnView()).not.toHaveText(/Draft/i, { timeout: 15000 });
+  });
+
+  // Confirmed via purchase-invoice.test-cases.md's UX notes: the view page's ApprovalWrapper
+  // only renders a Submit control for Pending/Rejected invoices (unlike Draft, which never gets
+  // one) - so this seeds its own invoice through the same full "Save" path as TC-PI-CRUD-07
+  // rather than reusing a Draft record from the other describe.serial blocks. Flow mirrors
+  // 07-payment-entry.spec.js's TC-PE-CRUD-05, since both drive the same shared ApprovalWrapper
+  // component (see AccountingDocumentPage.js's header comment).
+  test('TC-PI-CRUD-08 [+] Submit For Approval and accept as the current user moves the invoice out of Pending', async ({ page }) => {
+    test.setTimeout(60000);
+    const pi = new PurchaseInvoicePage(page);
+    const vendorInvoiceNo = `${data.valid.vendorInvoiceNo}_APPROVALFLOW`;
+
+    await pi.createItemInvoice(
+      {
+        vendor:          data.vendor,
+        currency:        data.currency,
+        paymentTerm:     data.paymentTerm,
+        vendorInvoiceNo,
+        shippingAddress: data.shippingAddress,
+      },
+      [itemEntry()]
+    );
+    await pi.save();
+    await page.waitForURL(pi.listPath, { timeout: 20000 });
+    await waitForIdle(page);
+
+    await pi.openNewestRow();
+
+    await expect(page.getByRole('button', { name: /^Submit$/i })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: /select merge strategy/i })).toBeVisible({ timeout: 10000 });
+    await page.getByRole('button', { name: /select merge strategy/i }).click();
+    await page.getByRole('menuitem', { name: /Quick Approval/i }).click();
+
+    const approvalDialog = page.getByRole('dialog');
+    await expect(approvalDialog).toBeVisible({ timeout: 10000 });
+    const approverSelect = approvalDialog.getByRole('combobox').first();
+    await approverSelect.click();
+    // exact: false (not true) - confirmed against the running app that this option's real
+    // accessible name is prefixed with the user's avatar initials (e.g. "DM Dipen Modi"), so an
+    // exact match against the bare testData name never matches, same reason every other spec in
+    // this suite matches this option via a regex instead (e.g. 07-payment-entry.spec.js's
+    // /Kashyap Jivani/i).
+    await page.getByRole('option', { name: testData.accounting.paymentEntry.approverName, exact: false }).click();
+    // Same MUI multi-select quirk documented in 07-payment-entry.spec.js's TC-PE-CRUD-05:
+    // checking an option leaves the listbox open, covering "Send Request" underneath it.
+    await page.keyboard.press('Escape');
+    await approvalDialog.getByRole('button', { name: /Send Request/i }).click();
+
+    await expect(page.getByRole('button', { name: /^Accept$/i })).toBeVisible({ timeout: 10000 });
+    // Plain split button here (unlike "select merge strategy") - clicking it opens the "Approved
+    // request" confirm dialog directly, with no intermediate dropdown menu item.
+    await page.getByRole('button', { name: /^Accept$/i }).click();
+
+    const acceptDialog = page.getByRole('dialog');
+    await expect(acceptDialog).toBeVisible({ timeout: 10000 });
+    await acceptDialog.getByRole('button', { name: /Submit/i }).click();
+
+    await expect(pi.approvalStatusChipOnView()).toHaveText(/Approved|Accepted/i, { timeout: 15000 });
   });
 });
