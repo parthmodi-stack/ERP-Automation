@@ -575,6 +575,43 @@ const testData = {
       },
     },
 
+    // Debit Note - raised against a Vendor, either standalone or tied to an approved Purchase
+    // Invoice (bill). Confirmed live: `vendor` here is a best-effort seed name (this suite's
+    // DebitNotePage.js falls back to whatever real Vendor already exists via selectDropdown()'s
+    // search+fallback cascade if it doesn't match exactly - same reasoning as purchaseInvoice's
+    // own vendor field) - always assert against the actualPartyName createDebitNote() returns,
+    // not this literal value. `journalType`/`currency` are confirmed live to always have at
+    // least one real option ("Journal Voucher"/company default currency).
+    debitNote: {
+      vendor:      'Royal Mine Industries',
+      journalType: 'Journal Voucher',
+      currency:    'US Dollars',
+      reference:   `Automation Debit Note ${ts}`,
+      amount:      '750',
+      item: {
+        dropdownOption: 'ELEC-000071 - Playwright Auto Item',
+        quantity:       '1',
+        rate:           '750',
+        taxTemplate:    'UAE VAT',
+      },
+    },
+
+    // Credit Note - the Sales-side mirror of debitNote above (raised against a Customer, tied
+    // to an approved Sales Invoice instead of a Purchase Invoice). `customer`/`item.taxCode`
+    // reuse salesInvoice's own best-effort seed names/fallback reasoning above.
+    creditNote: {
+      customer:    'AutoCorp',
+      journalType: 'Journal Voucher',
+      currency:    'INR',
+      reference:   `Automation Credit Note ${ts}`,
+      item: {
+        dropdownOption: 'ELEC-000071 - Playwright Auto Item',
+        quantity:       '1',
+        rate:           '750',
+        taxCode:        'UAE VAT',
+      },
+    },
+
     // ---- Master Data: Customer Management ----
   //
   // Routes:
