@@ -519,6 +519,62 @@ const testData = {
       },
     },
 
+    // Sales Invoice - the Sales-side mirror of purchaseInvoice above. Confirmed against the
+    // running app: `customer`/`item.taxCode` are best-effort seed names (this suite's
+    // SalesInvoicePage.js falls back to whatever real customer/tax code already exists via
+    // selectDropdown()'s search+fallback+create cascade if these don't match exactly - see
+    // helpers/dropdown.js), same reasoning as purchaseInvoice's own vendor/item/taxTemplate.
+    // Unlike Purchase Invoice, a plain "Save" here does NOT require anything from the
+    // "Shipping" tab (confirmed live: that tab is shipping cost/rules, not an address, and Save
+    // succeeded without touching it).
+    salesInvoice: {
+      customer:          'AutoCorp',
+      currency:          'INR',
+      paymentTerm:       'Net 30',
+      accountReceivable: 'Accounts Receivable',
+      item: {
+        name:           'Playwright Auto Item',
+        dropdownOption: 'ELEC-000071 - Playwright Auto Item',
+        quantity:       '2',
+        rate:           '500',
+        taxCode:        'UAE VAT',
+      },
+    },
+
+    // Collection Entry - the Sales-side mirror of paymentEntry above (money IN from a Customer,
+    // via a specific Sales Invoice's Actions -> "Collection Entry" menu item rather than a
+    // standalone add form). `party`/`bankAccount` reuse the same real seeded records
+    // paymentEntry.cash/cheque already rely on (a Bank Account confirmed to exist - see
+    // paymentEntry.bank's comment); `party` here should instead match whatever customer actually
+    // ends up on the linked invoice (captured live, not hardcoded - see the spec file).
+    // Confirmed live the Invoice Entries table lists EVERY outstanding invoice for that customer
+    // (not just the one the Collection Entry was opened from) - this suite only applies payment
+    // against our own invoice's row (matched by series number, see CollectionPage.
+    // applyToInvoiceRow), so `amount`/invoicePaymentAmount here match just that one invoice's own
+    // total (salesInvoice.item: quantity 2 x rate 500 = 1000 gross + 50 tax = 1050).
+    collection: {
+      cash: {
+        type: 'Cash',
+        partyType: 'Customer',
+        currency: 'INR',
+        amount: '1050',
+        narration: `Automation Collection ${ts}`,
+        invoicePaymentAmount: '1050',
+      },
+      cheque: {
+        type: 'Cheque',
+        partyType: 'Customer',
+        currency: 'INR',
+        amount: '1050',
+        bankAccount: 'Test Acc',
+        chequeNumber: `COLL-CHQ-${ts}`,
+        chequeDate: '30-09-2026',
+        chequeBank: 'Automation Test Bank',
+        narration: `Automation Cheque Collection ${ts}`,
+        invoicePaymentAmount: '1050',
+      },
+    },
+
     // ---- Master Data: Customer Management ----
   //
   // Routes:
