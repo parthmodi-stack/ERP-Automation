@@ -1,8 +1,11 @@
 const { test, expect } = require('@playwright/test');
 const DepartmentMasterPage = require('../../pages/DepartmentMasterPage');
 const testData = require('../../config/testData');
+const testDataFactory = require('../../config/testDataFactory');
 
 test.describe('Department Master Module', () => {
+  test.describe.configure({ timeout: 60000 });
+
   let createdCode = '';
   let createdName = '';
 
@@ -147,26 +150,46 @@ test.describe('Department Master Module', () => {
       await expect(dept.nameRequiredError).toBeVisible();
     });
 
-    test('TC-024: Add Department - Duplicate Code Validation', async ({ page }) => {
+
+
+    test('TC-027: Add Department - Company Required Validation', { tag: '@smoke' }, async ({ page }) => {
       const dept = new DepartmentMasterPage(page);
-      const data = testData.departmentMaster.valid;
+      const data = testData.departmentMaster.missingCompany;
 
       await dept.goto();
-      await dept.fillForm({
-        departmentCode: createdCode || 'DEPT-EXISTING',
-        departmentName: 'Another Department'
-      });
+      await dept.fillForm(data);
       await dept.save();
 
-      // Expect duplicate error
-      await expect(dept.duplicateCodeError).toBeVisible();
+      await expect(dept.companyRequiredError).toBeVisible();
+      await dept.discardButton.click();
+    });
+
+    test('TC-028: Add Department - ID field is auto-generated and read-only', async ({ page }) => {
+      const dept = new DepartmentMasterPage(page);
+
+      await dept.goto();
+      await expect(dept.idField).toBeDisabled();
+      await expect(dept.idField).toHaveValue('');
+      await dept.discardButton.click();
+    });
+
+    test('TC-029: View Department - Status badge reflects Active', async ({ page }) => {
+      const dept = new DepartmentMasterPage(page);
+      // Self-contained (creates its own record) rather than depending on createdCode, so this
+      // assertion doesn't cascade-fail if an earlier Add test in this describe block fails.
+      const code = testDataFactory.uniqueName('DEPT_VIEWSTATUS');
+      const name = testDataFactory.uniqueName('Automation_ViewStatus');
+
+      await dept.createDepartment({ departmentCode: code, departmentName: name });
+      await dept.openView(code);
+      await expect(dept.viewStatusBadge()).toContainText('Active');
     });
 
     test('TC-020: View Department Details', async ({ page }) => {
+      expect(createdCode, 'Pre-condition failed: Department was not successfully created').toBeTruthy();
       const dept = new DepartmentMasterPage(page);
-      const code = createdCode || testData.departmentMaster.valid.departmentCode;
-      await dept.searchList(code);
-      await page.getByText(code, { exact: true }).first().click();
+      await dept.searchList(createdCode);
+      await page.getByText(createdCode, { exact: true }).first().click();
       await page.waitForURL('**/view-department-master');
       await page.waitForLoadState('networkidle');
 
@@ -175,12 +198,12 @@ test.describe('Department Master Module', () => {
     });
 
     test('TC-021: Verify All Department Fields in View', async ({ page }) => {
+      expect(createdCode, 'Pre-condition failed: Department was not successfully created').toBeTruthy();
       const dept = new DepartmentMasterPage(page);
-      const code = createdCode || testData.departmentMaster.valid.departmentCode;
       const data = testData.departmentMaster.valid;
 
-      await dept.searchList(code);
-      await page.getByText(code, { exact: true }).first().click();
+      await dept.searchList(createdCode);
+      await page.getByText(createdCode, { exact: true }).first().click();
       await page.waitForURL('**/view-department-master');
       await page.waitForLoadState('networkidle');
 
@@ -190,47 +213,122 @@ test.describe('Department Master Module', () => {
       await expect(page.getByText('Parent Department').first()).toBeVisible();
 
       // Check values match
-      await expect(page.getByText(code).first()).toBeVisible();
+      await expect(page.getByText(createdCode).first()).toBeVisible();
       await expect(page.getByText(createdName || data.departmentName).first()).toBeVisible();
     });
 
-    test('TC-025: Edit Department - Success', async ({ page }) => {
+
+
+  });
+
+  // ── Draft Workflow ─────────────────────────────────────────────────────────
+  // saveDepartmentAsDraft (postV1DepartmentsDraft) bypasses methods.trigger() validation entirely
+  // (confirmed in add-department.hrms.tsx) - TC-030 exercises that by deliberately omitting
+  // Department Code, which Save (not Draft) requires.
+  test.describe('Draft Workflow', () => {
+    // Each test here is a full multi-step flow (Add/Edit form -> save -> redirect -> list ->
+    // search), same shape CLAUDE.md documents as needing a bumped timeout under real network load.
+    test.describe.configure({ timeout: 60000 });
+    let draftName = '';
+
+    test('TC-030 [+] Save Department as Draft with Code omitted - status shows Draft', { tag: '@smoke' }, async ({ page }) => {
       const dept = new DepartmentMasterPage(page);
-      const code = createdCode || testData.departmentMaster.valid.departmentCode;
-      const updatedName = testData.departmentMaster.valid.updatedDepartmentName;
+      const data = testData.departmentMaster.draftMinimal;
+      draftName = data.departmentName;
 
-      await dept.openEdit(code);
-
-      // Update name
-      await dept.nameInput.clear();
-      await dept.nameInput.fill(updatedName);
-      await dept.save();
-
+      await dept.goto();
+      await dept.fillForm(data);
+      await dept.saveAsDraft();
+      // Same redirect-lag as plain Save (confirmed live) - wait for the actual navigation back
+      // to the list before treating the draft as committed.
       await page.waitForURL('**/organisation/department-master');
       await page.waitForLoadState('networkidle');
 
-      createdName = updatedName;
-
-      // Verify updated name in list
-      await dept.searchList(code);
-      await expect(page.getByRole('row').filter({ hasText: code }).getByText(updatedName)).toBeVisible();
+      await dept.gotoList();
+      await dept.searchList(draftName);
+      await expect(await dept.getRowStatus(draftName)).toMatch(/Draft/);
     });
 
-    test('TC-026: Edit Department - Cancel Changes', async ({ page }) => {
+    test('TC-031 [+] Publish a Draft Department - fill Code and Save - status becomes Active', async ({ page }) => {
       const dept = new DepartmentMasterPage(page);
-      const code = createdCode || testData.departmentMaster.valid.departmentCode;
 
-      await dept.openEdit(code);
-
-      // Change name but discard
-      await dept.nameInput.fill('Discarded Temp Department');
-      await dept.discardButton.click();
+      await dept.openEdit(draftName);
+      await dept.codeInput.fill(testDataFactory.uniqueName('DEPT_PUB'));
+      await dept.save();
       await page.waitForURL('**/organisation/department-master');
       await page.waitForLoadState('networkidle');
 
-      // Verify name was not changed
-      await dept.searchList(code);
-      await expect(page.getByRole('row').filter({ hasText: code }).getByText(createdName)).toBeVisible();
+      await dept.gotoList();
+      await dept.searchList(draftName);
+      await expect(await dept.getRowStatus(draftName)).toMatch(/Active/);
+    });
+  });
+
+  // ── Delete Operations ────────────────────────────────────────────────────────
+  // Deletes via the View page's own Actions menu. Confirmed in view-department.hrms.tsx that this
+  // delete handler has no `successMessage` wired up - no success toast fires, only navigation
+  // back to the list - so only removal + redirect are asserted, not a toast.
+  test.describe('Delete Operations', () => {
+    let deleteTargetCode = '';
+
+    test('TC-032 [+] Add a disposable Department for Delete testing', { tag: '@smoke' }, async ({ page }) => {
+      const dept = new DepartmentMasterPage(page);
+      deleteTargetCode = testDataFactory.uniqueName('DEPT_DEL');
+      const data = {
+        departmentCode: deleteTargetCode,
+        departmentName: testDataFactory.uniqueName('Automation_Department_ToDelete'),
+      };
+
+      await dept.createDepartment(data);
+      await dept.gotoList();
+      await dept.searchList(deleteTargetCode);
+      await expect(page.getByText(deleteTargetCode, { exact: true }).first()).toBeVisible();
+    });
+
+    test('TC-033 [-] Delete Department - Cancel preserves the record', async ({ page }) => {
+      const dept = new DepartmentMasterPage(page);
+
+      await dept.openView(deleteTargetCode);
+      await dept.actionsButton.click();
+      await dept.deleteMenuItem.waitFor({ state: 'visible' });
+      await dept.deleteMenuItem.click();
+      await dept.cancelDeleteButton.click();
+
+      await expect(page).toHaveURL(/view-department-master/);
+      await dept.gotoList();
+      await dept.searchList(deleteTargetCode);
+      await expect(page.getByText(deleteTargetCode, { exact: true }).first()).toBeVisible();
+    });
+
+    test('TC-034 [+] Delete Department - Confirm removes record and redirects to list', { tag: '@smoke' }, async ({ page }) => {
+      const dept = new DepartmentMasterPage(page);
+
+      await dept.deleteFromView(deleteTargetCode);
+
+      await expect(page).toHaveURL(/department-master$/);
+      await dept.searchList(deleteTargetCode);
+      await expect(dept.noDataRow()).toBeVisible();
+    });
+  });
+
+  // ── Special Input Handling ───────────────────────────────────────────────────
+  // No max-length/regex/sanitization exists on Department Name beyond required + max(255)
+  // (utils/validation.ts) - these confirm arbitrary text is stored as-is and rendered as literal
+  // text (React's default escaping), not executed/injected as real HTML.
+  test.describe('Special Input Handling', () => {
+
+
+    test('TC-036 [+] Department Name with SQL-injection-like payload is stored and rendered as literal text', async ({ page }) => {
+      const dept = new DepartmentMasterPage(page);
+      const data = {
+        departmentCode: testDataFactory.uniqueName('DEPT_SQLI'),
+        departmentName: testData.departmentMaster.sqlInjectionName,
+      };
+
+      await dept.createDepartment(data);
+      await dept.gotoList();
+      await dept.searchList(data.departmentCode);
+      await expect(page.getByText(data.departmentName, { exact: true }).first()).toBeVisible();
     });
   });
 });

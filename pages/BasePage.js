@@ -26,6 +26,12 @@ class BasePage {
     });
   }
 
+  async waitForNetworkIdle(timeout = 3000) {
+    await this.page
+      .waitForLoadState("networkidle", { timeout })
+      .catch(() => null);
+  }
+
   // Gross/Tax/Net/Total amounts in an item modal are computed by a debounced effect after
   // Quantity/Rate change; saving before it fires submits null amounts, which the backend
   // rejects as a "details mismatch".
@@ -57,7 +63,7 @@ class BasePage {
   // account's master data (see selectFirstOptionByLabel) - picking whatever renders first is a
   // real test decision there, not error recovery, so it stays a distinct, separately-called API.
   async selectFirstAvailableOption(combobox) {
-    await combobox.click().catch(() => { });
+    await combobox.click().catch(() => {});
     // CONFIRMED LIVE (TC-PREQ-27, Payment Terms on a Create-PO-from-Request page): the "+
     // Create New ..." footer action is a static option that's already in the DOM the instant the
     // popover opens, while the field's REAL (fetched) options can attach a beat later - `.first()`
@@ -82,20 +88,44 @@ class BasePage {
   // instead of racing it. Returns a boolean so callers that branch on presence (e.g. RfqPage's
   // re-select-Entity flow) keep working unchanged.
   async selectOptionFromListbox(optionText, { timeout = 10000 } = {}) {
-    const option = this.page
+    const listboxOptions = this.page
       .getByRole("listbox")
       .getByRole("option")
-      .filter({ hasNot: this.page.locator("input") })
+      .filter({ hasNot: this.page.locator("input") });
+
+    // Prefer an exact-text match first - the plain-string `hasText` filter below is a substring
+    // match, which silently picks the WRONG option whenever the live list has another entry that
+    // merely contains optionText (confirmed live: Organization Structure's Designation list
+    // includes "HR branch Manager1" alongside a literal "Manager" option - a substring filter's
+    // .first() picked "HR branch Manager1" because it happened to render earlier in DOM order).
+    // Only fall back to the substring filter if no exact match ever appears, preserving existing
+    // behavior for every other caller's option text (icons/whitespace variants, etc.).
+    const escaped = optionText.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const exactOption = listboxOptions
+      .filter({ hasText: new RegExp(`^\\s*${escaped}\\s*$`) })
+      .first();
+    const substringOption = listboxOptions
       .filter({ hasText: optionText })
       .first();
+
+    let option = exactOption;
     try {
-      await expect(option).toBeVisible({ timeout });
+      await expect(option).toBeVisible({ timeout: Math.min(3000, timeout) });
     } catch (e) {
-      return false;
+      option = substringOption;
+      try {
+        await expect(option).toBeVisible({
+          timeout: Math.max(timeout - 3000, 1000),
+        });
+      } catch (e2) {
+        return false;
+      }
     }
-    await option.scrollIntoViewIfNeeded().catch(() => { });
+    await option.scrollIntoViewIfNeeded().catch(() => {});
     await option.click();
-    await expect(this.page.getByRole("listbox")).not.toBeVisible({ timeout: 5000 }).catch(() => {});
+    await expect(this.page.getByRole("listbox"))
+      .not.toBeVisible({ timeout: 5000 })
+      .catch(() => {});
     return true;
   }
 
@@ -103,7 +133,11 @@ class BasePage {
   // X" placeholder prompt. `tryFill` covers the modules whose combobox is itself a text input
   // (typing narrows the option list) - swallowed because not every module's combobox accepts
   // typed input, and forcing it there would throw before the option click ever runs.
-  async openDropdownAndPick(placeholder, optionText, { tryFill = false, timeout = 10000 } = {}) {
+  async openDropdownAndPick(
+    placeholder,
+    optionText,
+    { tryFill = false, timeout = 10000 } = {},
+  ) {
     const combobox = this.page
       .getByRole("combobox", { name: placeholder })
       .first();
@@ -120,9 +154,14 @@ class BasePage {
     const found = await this.selectOptionFromListbox(optionText, { timeout });
     if (found) return;
 
-    const available = await this.page.getByRole("listbox").getByRole("option").allTextContents();
+    const available = await this.page
+      .getByRole("listbox")
+      .getByRole("option")
+      .allTextContents();
     throw new Error(
-      `openDropdownAndPick("${placeholder}"): option "${optionText}" never appeared in the dropdown within ${timeout}ms (waited through any loading state). Available: ${JSON.stringify(available.map((o) => o.replace(/[\u200B\uFEFF]/g, "").trim()))}`
+      `openDropdownAndPick("${placeholder}"): option "${optionText}" never appeared in the dropdown within ${timeout}ms (waited through any loading state). Available: ${JSON.stringify(
+        available.map((o) => o.replace(/[\u200B\uFEFF]/g, "").trim()),
+      )}`,
     );
   }
 
@@ -136,48 +175,92 @@ class BasePage {
   async selectFieldByLabel(
     labelText,
     optionText,
-    {
-      exact = true,
-      scope = this.page.getByRole('main'),
-      timeout = 10000,
-    } = {},
+    { exact = true, scope = this.page.getByRole("main"), timeout = 10000 } = {},
   ) {
-    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, 'i');
+    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, "i");
     const fieldContainer = scope
       .getByText(exact ? labelText : labelRegex, { exact })
       .first()
-      .locator('xpath=..');
-    const combobox = fieldContainer.getByRole('combobox').first();
+      .locator("xpath=..");
+    const combobox = fieldContainer.getByRole("combobox").first();
+    return this.selectInCombobox(combobox, optionText, {
+      timeout,
+      labelForError: labelText,
+    });
+  }
 
-    const textVal = ((await combobox.textContent()) || '').replace(/[\u200B\uFEFF]/g, "").trim();
-    const inputVal = ((await combobox.inputValue().catch(() => '')) || '').replace(/[\u200B\uFEFF]/g, "").trim();
+  // Extracted from selectFieldByLabel so a page object whose fields need a differently-scoped
+  // combobox lookup (e.g. OrganizationStructurePage.sidebarFieldCombobox, where the label's own
+  // parent isn't a safe scope - see that file for why) can reuse this same click/retry/typing
+  // logic against an already-resolved combobox locator instead of duplicating it.
+  async selectInCombobox(
+    combobox,
+    optionText,
+    { timeout = 10000, labelForError = "" } = {},
+  ) {
+    const textVal = ((await combobox.textContent()) || "")
+      .replace(/[\u200B\uFEFF]/g, "")
+      .trim();
+    const inputVal = ((await combobox.inputValue().catch(() => "")) || "")
+      .replace(/[\u200B\uFEFF]/g, "")
+      .trim();
     const currentValue = textVal || inputVal;
-    if (currentValue === optionText || (optionText && currentValue.includes(optionText))) {
+    if (
+      currentValue === optionText ||
+      (optionText && currentValue.includes(optionText))
+    ) {
       return;
     }
 
     await combobox.click();
-    const found = await this.selectOptionFromListbox(optionText, { timeout });
+    let found = await this.selectOptionFromListbox(optionText, {
+      timeout: Math.min(3000, timeout),
+    });
     if (found) return;
 
-    const available = await this.page.getByRole("listbox").getByRole("option").allTextContents();
+    // Try typing/searching for the option if it wasn't found in the initial open list
+    try {
+      const input = combobox.locator("input").first();
+      if (await input.isVisible()) {
+        await input.fill(optionText);
+      } else {
+        await combobox.fill(optionText);
+      }
+      await this.page.waitForTimeout(500); // small delay for filter request
+      found = await this.selectOptionFromListbox(optionText, {
+        timeout: Math.max(5000, timeout - 3000),
+      });
+      if (found) return;
+    } catch (e) {
+      // Swallowed: combobox or input may not be editable
+    }
+
+    const available = await this.page
+      .getByRole("listbox")
+      .getByRole("option")
+      .allTextContents();
     throw new Error(
-      `selectFieldByLabel("${labelText}"): option "${optionText}" never appeared in the dropdown within ${timeout}ms (waited through any loading state). Available: ${JSON.stringify(available.map((o) => o.replace(/[\u200B\uFEFF]/g, "").trim()))}`
+      `selectFieldByLabel("${labelForError}"): option "${optionText}" never appeared in the dropdown within ${timeout}ms (waited through any loading state). Available: ${JSON.stringify(
+        available.map((o) => o.replace(/[\u200B\uFEFF]/g, "").trim()),
+      )}`,
     );
   }
 
   // For required fields whose exact live option text in a given account's master data is
   // unverified, pick whatever renders first in the popover rather than guessing a literal string
   // that may not exist.
-  async selectFirstOptionByLabel(labelText, { scope = this.page.getByRole('main') } = {}) {
-    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, 'i');
+  async selectFirstOptionByLabel(
+    labelText,
+    { scope = this.page.getByRole("main") } = {},
+  ) {
+    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, "i");
     const combobox = scope
       .getByText(labelRegex)
       .first()
-      .locator('xpath=..')
-      .getByRole('combobox')
+      .locator("xpath=..")
+      .getByRole("combobox")
       .first();
     return this.selectFirstAvailableOption(combobox);
   }
@@ -189,15 +272,16 @@ class BasePage {
   // "Location" label lookup - needed for fields whose label can render under a broken/untranslated
   // i18n key (e.g. Procurement Request/RFQ's own Location field) where a plain "Location" text
   // match would miss it entirely.
-  async createLocationFromFooter(locationName, companyName, { scope = this.page.getByRole('main'), combobox } = {}) {
+  async createLocationFromFooter(
+    locationName,
+    companyName,
+    { scope = this.page.getByRole("main"), combobox } = {},
+  ) {
     if (!combobox) {
-      const escapedLabel = 'Location'.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-      const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, 'i');
-      const container = scope
-        .getByText(labelRegex)
-        .first()
-        .locator('xpath=..');
-      combobox = container.getByRole('combobox').first();
+      const escapedLabel = "Location".replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+      const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, "i");
+      const container = scope.getByText(labelRegex).first().locator("xpath=..");
+      combobox = container.getByRole("combobox").first();
     }
 
     // 1. Close any open dropdown before clicking (if listbox is already visible, clicking the
@@ -209,58 +293,80 @@ class BasePage {
     await combobox.click();
 
     // 3. Click "+ Create New Location" from the footer
-    await this.page.getByText('Create New Location', { exact: false }).click();
+    await this.page.getByText("Create New Location", { exact: false }).click();
 
     // 4. Wait for the dialog to be visible
-    const dialog = this.page.getByRole('dialog');
-    await dialog.waitFor({ state: 'visible' });
+    const dialog = this.page.getByRole("dialog");
+    await dialog.waitFor({ state: "visible" });
 
     // 5. Fill in Location Name and a unique Location Code
-    await dialog.getByPlaceholder('Enter Name').fill(locationName);
-    const code = 'LOC-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-    await dialog.getByPlaceholder('Enter Short Code').fill(code);
+    await dialog.getByPlaceholder("Enter Name").fill(locationName);
+    const code = "LOC-" + Math.random().toString(36).substr(2, 9).toUpperCase();
+    await dialog.getByPlaceholder("Enter Short Code").fill(code);
 
     // 6. Select Entity (Company) inside the dialog - try first available option, fall back to
     // "erp-force" if that fails or remains unselected
     try {
-      await this.selectFirstOptionByLabel('Entity', { scope: dialog });
+      await this.selectFirstOptionByLabel("Entity", { scope: dialog });
       // Verify it was actually selected (not just opening the dropdown)
       const selectedValue = await dialog
         .getByText(/^Entity\s*\*?$/, { exact: false })
         .first()
-        .locator('xpath=..')
-        .getByRole('combobox')
+        .locator("xpath=..")
+        .getByRole("combobox")
         .first()
         .inputValue()
-        .catch(() => '');
+        .catch(() => "");
       if (!selectedValue) {
-        throw new Error('Entity field still empty after selectFirstOptionByLabel');
+        throw new Error(
+          "Entity field still empty after selectFirstOptionByLabel",
+        );
       }
     } catch (e) {
       // Fallback: try to select "erp-force" specifically
-      await this.selectFieldByLabel('Entity', 'erp-force', { exact: false, scope: dialog, timeout: 5000 });
+      await this.selectFieldByLabel("Entity", "erp-force", {
+        exact: false,
+        scope: dialog,
+        timeout: 5000,
+      });
     }
 
     // 7. Save the new location
-    await dialog.getByRole('button', { name: 'Save' }).click();
+    await dialog.getByRole("button", { name: "Save" }).click();
 
     // 8. Wait for the dialog to close
-    await dialog.waitFor({ state: 'hidden' });
+    await dialog.waitFor({ state: "hidden" });
 
     // 9. Select the newly created location from the open listbox
-    const selected = await this.selectOptionFromListbox(locationName, { timeout: 7000 });
+    const selected = await this.selectOptionFromListbox(locationName, {
+      timeout: 7000,
+    });
     if (!selected) {
       // Ensure any dialog/backdrop is fully hidden/detached before manual selection fallback
-      await this.page.waitForSelector('.MuiDialog-root', { state: 'detached', timeout: 5000 }).catch(() => {});
-      await this.page.waitForSelector('.MuiBackdrop-root', { state: 'detached', timeout: 5000 }).catch(() => {});
+      await this.page
+        .waitForSelector(".MuiDialog-root", {
+          state: "detached",
+          timeout: 5000,
+        })
+        .catch(() => {});
+      await this.page
+        .waitForSelector(".MuiBackdrop-root", {
+          state: "detached",
+          timeout: 5000,
+        })
+        .catch(() => {});
       // Re-open the SAME combobox resolved above (not a fresh "Location" label lookup, which
       // would miss a broken/untranslated label) and retry the selection directly.
       // Close any lingering dropdowns first, same as the initial click (step 1).
       await this.page.keyboard.press("Escape").catch(() => {});
       await combobox.click();
-      const found = await this.selectOptionFromListbox(locationName, { timeout: 7000 });
+      const found = await this.selectOptionFromListbox(locationName, {
+        timeout: 7000,
+      });
       if (!found) {
-        throw new Error(`createLocationFromFooter("${locationName}"): created but never appeared selectable in the dropdown.`);
+        throw new Error(
+          `createLocationFromFooter("${locationName}"): created but never appeared selectable in the dropdown.`,
+        );
       }
     }
   }
@@ -272,10 +378,10 @@ class BasePage {
   // fields whose exact option text is unverified in this account); a string -> pick that option.
   async selectModalDropdown(modal, labelText, value = true) {
     const combobox = modal
-      .getByText(new RegExp(`^${labelText}`, 'i'))
+      .getByText(new RegExp(`^${labelText}`, "i"))
       .first()
-      .locator('xpath=..')
-      .getByRole('combobox')
+      .locator("xpath=..")
+      .getByRole("combobox")
       .first();
     if (value === true) {
       await this.selectFirstAvailableOption(combobox);
@@ -294,14 +400,14 @@ class BasePage {
   // trailing-required-asterisk handling as selectFieldByLabel/selectFirstOptionByLabel above.
   // Apply this ANY time getByLabel/getByPlaceholder times out on a plain input field in a new
   // module - it's the same underlying app pattern, not a one-off Leave Policy Master quirk.
-  fieldInputByLabel(labelText, { scope = this.page.getByRole('main') } = {}) {
-    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+  fieldInputByLabel(labelText, { scope = this.page.getByRole("main") } = {}) {
+    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
     const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`);
     return scope
       .getByText(labelRegex)
       .first()
-      .locator('xpath=..')
-      .locator('input')
+      .locator("xpath=..")
+      .locator("input")
       .first();
   }
 
@@ -398,7 +504,9 @@ class BasePage {
     // value resolves asynchronously - reading innerText() immediately can race that and capture
     // the placeholder instead of the real value (confirmed live: TC-VRA-06 intermittently read
     // back "Loading..." for Vendor).
-    await expect(valueLocator).not.toHaveText(/^Loading\.\.\.$/i, { timeout: 8000 }).catch(() => {});
+    await expect(valueLocator)
+      .not.toHaveText(/^Loading\.\.\.$/i, { timeout: 8000 })
+      .catch(() => {});
     const text = await valueLocator.innerText();
     return text.replace(/[\u200B\uFEFF]/g, "").trim();
   }
@@ -465,7 +573,9 @@ class BasePage {
       await expect(loading).not.toBeVisible({ timeout });
     } catch (e) {
       await this.page.reload();
-      await this.page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+      await this.page
+        .waitForLoadState("networkidle", { timeout: 15000 })
+        .catch(() => {});
     }
   }
 
@@ -480,10 +590,14 @@ class BasePage {
   // of a dropdown popover). Retrying the whole click against a freshly re-resolved backdrop check
   // is what actually recovers, not waiting longer on the same attempt.
   async dismissLingeringDialog() {
-    const backdrop = this.page.locator(".MuiDialog-root, .MuiBackdrop-root").first();
+    const backdrop = this.page
+      .locator(".MuiDialog-root, .MuiBackdrop-root")
+      .first();
     if (await backdrop.isVisible().catch(() => false)) {
       await this.page.keyboard.press("Escape").catch(() => {});
-      await backdrop.waitFor({ state: "hidden", timeout: 3000 }).catch(() => {});
+      await backdrop
+        .waitFor({ state: "hidden", timeout: 3000 })
+        .catch(() => {});
     }
   }
 
@@ -492,7 +606,10 @@ class BasePage {
   // is called fresh on every attempt (not a single captured locator) so a stale reference from a
   // failed attempt is never reused. Reusable across every module, not just RFQ/Procurement
   // Request's own item-modal flows.
-  async clickWithDialogRetry(locatorFactory, { attempts = 4, timeout = 5000 } = {}) {
+  async clickWithDialogRetry(
+    locatorFactory,
+    { attempts = 4, timeout = 5000 } = {},
+  ) {
     for (let attempt = 1; attempt <= attempts; attempt++) {
       await this.dismissLingeringDialog();
       try {
@@ -526,7 +643,9 @@ class BasePage {
   // appear, since nothing here ever retried. Verify the menu actually opened before returning,
   // and re-click if it didn't.
   async openSubmitMenu() {
-    const caret = this.page.getByRole("button", { name: "select merge strategy" });
+    const caret = this.page.getByRole("button", {
+      name: "select merge strategy",
+    });
     const menu = this.page.getByRole("menu");
     for (let attempt = 1; attempt <= 4; attempt++) {
       await caret.click();
@@ -667,21 +786,38 @@ class BasePage {
     // latency that round trip can take well over a second (confirmed live: a fixed 800ms wait
     // here left the table showing its PRE-search rows, well before the `search=<term>` request
     // had actually resolved) - wait for the real response instead of a guessed fixed delay.
+    // Match the exact encoded term, not just any "search=" URL: a plain "search=" substring match
+    // can resolve against a STALE response from an earlier searchList() call still in flight when
+    // a test searches twice in a row (confirmed live on Organization Structure's listing test -
+    // the second search's "No Data" assertion saw the first search's un-refreshed result row).
+    const encodedTerm = encodeURIComponent(term ?? "");
     const [response] = await Promise.all([
       this.page
-        .waitForResponse((r) => r.url().includes("search="), { timeout: 10000 })
+        .waitForResponse((r) => r.url().includes(`search=${encodedTerm}`), {
+          timeout: 10000,
+        })
         .catch(() => null),
       searchInput.fill(term),
     ]);
     if (response) {
-      await this.page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+      await this.page
+        .waitForLoadState("networkidle", { timeout: 15000 })
+        .catch(() => {});
+      // await this.waitForNetworkIdle();
     } else {
       // Fallback if no matching response was observed (e.g. searching for an empty string).
       await this.page.waitForTimeout(800);
     }
     // Dismiss the search popover by clicking safely outside at the top-left of the page, past the sidebar.
-    await this.page.locator('body').click({ position: { x: 300, y: 10 }, force: true }).catch(() => {});
-    await this.page.locator(".MuiPopover-root, .MuiMenu-root").first().waitFor({ state: "hidden", timeout: 3000 }).catch(() => {});
+    await this.page
+      .locator("body")
+      .click({ position: { x: 300, y: 10 }, force: true })
+      .catch(() => {});
+    await this.page
+      .locator(".MuiPopover-root, .MuiMenu-root")
+      .first()
+      .waitFor({ state: "hidden", timeout: 3000 })
+      .catch(() => {});
     // CONFIRMED LIVE (TC-PREQ-L01): SearchBar (erpforce-common-hub-fe) recreates its debounced
     // search callback in a useEffect keyed on the parent's own `handleSearch` reference, and that
     // effect's cleanup cancels whatever debounce is still pending - a second searchList() call
@@ -695,15 +831,30 @@ class BasePage {
   async clearSearch() {
     const searchInput = await this.ensureSearchInputOpen();
     await searchInput.fill("");
-    await this.page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+    await this.page
+      .waitForLoadState("networkidle", { timeout: 15000 })
+      .catch(() => {});
+    // await this.waitForNetworkIdle();
     // Dismiss the search popover by clicking safely outside at the top-left of the page, past the sidebar.
-    await this.page.locator('body').click({ position: { x: 300, y: 10 }, force: true }).catch(() => {});
-    await this.page.locator(".MuiPopover-root, .MuiMenu-root").first().waitFor({ state: "hidden", timeout: 3000 }).catch(() => {});
+    await this.page
+      .locator("body")
+      .click({ position: { x: 300, y: 10 }, force: true })
+      .catch(() => {});
+    await this.page
+      .locator(".MuiPopover-root, .MuiMenu-root")
+      .first()
+      .waitFor({ state: "hidden", timeout: 3000 })
+      .catch(() => {});
   }
 
   async getFirstRowSeriesNumber() {
-    const firstRowLink = this.page.locator('table tbody tr').first().locator('td').nth(2).locator('a');
-    return (await firstRowLink.innerText().catch(() => '')).trim();
+    const firstRowLink = this.page
+      .locator("table tbody tr")
+      .first()
+      .locator("td")
+      .nth(2)
+      .locator("a");
+    return (await firstRowLink.innerText().catch(() => "")).trim();
   }
 
   // t('common.noData') = "No Data" - rendered inside a Box.no-data (an image + this text), not
@@ -759,9 +910,14 @@ class BasePage {
   // exact-text locator against the whole phrase never matches. Read the pagination container's
   // own collapsed text content and let the caller regex-match against it instead.
   async getPaginationLabel() {
-    await this.page.locator(".pagination").waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
     await this.page
-      .locator(".MuiSkeleton-root, .MuiCircularProgress-root, .MuiLinearProgress-root, [role='progressbar']")
+      .locator(".pagination")
+      .waitFor({ state: "visible", timeout: 5000 })
+      .catch(() => {});
+    await this.page
+      .locator(
+        ".MuiSkeleton-root, .MuiCircularProgress-root, .MuiLinearProgress-root, [role='progressbar']",
+      )
       .first()
       .waitFor({ state: "detached", timeout: 10000 })
       .catch(() => {});
@@ -780,8 +936,13 @@ class BasePage {
 
   async changePageSize(size) {
     await this.pageSizeSelect().click();
-    await this.page.getByRole("option", { name: String(size), exact: true }).click();
-    await this.page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+    await this.page
+      .getByRole("option", { name: String(size), exact: true })
+      .click();
+    await this.page
+      .waitForLoadState("networkidle", { timeout: 15000 })
+      .catch(() => {});
+    // await this.waitForNetworkIdle();
   }
 
   // ---------- Filters (shared filter.tsx, react-querybuilder + QueryBuilderMaterial) ----------
@@ -792,7 +953,9 @@ class BasePage {
   // named per-field inputs: a rule is built by picking a Field, then an Operator, then a Value
   // whose editor type (select/date/text) depends on that field's schema-declared inputType.
   async openFilters() {
-    await this.page.getByRole("button", { name: "Filter", exact: true }).click();
+    await this.page
+      .getByRole("button", { name: "Filter", exact: true })
+      .click();
     await this.page
       .getByRole("dialog")
       .filter({ hasText: "Filters" })
@@ -807,7 +970,9 @@ class BasePage {
   // select field/operator/value for that row via the other filter methods below before adding
   // a second one.
   async addFilterRule() {
-    await this.filterDialog().getByRole("button", { name: "Add Filter" }).click();
+    await this.filterDialog()
+      .getByRole("button", { name: "Add Filter" })
+      .click();
   }
 
   // Field/Operator are both plain MUI Selects (field-select.tsx/operator-select.tsx) sharing the
@@ -842,12 +1007,19 @@ class BasePage {
   }
 
   async applyFilters() {
-    await this.filterDialog().getByRole("button", { name: "Apply", exact: true }).click();
-    await this.page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+    await this.filterDialog()
+      .getByRole("button", { name: "Apply", exact: true })
+      .click();
+    await this.page
+      .waitForLoadState("networkidle", { timeout: 15000 })
+      .catch(() => {});
+    // await this.waitForNetworkIdle();
   }
 
   async closeFilterDialog() {
-    await this.filterDialog().getByRole("button", { name: "Cancel", exact: true }).click();
+    await this.filterDialog()
+      .getByRole("button", { name: "Cancel", exact: true })
+      .click();
   }
 
   // "Clear all filters" (inside the still-open dialog) resets the query builder itself; the
@@ -861,8 +1033,13 @@ class BasePage {
       await this.applyFilters();
       return;
     }
-    await this.page.getByRole("button", { name: "Clear Filter", exact: true }).click();
-    await this.page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+    await this.page
+      .getByRole("button", { name: "Clear Filter", exact: true })
+      .click();
+    await this.page
+      .waitForLoadState("networkidle", { timeout: 15000 })
+      .catch(() => {});
+    // await this.waitForNetworkIdle();
   }
 
   // ---------- Row action menu (status/permission gating) ----------

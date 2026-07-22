@@ -514,7 +514,11 @@ const testData = {
     valid: {
       departmentCode: factory.uniqueName("DEPT"),
       departmentName: factory.uniqueName("Automation_Department"),
-      parentDepartment: "Test Operations",
+      // "Test Operations" no longer exists as a real Parent Department option in the live
+      // environment (confirmed via selectFieldByLabel's live dropdown dump) - "Debug Department"
+      // does and is stable/pinnable, same reasoning as this file's other pinned FK-reference
+      // values.
+      parentDepartment: "Debug Department",
       noOfTeams: "3",
       noOfSubDepartments: "2",
       status: "Active",
@@ -544,16 +548,38 @@ const testData = {
     duplicate: {
       departmentCode: "AUTO-1783589685387",
       departmentName: "Automation Dept 1783589685387",
-      parentDepartment: "Test Operations",
+      parentDepartment: "Debug Department",
       status: "Active",
     },
     inactive: {
       departmentCode: factory.uniqueName("DEPT_INACTIVE"),
       departmentName: factory.uniqueName("Inactive_Department"),
-      parentDepartment: "Test Operations",
+      parentDepartment: "Debug Department",
       status: "Inactive",
       description: "Inactive department for testing",
     },
+    // Company is required (utils/validation.ts: yup.number().required() on company_id) - pass
+    // `company: null` (not undefined) so DepartmentMasterPage.fillForm skips selecting a Company
+    // instead of falling back to its 'erp-force' default.
+    missingCompany: {
+      company: null,
+      departmentCode: factory.uniqueName("DEPT_NOCOMP"),
+      departmentName: "No Company Department",
+    },
+    // saveAsDraft (postV1DepartmentsDraft) bypasses methods.trigger() validation entirely
+    // (confirmed in add-department.hrms.tsx) - Department Code is deliberately omitted here to
+    // exercise that bypass; Publishing this same draft later requires filling Code first.
+    // Name deliberately avoids the substrings "Draft"/"Active"/"Inactive" - getRowStatus's
+    // `getByText(/Draft|Active|Inactive/).first()` would otherwise match the Name cell (which
+    // renders before the Status cell) instead of the actual status badge.
+    draftMinimal: {
+      departmentName: factory.uniqueName("Automation_Dept_ToPublish"),
+    },
+    // No max-length/regex/sanitization exists on Department Name beyond required + max(255)
+    // (utils/validation.ts) - these confirm the app stores arbitrary text as-is and React escapes
+    // it on render (no script execution, no raw HTML injection).
+    xssName: `XSS_${factory.uniqueName("Dept")}_<script>alert(1)</script>`,
+    sqlInjectionName: `SQLI_${factory.uniqueName("Dept")}_' OR 1=1 --`,
   },
 
   // ========================
@@ -810,6 +836,94 @@ const testData = {
     },
   },
 
+  // Salary Structure Master (erpforce-hrms-fe: src/views/salary-structure-master/) - route
+  // `/dashboard/hrms/company-master-policy/salary-structure-master`. Single scrolling form (4
+  // accordions: Basic Details / Components / Overtime / Classification), NOT a tab wizard like
+  // Leave Policy. Draft vs Active/Inactive only - no approval workflow. Field labels below are the
+  // exact rendered English strings confirmed from erpforce-be/translations/hrms.json, not guesses.
+  salaryStructureMaster: {
+    valid: {
+      // FK-reference: same live-verified Company used by Leave Policy/Company Calendar in this
+      // account. Selecting it also auto-fills the (disabled) Currency field via the company's
+      // currency_data (confirmed in form.tsx getSelectedData) - so Currency has no pinned value.
+      company: "erp-force",
+      // Employment Type is a STATIC DynamicSelect - options are exactly "Unlimited" / "Limited"
+      // (hardcoded in form.tsx), NOT free-form or master-data-backed. Not to be faker-generated.
+      employmentType: "Unlimited",
+      // Grade is a DynamicSearchSelect (apiType='grades'). This account's Grade master data has no
+      // stable/pinnable option text confirmed live, so the page object picks the first available
+      // option (selectFirstOptionByLabel) rather than asserting a literal here - same caution as
+      // Leave Policy's Location. Leave this undefined on purpose.
+      grade: undefined,
+      // Department is a DynamicDependentField filtered by Company. "QA" is confirmed present under
+      // erp-force (reused from leavePolicyMaster.valid.department).
+      department: "QA",
+      // Location is a DynamicDependentField filtered by Company; created on the fly via the
+      // dropdown's own "Create New Location" footer (see BasePage.createLocationFromFooter),
+      // since this account has no stable pinnable Location name.
+      location: factory.uniqueName("Automation_Location"),
+      structureName: factory.uniqueName("Automation_SalaryStructure"),
+      updatedStructureName: factory.uniqueName("Automation_SalaryStructure_UPDATED"),
+      minSalary: "10000",
+      maxSalary: "50000",
+    },
+    // Free-text name variants for validation cases.
+    draftMinimal: {
+      structureName: factory.uniqueName("Automation_SalaryStructure_Draft"),
+    },
+    // TODO: identify a second real, distinct Company in the live/dev environment before enabling
+    // the Company-switch dependency case (changing Company must clear Location/Department). Do NOT
+    // default this to "erp-force".
+    companyB: undefined,
+    negative: {
+      onlySpacesName: "   ",
+      negativeSalary: "-100",
+      // min > max pair - trips both min_less_than_max and max_greater_than_min yup tests.
+      minGreaterThanMax: { minSalary: "50000", maxSalary: "1000" },
+      nonNumericSalary: "abc",
+    },
+    // Exact rendered error strings (erpforce-be/translations/*.json), interpolated with the field
+    // label. Used for explicit assertions instead of loose regex where the wording is confirmed.
+    errors: {
+      companyRequired: "Company is required",
+      structureNameRequired: "Salary Structure Name is required",
+      gradeRequired: "Grades is required",
+      employmentTypeRequired: "Employment Type is required",
+      maxSalaryRequired: "Maximum Salary is required",
+      minPositive: "Minimum Salary must be a positive number",
+      maxPositive: "Maximum Salary must be a positive number",
+      minLessThanMax: "Minimum salary must be less than maximum salary",
+      maxGreaterThanMin: "Maximum salary must be greater than minimum salary",
+      overtimePercentageMax: "The percentage should not be more than 100",
+    },
+  },
+
+  // Loan Configuration (erpforce-hrms-fe: src/views/loan-configuration/) - route
+  // `/dashboard/hrms/loan-configuration`. Single scrolling form (5 accordions), NOT a tab wizard.
+  // Draft vs Active/Inactive only - no approval workflow. Company is the same live-verified
+  // "erp-force" value used by every other HRMS module in this suite. Category options are a
+  // STATIC frontend enum (loanCategoryOptions in utils/default-data.tsx) - "Personal Loan"/"Home
+  // Loan"/"Car Loan"/"Education Loan"/"Business Loan" - not master-data-backed, so these are safe
+  // to hardcode, unlike Company/Location/Department.
+  loanConfiguration: {
+    valid: {
+      company: "erp-force",
+      category: "Personal Loan",
+      loanName: factory.uniqueName("Automation_LoanConfig"),
+      updatedLoanName: factory.uniqueName("Automation_LoanConfig_UPDATED"),
+      maxLoanAmountValue: "50000",
+      maxTenureMonths: "24",
+      interestRate: "10",
+      latePenaltyValue: "500",
+    },
+    negative: {
+      negativeMaxLoanAmount: "-1000",
+      negativeInterestRate: "-5",
+      overMaxInterestRate: "100.01",
+      negativeMinCtc: "-1",
+      negativeMaxActiveLoans: "-2",
+    },
+  },
 };
 
 module.exports = testData;
