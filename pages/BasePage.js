@@ -26,6 +26,10 @@ class BasePage {
     });
   }
 
+  async waitForNetworkIdle(timeout = 3000) {
+    await this.page.waitForLoadState("networkidle", { timeout }).catch(() => null);
+  }
+
   // Gross/Tax/Net/Total amounts in an item modal are computed by a debounced effect after
   // Quantity/Rate change; saving before it fires submits null amounts, which the backend
   // rejects as a "details mismatch".
@@ -62,7 +66,7 @@ class BasePage {
       .getByRole("listbox")
       .getByRole("option")
       .filter({ hasNot: this.page.locator("input") })
-      .filter({ hasNotText: /Select|No data available/ })
+      .filter({ hasNotText: /Select|No data available|Create New/ })
       .first();
     await firstOption.waitFor({ state: "visible", timeout: 7000 });
     await firstOption.click();
@@ -75,16 +79,32 @@ class BasePage {
   // instead of racing it. Returns a boolean so callers that branch on presence (e.g. RfqPage's
   // re-select-Entity flow) keep working unchanged.
   async selectOptionFromListbox(optionText, { timeout = 10000 } = {}) {
-    const option = this.page
+    const listboxOptions = this.page
       .getByRole("listbox")
       .getByRole("option")
-      .filter({ hasNot: this.page.locator("input") })
-      .filter({ hasText: optionText })
-      .first();
+      .filter({ hasNot: this.page.locator("input") });
+
+    // Prefer an exact-text match first - the plain-string `hasText` filter below is a substring
+    // match, which silently picks the WRONG option whenever the live list has another entry that
+    // merely contains optionText (confirmed live: Organization Structure's Designation list
+    // includes "HR branch Manager1" alongside a literal "Manager" option - a substring filter's
+    // .first() picked "HR branch Manager1" because it happened to render earlier in DOM order).
+    // Only fall back to the substring filter if no exact match ever appears, preserving existing
+    // behavior for every other caller's option text (icons/whitespace variants, etc.).
+    const escaped = optionText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const exactOption = listboxOptions.filter({ hasText: new RegExp(`^\\s*${escaped}\\s*$`) }).first();
+    const substringOption = listboxOptions.filter({ hasText: optionText }).first();
+
+    let option = exactOption;
     try {
-      await expect(option).toBeVisible({ timeout });
+      await expect(option).toBeVisible({ timeout: Math.min(3000, timeout) });
     } catch (e) {
-      return false;
+      option = substringOption;
+      try {
+        await expect(option).toBeVisible({ timeout: Math.max(timeout - 3000, 1000) });
+      } catch (e2) {
+        return false;
+      }
     }
     await option.scrollIntoViewIfNeeded().catch(() => { });
     await option.click();
@@ -142,7 +162,14 @@ class BasePage {
       .first()
       .locator('xpath=..');
     const combobox = fieldContainer.getByRole('combobox').first();
+    return this.selectInCombobox(combobox, optionText, { timeout, labelForError: labelText });
+  }
 
+  // Extracted from selectFieldByLabel so a page object whose fields need a differently-scoped
+  // combobox lookup (e.g. OrganizationStructurePage.sidebarFieldCombobox, where the label's own
+  // parent isn't a safe scope - see that file for why) can reuse this same click/retry/typing
+  // logic against an already-resolved combobox locator instead of duplicating it.
+  async selectInCombobox(combobox, optionText, { timeout = 10000, labelForError = '' } = {}) {
     const textVal = ((await combobox.textContent()) || '').replace(/[\u200B\uFEFF]/g, "").trim();
     const inputVal = ((await combobox.inputValue().catch(() => '')) || '').replace(/[\u200B\uFEFF]/g, "").trim();
     const currentValue = textVal || inputVal;
@@ -151,12 +178,27 @@ class BasePage {
     }
 
     await combobox.click();
-    const found = await this.selectOptionFromListbox(optionText, { timeout });
+    let found = await this.selectOptionFromListbox(optionText, { timeout: Math.min(3000, timeout) });
     if (found) return;
+
+    // Try typing/searching for the option if it wasn't found in the initial open list
+    try {
+      const input = combobox.locator('input').first();
+      if (await input.isVisible()) {
+        await input.fill(optionText);
+      } else {
+        await combobox.fill(optionText);
+      }
+      await this.page.waitForTimeout(500); // small delay for filter request
+      found = await this.selectOptionFromListbox(optionText, { timeout: Math.max(5000, timeout - 3000) });
+      if (found) return;
+    } catch (e) {
+      // Swallowed: combobox or input may not be editable
+    }
 
     const available = await this.page.getByRole("listbox").getByRole("option").allTextContents();
     throw new Error(
-      `selectFieldByLabel("${labelText}"): option "${optionText}" never appeared in the dropdown within ${timeout}ms (waited through any loading state). Available: ${JSON.stringify(available.map((o) => o.replace(/[\u200B\uFEFF]/g, "").trim()))}`
+      `selectFieldByLabel("${labelForError}"): option "${optionText}" never appeared in the dropdown within ${timeout}ms (waited through any loading state). Available: ${JSON.stringify(available.map((o) => o.replace(/[\u200B\uFEFF]/g, "").trim()))}`
     );
   }
 
@@ -495,14 +537,19 @@ class BasePage {
     // latency that round trip can take well over a second (confirmed live: a fixed 800ms wait
     // here left the table showing its PRE-search rows, well before the `search=<term>` request
     // had actually resolved) - wait for the real response instead of a guessed fixed delay.
+    // Match the exact encoded term, not just any "search=" URL: a plain "search=" substring match
+    // can resolve against a STALE response from an earlier searchList() call still in flight when
+    // a test searches twice in a row (confirmed live on Organization Structure's listing test -
+    // the second search's "No Data" assertion saw the first search's un-refreshed result row).
+    const encodedTerm = encodeURIComponent(term ?? "");
     const [response] = await Promise.all([
       this.page
-        .waitForResponse((r) => r.url().includes("search="), { timeout: 10000 })
+        .waitForResponse((r) => r.url().includes(`search=${encodedTerm}`), { timeout: 10000 })
         .catch(() => null),
       searchInput.fill(term),
     ]);
     if (response) {
-      await this.page.waitForLoadState("networkidle");
+      await this.waitForNetworkIdle();
     } else {
       // Fallback if no matching response was observed (e.g. searching for an empty string).
       await this.page.waitForTimeout(800);
@@ -515,7 +562,7 @@ class BasePage {
   async clearSearch() {
     const searchInput = await this.ensureSearchInputOpen();
     await searchInput.fill("");
-    await this.page.waitForLoadState("networkidle");
+    await this.waitForNetworkIdle();
     // Dismiss the search popover by clicking safely outside at the top-left of the page, past the sidebar.
     await this.page.locator('body').click({ position: { x: 300, y: 10 }, force: true }).catch(() => {});
     await this.page.locator(".MuiPopover-root, .MuiMenu-root").first().waitFor({ state: "hidden", timeout: 3000 }).catch(() => {});
@@ -596,7 +643,7 @@ class BasePage {
   async changePageSize(size) {
     await this.pageSizeSelect().click();
     await this.page.getByRole("option", { name: String(size), exact: true }).click();
-    await this.page.waitForLoadState("networkidle");
+    await this.waitForNetworkIdle();
   }
 
   // ---------- Filters (shared filter.tsx, react-querybuilder + QueryBuilderMaterial) ----------
@@ -658,7 +705,7 @@ class BasePage {
 
   async applyFilters() {
     await this.filterDialog().getByRole("button", { name: "Apply", exact: true }).click();
-    await this.page.waitForLoadState("networkidle");
+    await this.waitForNetworkIdle();
   }
 
   async closeFilterDialog() {
@@ -677,7 +724,7 @@ class BasePage {
       return;
     }
     await this.page.getByRole("button", { name: "Clear Filter", exact: true }).click();
-    await this.page.waitForLoadState("networkidle");
+    await this.waitForNetworkIdle();
   }
 
   // ---------- Row action menu (status/permission gating) ----------

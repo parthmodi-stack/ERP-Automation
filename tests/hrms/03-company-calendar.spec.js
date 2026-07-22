@@ -20,6 +20,10 @@ const testDataFactory = require('../../config/testDataFactory');
 // - Cross Browser/Accessibility/raw API-mocking scenarios are out of scope for the same reasons
 //   documented in 02-document-master.spec.js (single Chrome project, this suite drives the real
 //   backend rather than mocking it).
+// - Calendar Name length limit/special-character rejection and "Duplicate Save Prevention" are NOT
+//   tested - confirmed in validation.ts / add-calendar.hrms.tsx there's no max()/regex rule and no
+//   disabled-while-saving guard on the Save button, so asserting either would assert behavior the
+//   app doesn't implement (same reasoning CompanyCalendarPage.js's header comment records).
 test.describe('Company Calendar Module', () => {
   test.slow();
   let created = {};
@@ -63,6 +67,10 @@ test.describe('Company Calendar Module', () => {
 
     await expect(page.getByText(data.calendarName, { exact: false }).first()).toBeVisible();
 
+    // Basic Details: ID and Status (Chip in the breadcrumb, class-based per view-calendar.hrms.tsx).
+    await expect(page.getByText(created.seriesNumber, { exact: false }).first()).toBeVisible();
+    await expect(cal.viewStatusBadge()).toContainText('Active');
+
     // Default working days: Mon-Fri show the pre-filled range, Sat/Sun show Closed/N/A and a
     // Week-Off badge (confirmed default in utils/default-data.ts `defaultWorkingDays`).
     await expect(cal.getViewWorkingHoursText('Monday')).resolves.toMatch(/09:00 AM.*06:00 PM/);
@@ -75,6 +83,34 @@ test.describe('Company Calendar Module', () => {
     for (const holiday of data.holidays) {
       await expect(page.getByText(holiday.title, { exact: true })).toBeVisible();
     }
+
+    // Classification: Location/Department saved in TC-CAL-01 render in their own accordion.
+    await expect(page.getByText(data.location, { exact: false }).first()).toBeVisible();
+    await expect(page.getByText(data.department, { exact: false }).first()).toBeVisible();
+
+    // Summary Panel (left sidebar) - Summary/Activity tabs (summary.tsx); it duplicates
+    // ID/Calendar Name/Company Name already asserted above, so only the panel's own structure
+    // (its tabs) is worth a distinct assertion here.
+    await expect(page.getByRole('tab', { name: 'Summary' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Activity' })).toBeVisible();
+  });
+
+  // ── TC-CAL-07: View page Actions menu ─────────────────────────────────────
+  test('TC-CAL-07 [+] View page Action Menu offers Edit and Delete, and Edit navigates with data preloaded', async ({ page }) => {
+    const cal = new CompanyCalendarPage(page);
+
+    await cal.gotoList();
+    await cal.searchList(created.seriesNumber);
+    await cal.openViewFromList(created.seriesNumber);
+
+    await cal.openViewActionsMenu();
+    await expect(page.getByRole('menuitem', { name: 'Delete', exact: true })).toBeVisible();
+
+    // Clicking Edit (from the View page's OWN Actions menu, not the list row's) should route to
+    // the Edit form with this record's data already loaded.
+    await cal.openEditFromView();
+    await expect(page).toHaveURL(/edit-company-calendar/);
+    await expect(cal.calendarNameInput).toHaveValue(created.calendarName);
   });
 
   // ── TC-CAL-03: Edit Company Calendar ─────────────────────────────────────
@@ -139,18 +175,22 @@ test.describe('Company Calendar Module', () => {
     await expect(await cal.getRowStatus(draftRecord.seriesNumber)).toMatch(/Draft/);
   });
 
-  // ── TC-CAL-05: Discard ────────────────────────────────────────────────────
-  test('TC-CAL-05 [-] Discard a new Company Calendar - no record is created', async ({ page }) => {
+  // ── TC-CAL-05: Discard Changes ────────────────────────────────────────────
+  test('TC-CAL-05 [+] Edit Company Calendar - Discard Changes preserves original Calendar Name', async ({ page }) => {
     const cal = new CompanyCalendarPage(page);
-    const discardedName = `${testData.companyCalendar.valid.calendarName}_DISCARDED`;
 
-    await cal.goto();
-    await cal.fillBasicDetails({ calendarName: discardedName, company: testData.companyCalendar.valid.company });
+    await cal.gotoList();
+    await cal.searchList(created.seriesNumber);
+    await cal.openEditFromList(created.seriesNumber);
+
+    await cal.calendarNameInput.fill('Should Not Persist Name');
     await cal.discardButton.click();
+    await page.waitForURL('**/hrms/company-master-policy/company-calendar');
+    await page.waitForLoadState('networkidle');
 
-    await expect(page).toHaveURL(/\/company-calendar$/);
-    await cal.searchList(discardedName);
-    await expect(cal.noDataRow()).toBeVisible();
+    await cal.searchList(created.calendarName);
+    await expect(page.getByText(created.calendarName, { exact: false }).first()).toBeVisible();
+    await expect(page.getByText('Should Not Persist Name')).not.toBeVisible();
   });
 
   // ── TC-CAL-06: Delete Company Calendar ────────────────────────────────────
@@ -306,6 +346,34 @@ test.describe('Company Calendar Module', () => {
       await cal.gotoList();
       await cal.searchList(created.calendarName);
       await expect(await cal.getRowStatus(created.seriesNumber)).toMatch(/Active/);
+    });
+  });
+
+  // ── Browser Navigation ─────────────────────────────────────────────────────
+  test.describe('Browser Navigation', () => {
+    test('TC-CAL-N01 [+] Refresh on the list page preserves the URL and reloads data', async ({ page }) => {
+      const cal = new CompanyCalendarPage(page);
+      await cal.gotoList();
+      await cal.searchList(created.calendarName);
+
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(page).toHaveURL(/\/company-calendar$/);
+    });
+
+    test('TC-CAL-N02 [+] Browser Back/Forward between List and View', async ({ page }) => {
+      const cal = new CompanyCalendarPage(page);
+      await cal.gotoList();
+      await cal.searchList(created.seriesNumber);
+      await cal.openViewFromList(created.seriesNumber);
+
+      await page.goBack();
+      await page.waitForLoadState('networkidle');
+      await expect(page).toHaveURL(/\/company-calendar$/);
+
+      await page.goForward();
+      await page.waitForLoadState('networkidle');
+      await expect(page).toHaveURL(/view-company-calendar/);
     });
   });
 });

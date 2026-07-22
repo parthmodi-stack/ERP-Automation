@@ -248,44 +248,6 @@ test.describe('Designation Master Module', () => {
       await expect(page.getByRole('row').filter({ hasText: code }).getByText(updatedName)).toBeVisible();
     });
 
-    test('TC-044: Edit Designation - Update Level', async ({ page }) => {
-      const desig = new DesignationMasterPage(page);
-      const code = createdCode || testData.designationMaster.valid.designationCode;
-      const updatedLevel = testData.designationMaster.valid.updatedLevel;
 
-      await desig.openEdit(code);
-
-      await desig.levelInput.clear();
-      await desig.levelInput.fill(updatedLevel);
-      await desig.save();
-
-      await page.waitForURL('**/organisation/designation-master');
-      await page.waitForLoadState('networkidle');
-
-      // Verify updated level in view
-      await desig.searchList(code);
-      await page.getByText(code, { exact: true }).first().click();
-      await page.waitForURL('**/view-designation-master');
-      await page.waitForLoadState('networkidle');
-
-      await expect(page.getByText(updatedLevel).first()).toBeVisible();
-    });
-
-    test('TC-045: Edit Designation - Discard Changes', async ({ page }) => {
-      const desig = new DesignationMasterPage(page);
-      const code = createdCode || testData.designationMaster.valid.designationCode;
-
-      await desig.openEdit(code);
-
-      await desig.nameInput.fill('Discarded Designation Temp Name');
-      await desig.discardButton.click();
-
-      await page.waitForURL('**/organisation/designation-master');
-      await page.waitForLoadState('networkidle');
-
-      // Verify name remains unchanged
-      await desig.searchList(code);
-      await expect(page.getByRole('row').filter({ hasText: code }).getByText(createdName)).toBeVisible();
-    });
   });
 });

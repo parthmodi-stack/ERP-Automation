@@ -16,6 +16,14 @@ const testData = require('../../config/testData');
 // this suite. Extend OrganizationStructurePage with that flow once verified, then add those
 // cases here - don't guess the selectors in the meantime.
 test.describe('Organization Structure Module', () => {
+  // Same reasoning as SalaryStructureMasterPage's suite (also drives createLocationFromFooter's
+  // full create-location-inline flow from within a sidebar): the default 30s test timeout is too
+  // tight once this step actually runs to completion (open sidebar, select Company, open the
+  // Location footer modal, fill+save it, re-select the new option, select Designation, then save
+  // the node) - confirmed live, TC-ORG-01 hit the 30s default and got its browser force-closed
+  // mid-step even though nothing was actually broken.
+  test.describe.configure({ timeout: 90000 });
+
   // Captured across tests in this file (single-worker, sequential execution - see
   // playwright.config.js) so later tests can act on the record TC-ORG-01 created, the same
   // pattern tests/inventory/02-location.spec.js uses for its "updatedName" record.
@@ -68,6 +76,14 @@ test.describe('Organization Structure Module', () => {
   });
 
   // ── TC-ORG-03: View Organization Structure ───────────────────────────────
+  // Only Company (node header) and Employee/Designation (node "person" block) actually render on
+  // the canvas - confirmed in erpforce-hrms-fe's company-node.tsx, Location is typed on the node's
+  // data shape but never rendered in its JSX anywhere. The View page also can't open a node's
+  // sidebar to check Location a different way: view-organization-structure.tsx renders
+  // OrgFlowBuilder without an onNodeClick prop at all, so clicking a node in View mode is a no-op.
+  // Location IS verified elsewhere (TC-ORG-02 reads it back from the Edit sidebar right after
+  // selecting it) - don't reintroduce a canvas-text assertion for it here without first confirming
+  // live that the app actually changed to render it.
   test('TC-ORG-03 [+] View Organization Structure - verify saved values render on the canvas', async ({ page }) => {
     const org = new OrganizationStructurePage(page);
 
@@ -75,9 +91,6 @@ test.describe('Organization Structure Module', () => {
     await org.openViewFromList(created.seriesNumber);
 
     await expect(page.getByText(created.company, { exact: false }).first()).toBeVisible();
-    if (created.location) {
-      await expect(page.getByText(created.location, { exact: false }).first()).toBeVisible();
-    }
   });
 
   // ── TC-ORG-04: Field validation on the Company sidebar ───────────────────
@@ -98,12 +111,19 @@ test.describe('Organization Structure Module', () => {
     await expect(org.designationRequiredError).toBeVisible();
 
     // Fixing only Designation should clear just that field's error (TC-V07: correcting an
-    // invalid field clears its own error without needing to resubmit the whole form).
-    const data = testData.organizationStructure.valid;
-    await org.selectFieldByLabel(org.designationField, data.designation, { exact: false });
+    // invalid field clears its own error without needing to resubmit the whole form). Company is
+    // still cleared here, so Designation's option list is unfiltered/live-data-dependent - pick
+    // whatever renders first rather than pinning to a specific designation title (see
+    // selectFirstAvailableSidebarOption's comment).
+    await org.selectFirstAvailableSidebarOption(org.designationField);
     await expect(org.designationRequiredError).not.toBeVisible();
     await expect(org.companyRequiredError).toBeVisible();
 
+    // The Company sidebar is a MUI Drawer (variant="temporary", generic-sidebar.tsx) with its
+    // default backdrop still up (validation errors kept it open) - that backdrop intercepts
+    // clicks on the page-level Discard button behind it, confirmed live as a 15s actionability
+    // timeout. Escape closes the Drawer (MUI's default behavior) before we click Discard.
+    await page.keyboard.press('Escape');
     await org.discardButton.click();
   });
 
@@ -137,7 +157,13 @@ test.describe('Organization Structure Module', () => {
     await org.gotoList();
     await org.deleteFromList(draft.seriesNumber);
 
-    await org.searchList(draft.company);
+    // Search by Location, not Company: every record in this suite (and most of this account's
+    // live data) shares the same Company "erp-force", so searching by draft.company would still
+    // match plenty of OTHER records after the delete and never actually show "No Data" - Location
+    // is the one field on this record that's actually unique (factory.uniqueName), confirmed live
+    // when searching by draft.company returned five unrelated Published rows post-delete instead
+    // of an empty result.
+    await org.searchList(draft.location);
     await expect(org.noDataRow()).toBeVisible();
   });
 
@@ -149,6 +175,12 @@ test.describe('Organization Structure Module', () => {
       await org.searchList(created.company);
       await expect(page.getByText(created.company, { exact: false }).first()).toBeVisible();
 
+      // Fresh gotoList() instead of re-searching the same open list: confirmed live that a second
+      // searchList() call right after the first never actually fires its debounced API request
+      // (waitForResponse timed out with no matching request at all) on this listing page, so the
+      // table was just showing the first search's stale, un-refreshed result. A reload before the
+      // second search avoids depending on that unconfirmed same-session re-search behavior.
+      await org.gotoList();
       await org.searchList('zzz-no-such-organization-zzz');
       await expect(org.noDataRow()).toBeVisible();
     });

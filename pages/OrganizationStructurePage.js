@@ -93,9 +93,16 @@ class OrganizationStructurePage extends BasePage {
     await this.page.getByText(companyName, { exact: false }).first().click();
   }
 
+  // Company sidebar Drawer portals outside the <main> landmark (confirmed live: BasePage's
+  // default scope of page.getByRole('main') matches zero elements for any sidebar field), so any
+  // helper that needs to reach into the sidebar must scope to this locator explicitly instead.
+  sidebarScope() {
+    return this.page.locator('div').filter({ hasText: 'Save & Add' }).first();
+  }
+
   // Helper to clear the auto-selected company value for validation tests
   async clearCompanySelection() {
-    const sidebar = this.page.locator('div').filter({ hasText: 'Save & Add' }).first();
+    const sidebar = this.sidebarScope();
     const combobox = sidebar.getByText(this.companyNameField).first().locator('xpath=following::*[@role="combobox"][1]');
     await combobox.hover();
     await sidebar.getByRole('button', { name: 'clear selection' }).first().click();
@@ -103,13 +110,98 @@ class OrganizationStructurePage extends BasePage {
 
   // Override getEditComboboxValue to scope it to the sidebar drawer, avoiding background table header collisions
   async getEditComboboxValue(label) {
-    const sidebar = this.page.locator('div').filter({ hasText: 'Save & Add' }).first();
-    const text = await sidebar
+    const text = await this.sidebarScope()
       .getByText(label, { exact: true })
       .first()
       .locator("xpath=following-sibling::*[1]")
       .innerText();
     return text.replace(/[\u200B\uFEFF]/g, "").trim();
+  }
+
+  // The sidebar's Company Name/Location/Designation/Employee fields are FLAT siblings under one
+  // shared Box (confirmed live via a failed run's page snapshot) - each field is a bare
+  // `<p>` label immediately followed by its own combobox wrapper, NOT individually wrapped in a
+  // per-field container. BasePage's default field lookup (`getByText(label).locator('xpath=..')`)
+  // assumes the label's parent contains only that field's own combobox, which holds for every
+  // other module's forms but not this one: here that parent is the WHOLE shared Box, so
+  // `.getByRole('combobox').first()` always resolves to Company Name's combobox (the first field
+  // in DOM order) no matter which label was actually searched. Use the label's own
+  // following-sibling instead - same fix already applied to getEditComboboxValue above.
+  sidebarFieldCombobox(labelText, scope = this.sidebarScope()) {
+    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, 'i');
+    return scope
+      .getByText(labelRegex)
+      .first()
+      .locator('xpath=following-sibling::*[1]')
+      .getByRole('combobox')
+      .first();
+  }
+
+  // Reuses BasePage's click/retry/typing logic (selectInCombobox) against a correctly-scoped
+  // sidebar combobox - see sidebarFieldCombobox above for why the plain selectFieldByLabel isn't
+  // safe to use directly on this sidebar's fields.
+  async selectSidebarFieldByLabel(labelText, optionText, { scope = this.sidebarScope() } = {}) {
+    return this.selectInCombobox(this.sidebarFieldCombobox(labelText, scope), optionText, { labelForError: labelText });
+  }
+
+  // Same reasoning as BasePage.selectFirstOptionByLabel: for a field whose exact live option set
+  // in this state is unverified/unstable, pick whatever renders first instead of pinning to a
+  // literal string. Designation is filtered by Company (filterFields), so with Company cleared
+  // (TC-ORG-04's validation scenario) it falls back to an unfiltered, live-data-dependent option
+  // list - confirmed live that a fixed "Manager" string isn't reliably the option that appears
+  // there (a different entry whose text happens to contain "Manager" can render first instead).
+  async selectFirstAvailableSidebarOption(labelText, { scope = this.sidebarScope() } = {}) {
+    return this.selectFirstAvailableOption(this.sidebarFieldCombobox(labelText, scope));
+  }
+
+  // Overrides BasePage.createLocationFromFooter only to fix which combobox gets clicked open -
+  // same underlying flat-sibling DOM issue as sidebarFieldCombobox above (confirmed live: this
+  // was silently clicking the already-selected Company combobox instead of Location's, then
+  // hanging waiting for "Create New Location" text that never appears in a list of company
+  // options). Everything after the initial click (footer click, dialog fill, selecting Company
+  // *inside* the dialog, and the fallback re-select) is unchanged from BasePage's version -
+  // the LocationAddModal dialog is a normal individually-wrapped form, so BasePage's own
+  // selectFieldByLabel is correct there.
+  async createLocationFromFooter(locationName, companyName, { scope = this.sidebarScope() } = {}) {
+    const combobox = this.sidebarFieldCombobox(this.locationField, scope);
+
+    // 1. Click the combobox to open the listbox
+    await combobox.click();
+
+    // 2. Click "+ Create New Location" from the footer
+    await this.page.getByText('Create New Location', { exact: false }).click();
+
+    // 3. Wait for the dialog to be visible
+    const dialog = this.page.getByRole('dialog');
+    await dialog.waitFor({ state: 'visible' });
+
+    // 4. Fill in Location Name and a unique Location Code
+    await dialog.getByPlaceholder('inventory.item.locationModal.location_name_placeholder').fill(locationName);
+    const code = 'LOC-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+    await dialog.getByPlaceholder('inventory.item.locationModal.location_code_placeholder').fill(code);
+
+    // 5. Select Company inside the dialog (normal individually-wrapped form - base implementation is fine here)
+    await this.selectFieldByLabel(
+      'accounting.authorize_commission.fields.company_label',
+      companyName,
+      { exact: false, scope: dialog }
+    );
+
+    // 6. Save the new location
+    await dialog.getByRole('button', { name: 'Save' }).click();
+
+    // 7. Wait for the dialog to close
+    await dialog.waitFor({ state: 'hidden' });
+
+    // 8. Select the newly created location from the open listbox
+    const selected = await this.selectOptionFromListbox(locationName, { timeout: 7000 });
+    if (!selected) {
+      // Ensure any dialog/backdrop is fully hidden/detached before manual selection fallback
+      await this.page.waitForSelector('.MuiDialog-root', { state: 'detached', timeout: 5000 }).catch(() => {});
+      await this.page.waitForSelector('.MuiBackdrop-root', { state: 'detached', timeout: 5000 }).catch(() => {});
+      await this.selectSidebarFieldByLabel(this.locationField, locationName, { scope });
+    }
   }
 
   // Fills the Company sidebar's fields and reads back whichever values actually got selected.
@@ -120,15 +212,15 @@ class OrganizationStructurePage extends BasePage {
   // Location" footer instead of guessing an existing name.
   // Returns the values actually chosen, for later assertions.
   async fillCompanySidebar({ company, location, designation }) {
-    const sidebar = this.page.locator('div').filter({ hasText: 'Save & Add' }).first();
+    const sidebar = this.sidebarScope();
     if (company) {
-      await this.selectFieldByLabel(this.companyNameField, company, { exact: false, scope: sidebar });
+      await this.selectSidebarFieldByLabel(this.companyNameField, company, { scope: sidebar });
     }
     if (location) {
       await this.createLocationFromFooter(location, company || 'erp-force', { scope: sidebar });
     }
     if (designation) {
-      await this.selectFieldByLabel(this.designationField, designation, { exact: false, scope: sidebar });
+      await this.selectSidebarFieldByLabel(this.designationField, designation, { scope: sidebar });
     }
 
     return {

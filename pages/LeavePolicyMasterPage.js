@@ -181,8 +181,11 @@ class LeavePolicyMasterPage extends BasePage {
   }
 
   dependentFieldCombobox(labelText) {
+    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, 'i');
     return this.page
-      .getByText(labelText, { exact: false })
+      .locator('main')
+      .getByText(labelRegex)
       .first()
       .locator('xpath=..')
       .getByRole('combobox')

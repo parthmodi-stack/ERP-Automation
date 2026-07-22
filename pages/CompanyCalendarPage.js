@@ -27,6 +27,16 @@ const BasePage = require('./BasePage');
 //     forwarded per calendar-card.tsx's actual props - they're located structurally (scoped to a
 //     day's card + row), not by label/name, unlike Calendar Name (uses MUI TextField's real
 //     `label` prop, so `getByLabel` works for it).
+//   - Location/Department (Classification) are BOTH optional - validation.ts has no rule for
+//     either - and single-select (DynamicDependentField, not multi-select), confirmed in form.tsx.
+//   - The View page has its own "Actions" button + Menu (Edit/Delete, gated by canEdit/canDelete),
+//     separate from the list row's "..." menu - view-calendar.hrms.tsx.
+//   - The View page's left Summary panel (summary.tsx) shows only ID/Calendar Name/Company Name
+//     plus a "Activity" tab - no working-days/holiday counts despite the module having them.
+//   - Calendar Name has no max-length/regex/uniqueness rule in validation.ts, and no per-field
+//     save-in-flight disable exists on the Save button - so length-limit, special-character-
+//     rejection, and duplicate-save-prevention scenarios would be asserting behavior the app does
+//     not implement.
 class CompanyCalendarPage extends BasePage {
   constructor(page) {
     super(page);
@@ -259,6 +269,27 @@ class CompanyCalendarPage extends BasePage {
     await this.page.waitForURL('**/view-company-calendar');
     await this.page.waitForLoadState('load');
     await this.page.locator('role=progressbar').waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {});
+  }
+
+  // ---------- View page: Actions menu / status badge ----------
+  // View page has its OWN "Actions" button/menu (view-calendar.hrms.tsx) distinct from the list
+  // row's "..." menu - same Edit/Delete MenuItem labels, gated by canEdit/canDelete permissions.
+  async openViewActionsMenu() {
+    await this.viewActionsButton.click();
+  }
+
+  async openEditFromView() {
+    await this.openViewActionsMenu();
+    await this.page.getByRole('menuitem', { name: 'Edit', exact: true }).click();
+    await this.page.waitForURL('**/edit-company-calendar');
+    await this.page.waitForLoadState('load');
+    await this.page.locator('role=progressbar').waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {});
+  }
+
+  // Status Chip in the View page's breadcrumb - class is literally
+  // `viewCalendarEntry--StatusChip--Draft`/`--Active` (view-calendar.hrms.tsx breadCrumbPath).
+  viewStatusBadge() {
+    return this.page.locator('[class*="viewCalendarEntry--StatusChip--"]').first();
   }
 }
 
