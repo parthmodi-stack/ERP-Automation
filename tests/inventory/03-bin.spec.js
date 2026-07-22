@@ -2,6 +2,7 @@ const { test, expect } = require('@playwright/test');
 const BinPage      = require('../../pages/BinPage');
 const LocationPage = require('../../pages/LocationPage');
 const testData     = require('../../config/testData');
+const { videoContextOptions, finalizeSharedVideo } = require('../../helpers/sharedContextVideo');
 
 test.describe('Bin Management', () => {
 
@@ -11,7 +12,13 @@ test.describe('Bin Management', () => {
   const locData = testData.location.valid;
 
   test.beforeAll(async ({ browser }) => {
-    const context = await browser.newContext({ storageState: 'auth.json' });
+    // The default 30s hook timeout is tight for the cold-start path below
+    // (creating the location from scratch involves ~10 slowMo'd actions) -
+    // give it real headroom since that path only runs on a true first/
+    // standalone run, not when 02-location.spec.js already created it.
+    test.setTimeout(90000);
+
+    const context = await browser.newContext({ storageState: 'auth.json', ...videoContextOptions() });
     page = await context.newPage();
     bin  = new BinPage(page);
 
@@ -71,7 +78,7 @@ test.describe('Bin Management', () => {
   });
 
   test.afterAll(async () => {
-    await page.context().close();
+    await finalizeSharedVideo(page, __filename);
   });
 
   // ── TC-BIN-01: Create Bin - Save with Name empty ────────────────────────

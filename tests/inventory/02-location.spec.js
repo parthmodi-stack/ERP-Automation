@@ -293,5 +293,6 @@ test.describe('Location Management', () => {
 
 });
 // TC-LOC-10 (delete main location) is intentionally omitted here.
-// The created location (updatedName) is reused by 03-bin.spec.js as its location field.
+// The created location (updatedName) is reused by 03-bin.spec.js as its location field,
+// and by 08-stock-transfer.spec.js as the destination location it uses to identify its own records.
 // Run a separate cleanup after all inventory tests if deletion is needed.

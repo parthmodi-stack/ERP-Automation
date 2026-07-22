@@ -7,7 +7,6 @@ const ITEMS_URL  = `${BASE_URL}/dashboard/inventory/product-management/items`;
 // Test data
 const ITEM_NAME      = `Playwright Auto Item_${Date.now()}`;
 const CATEGORY       = 'Electronics';
-const UOM            = 'Pieces';
 const COSTING_METHOD = 'FIFO';
 const DEPARTMENT     = 'Test Operations';
 const SALES_PRICE    = '750';
@@ -100,8 +99,13 @@ test.describe('ERPForce – Add Inventory Item (full flow)', () => {
     console.log('✅ Step 3 – Name and Category filled');
 
     // ── STEP 4: Select Unit of Measurement and Costing Method ────────────────
-    await selectFromDropdown(page, 'unit_of_measurement', UOM);
-    // NOTE: Base Unit is auto-filled and DISABLED → skip it
+    // Unit of Measurement is dynamic master data like Location (grows/churns
+    // over time from other automation runs), and its filter input doesn't
+    // reliably narrow the list down to a specific name (typing a search term
+    // can still return the full unfiltered list) — pick first available
+    // instead of a hardcoded name, same as Location below. Base Unit is
+    // auto-filled and DISABLED regardless of which one is picked → skip it.
+    await selectFromDropdown(page, 'unit_of_measurement');
     await selectFromDropdown(page, 'costing_method', COSTING_METHOD);
 
     console.log('✅ Step 4 – UOM and Costing Method selected');

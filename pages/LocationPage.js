@@ -28,7 +28,9 @@ class LocationPage {
     this.countryLabel = page.getByText('United Arab Emirates');
 
     // Actions
-    this.addButton = page.getByRole('button', { name: 'Add' });
+    // exact: true avoids matching the Address column's sort-toggle button,
+    // whose accessible name ("Sort by Address ascending") contains "Add".
+    this.addButton = page.getByRole('button', { name: 'Add', exact: true });
     this.saveButton = page.getByRole('button', { name: 'Save' });
     this.actionsButton = page.getByRole('button', { name: 'Actions' });
     this.editMenuItem = page.getByRole('menuitem', { name: 'Edit' });

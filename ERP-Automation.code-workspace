@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../erpforce-be"
+		},
+		{
+			"path": "../erpforce-fe"
+		}
+	]
+}

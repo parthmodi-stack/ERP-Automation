@@ -6,3 +6,5 @@ auth.json
 *.log
 .DS_Store
 Thumbs.db
+Inventory_Test_Cases.xlsx
+Inventory_Test_Cases.new.xlsx
