@@ -8,3 +8,5 @@ auth.json
 Thumbs.db
 Inventory_Test_Cases.xlsx
 Inventory_Test_Cases.new.xlsx
+.env.example
+.pw-browsers/

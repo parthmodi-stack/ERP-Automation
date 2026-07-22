@@ -7,6 +7,9 @@
 			"path": "../erpforce-be"
 		},
 		{
+			"path": "../erpforce-common-hub-fe"
+		},
+		{
 			"path": "../erpforce-fe"
 		}
 	]

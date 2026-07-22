@@ -6,7 +6,11 @@ async function globalSetup() {
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const page    = await context.newPage();
 
-  await page.goto(testData.baseUrl + '/login');
+  let url = testData.baseUrl;
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'http://' + url;
+  }
+  await page.goto(url + '/login');
   await page.waitForLoadState('networkidle');
 
   await page.getByPlaceholder(/email/i).fill(testData.credentials.valid.email);

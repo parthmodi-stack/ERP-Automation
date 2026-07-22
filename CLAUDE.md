@@ -4,46 +4,119 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Playwright end-to-end test automation suite for ERPForce, a web ERP application hosted at `https://dev.erpforce.co`. There is no application source code here, only tests, page objects, and fixtures that drive the live dev environment through the browser.
+Playwright end-to-end test suite for the ERPForce web app (the `erpforce-fe` repo, a separate
+project). This repo only contains tests, page objects, and test data - no app source.
 
 ## Commands
 
 ```bash
-npm test                  # run the full suite
-npm run test:headed       # run with a visible browser
-npm run test:debug        # run in Playwright's debug/inspector mode
-npm run test:report       # open the last HTML report
-npm run test:smoke        # run only tests tagged @smoke
-npm run test:regression   # same as npm test (full suite)
-npm run test:login        # tests/auth/login.spec.js only
-npm run test:uom          # tests/inventory/04-uom.spec.js only
+# Run the whole regression suite (headless: false, per playwright.config.js)
+npm test
+npm run test:regression
+
+# Headed / debug modes
+npm run test:headed
+npm run test:debug
+
+# View the last HTML report
+npm run test:report
+
+# Run one module's suite
+npm run test:procurement
+
+# Run a single spec file directly (preferred way to run just one file/test)
+npx playwright test tests/inventory/04-uom.spec.js
+npx playwright test tests/procurement/03-rfq.spec.js -g "TC-RFQ-02"
+
+# Smoke subset only (tests tagged @smoke)
+npm run test:smoke
 ```
 
-Run a single spec or test directly with the Playwright CLI:
+Requires `ERPForce` (`erpforce-fe`) running locally, or `BASE_URL` in `.env` pointed at a live
+environment. `global-setup.js` logs in once via the UI and writes `auth.json`, which every test
+reuses as `storageState` - if a test fails with an "Auth failure: 401/403" error thrown from
+`BasePage`'s response listener, re-run (or delete `auth.json` and re-run) rather than debugging it
+as a UI bug.
 
-```bash
-npx playwright test tests/inventory/02-location.spec.js
-npx playwright test tests/inventory/02-location.spec.js -g "TC-LOC-02"
-```
-
-There is no lint or typecheck script configured (one `.ts` spec exists but the project has no `tsconfig.json`; TypeScript is used only for its inline syntax, not checked).
+If `npx playwright test` fails with a missing Chromium executable error, run
+`npx playwright install chromium` - see the note at the top of `playwright.config.js`.
 
 ## Architecture
 
-**Global login, shared session.** `global-setup.js` (wired in via `globalSetup` in [playwright.config.js](playwright.config.js)) logs in once with the credentials in `config/testData.js` and writes the session to `auth.json`, which every test then reuses via `use.storageState`. Tests that need to exercise auth itself (e.g. `tests/auth/login.spec.js`) override this per-file with `test.use({ storageState: { cookies: [], origins: [] } })` to start unauthenticated. `auth.json` is gitignored — regenerated automatically before each run.
+### Execution model
 
-**Sequential execution, shared state across files.** `fullyParallel: false` and `workers: 1` are deliberate: many specs in `tests/inventory/` build on data created by earlier ones (e.g. `bin.valid.location` in `config/testData.js` references the location name created by the location spec's update test case). Numeric prefixes on inventory specs (`01-attribute`, `02-location`, `03-bin`, ...) encode required run order — do not reorder or parallelize these without checking cross-file data dependencies.
+- `fullyParallel: false`, `workers: 4` (see `playwright.config.js`): tests **within** one spec
+  file always run in-order on the same worker, because later tests in a file reuse module-level
+  `let` state (an id/seriesNumber) created by an earlier test in that same file. Different spec
+  files still run concurrently across workers. Never assume test isolation within a file, and
+  don't reorder tests inside a `describe` block without checking what state they share.
+- `test.describe.configure({ timeout: 150000 })` is bumped well above the 30s default in the
+  larger module suites - multi-step flows (create + edit + approve + delete-attempt) can run
+  close to 90s under real concurrent load. Keep this in mind before assuming a slow test is broken.
+- Data is **shared and cumulative**, not reset between runs: specs create real records against a
+  real account/environment and later tests (including other files) may depend on records that
+  already exist from previous runs. Don't add cleanup that would break a sibling suite's
+  assumptions unless you've checked `config/testData.js`'s comments for that field first.
 
-**Page Object Model.** Each `pages/*Page.js` file wraps one screen/form: locators in the constructor, actions as methods, and usually one high-level `createX()`/`loginAndWaitForDashboard()` method that composes the others for the common happy path. Specs call into page objects rather than locating elements directly; when a form needs interaction not yet covered by its page object, add a method there instead of inlining locators in the spec.
+### Layers
 
-**Centralized test data.** `config/testData.js` holds all fixtures (credentials, form values, expected updated/duplicated names), keyed by feature (`uom`, `location`, `attribute`, etc.). A module-level `Date.now()` timestamp (`ts`) is baked into generated names once at import time so a name stays identical across the multiple test cases in a run (create → verify → update → duplicate) but is unique across runs, avoiding collisions against real leftover data in the shared dev environment. Follow this pattern for new features rather than inlining literals in specs.
+```
+tests/<module>/<NN>-<feature>.spec.js   # Test cases (TC-<MODULE>-<NN> naming), grouped by domain
+pages/<Feature>Page.js                  # Page Object Model - one class per ERPForce module/page
+pages/BasePage.js                       # Shared helpers, extended/composed by feature page objects
+config/testData.js                      # All test fixture data, keyed by module
+config/testDataFactory.js               # Generators for FREE-TEXT fields only (names, narrations,
+                                         #   reference numbers) - never for FK-reference values
+helpers/dropdown.js                     # Generic custom-dropdown helper (older pattern, mostly
+                                         #   superseded by BasePage's DynamicSelect-family helpers)
+global-setup.js                         # Runs once before the suite; produces auth.json
+```
 
-**Test case IDs and tags.** Tests are named `TC-<AREA>-<NN> [+|-] <description>` (`+` = positive, `-` = negative case), grouped with `test.describe`. Smoke-critical happy-path tests are tagged `{ tag: '@smoke' }`; use this tag to keep `npm run test:smoke` meaningful when adding new happy-path coverage.
+### `config/testData.js` conventions
 
-**Dropdown helpers.** The app's UI has more than one custom dropdown/combobox pattern (a generic searchable dropdown in `helpers/dropdown.js`; a MUI `mui-component-select-*` menu pattern reimplemented locally in `tests/inventory/07-inventory-item.spec.ts`). Check for an existing helper matching the widget style before writing new dropdown-interaction code, and prefer extracting a shared helper over copy-pasting a local one.
+- Free-text fields (names, narrations, quantities, reference numbers) are generated via
+  `testDataFactory` to guarantee uniqueness across runs.
+- Foreign-key-reference fields (vendor, location, item, currency, company, purchase
+  representative, approver names) are **hardcoded to real, live-verified master data** in this
+  project's actual environment - faker cannot invent valid ones. Every such value has an inline
+  comment explaining why it was chosen and what was confirmed live (exact combobox option text,
+  known app bugs like a Location search box never firing its filter API, currency lists scoped to
+  the selected vendor, etc). Read these comments before changing a pinned value - they record real
+  debugging, not arbitrary choices.
+- `approverName` fields must match whichever user is actually logged in per `credentials.valid`
+  (currently `dipen.modi@trootech.com` / "Dipen Modi"), because the Accept/Reject split-button
+  only renders for the user an approval was actually routed to. Keep these in sync if
+  `credentials.valid` changes.
 
-**Flaky-UI workarounds are intentional, read the comments before "fixing" them.** Several specs and page objects contain comments explaining non-obvious waits, retries, or loose selectors (e.g. retrying a `Save` click when validation feedback doesn't appear, scoping locators to a dialog to avoid strict-mode collisions, matching label text loosely because of untranslated locale keys). These exist because of real, observed flakiness or bugs in the dev environment, not stylistic choices, don't remove them without understanding why they were added.
+### `pages/BasePage.js` conventions
 
-**Excel test report generated on every run.** `reporters/excel-reporter.js` is registered in `playwright.config.js`'s `reporter` array and writes `Inventory_Test_Cases.xlsx` (gitignored) at the end of every `playwright test` invocation, one row per test actually executed in that run (id/type parsed from the `TC-<AREA>-<NN> [+|-|+/-] <description>` title convention, plus live status/duration/error/a hyperlinked path to that test's recorded video). It reflects whatever subset of tests ran (a single spec, `--grep`, or the full suite), not a fixed list, so it never goes stale relative to the code.
+All feature page objects extend or compose `BasePage`, which centralizes patterns that are
+identical across every ERPForce "document" module (Procurement Request, Purchase Agreement,
+Purchase Order, Vendor Return Authorization, etc.):
 
-**Every test is video-recorded.** `use.video` is set to `'on'` (not the default `'on-first-retry'`), so every run - passing or failing - produces a `.webm` under `test-results/<test-name>/video.webm`. The Excel report's "Video Path" column links straight to each test's recording. This trades disk space for always having a replay to check, since `test-results/` is gitignored anyway.
+- **Dropdown/combobox selection** (`selectFieldByLabel`, `openDropdownAndPick`,
+  `selectFirstAvailableOption`, `selectOptionFromListbox`): handles the app's DynamicSelect-family
+  fields, including a known app bug where a field can render "No data available" if a sibling
+  field's selection interrupts its fetch mid-flight - these helpers retry with an Escape + settle
+  before falling back to picking whichever option renders first.
+- **Listing page** (`searchList`, `clearSearch`, pagination helpers, `columnHeader`): shared
+  MaterialTable component behavior, identical across every module's list view.
+- **Approval workflow** (`quickApproval`, `accept`, `reject`, `openSubmitMenu`): the
+  Submit/Accept split-button pattern shared by every approval-gated module - only toast wording
+  differs per module.
+- **Row status/actions** (`rowBySeriesNumber`, `openRowActionMenu`, `deleteFromList`,
+  `isRowActionDisabled`): rows are matched by visible series-number text, not `getByRole('link')`,
+  because these tables' row anchors have no real `href` and get no ARIA link role.
+- Only add new shared logic to `BasePage` when it's byte-identical (or a strict superset) across
+  modules - anything with real per-module behavioral differences (dropdown quirks, save/approval
+  wording, field names) belongs in that module's own page object instead, to avoid reintroducing
+  bugs that took multiple rounds of live debugging to isolate per-module.
+
+### Test naming
+
+Tests are named `TC-<MODULE>-<NN> [+|+/-|-] <description>`, where `+` = happy path, `-` = negative/
+validation case, `+/-` = a single test covering both. `@smoke` tag marks the subset run by
+`npm run test:smoke`. `DEFAULT_TEST_CASES.md` documents the standard checklist (Core CRUD, Field
+Validations, Approval Flow) expected for any new "document"-pattern module suite - consult it
+before scaffolding tests for a new module so numbering and coverage stay consistent with existing
+suites.
