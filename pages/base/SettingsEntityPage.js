@@ -259,8 +259,17 @@ class SettingsEntityPage {
     await this.page.waitForLoadState('networkidle');
   }
 
+  /**
+   * The page-number input is a plain MUI TextField with id="outlined-required" and no associated
+   * <label> (no htmlFor), so it has no accessible name for a role-based lookup - same shared
+   * pagination component pages/BasePage.js's own goToPage() documents for Procurement. There is
+   * no clickable numbered page button in this app's pagination UI; fill-and-Enter is the only
+   * way to jump pages.
+   */
   async goToPage(pageNumber) {
-    await this.page.getByRole('button', { name: String(pageNumber), exact: true }).click();
+    const input = this.page.locator('#outlined-required');
+    await input.fill(String(pageNumber));
+    await input.press('Enter');
     await this.page.waitForLoadState('networkidle');
   }
 }

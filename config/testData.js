@@ -685,6 +685,41 @@ const testData = {
       expenseAccount:       `Automation_Expense_${ts}`,
     },
 
+    // Asset Transfer - the prerequisite Asset is created fresh each run (via AssetManagementPage,
+    // same account-creation shape as `assetManagement` above) rather than reused from the shared
+    // environment's existing assets: this environment has several duplicate-named assets (e.g.
+    // 3x "Dell XPS 21") that selectDropdown()'s exact-match search can't reliably disambiguate by
+    // name, so a uniquely-named prerequisite asset is the only way to deterministically know
+    // which record's Location actually changed after the transfer.
+    assetTransfer: {
+      prereqAsset: {
+        assetType:           'Computer',
+        seriesNumber:        `AT-PREREQ-${ts}`,
+        assetName:           `Automation Transfer Prereq Asset ${ts}`,
+        location:            'Mumbai',
+        department:          'Procurement',
+        acquisitionDate:     '01-07-2026',
+        assetValue:          '1000',
+        notDepreciableValue: '0',
+        bookValue:           '1000',
+        depreciationMethod:  'Straight line',
+        computation:         'Monthly',
+        fixedAssetAccount:   `Automation_AT_FixedAsset_${ts}`,
+        depreciationAccount: `Automation_AT_Depreciation_${ts}`,
+        expenseAccount:      `Automation_AT_Expense_${ts}`,
+      },
+      transferName:          `Automation Asset Transfer ${ts}`,
+      // Despite the "Reference Number" label this is a real type="number" input (same quirk
+      // ExpenseReimbursementPage's own refNumber documents) - numeric-only, truncated to stay
+      // within a plausible range while still varying per run.
+      referenceNumber:       `${ts % 1000000}`,
+      // Confirmed live: this environment's Location list has both "Mumbai" (used as the
+      // prerequisite Asset's own source location above) and "Baroda" - a genuinely different,
+      // real destination distinct from the source, not a best-effort guess.
+      destinationLocation:  'Baroda',
+      destinationDepartment: 'Finance',
+    },
+
     // ---- Master Data: Customer Management ----
   //
   // Routes:
