@@ -612,6 +612,79 @@ const testData = {
       },
     },
 
+    // Expense Reimbursement - approved/paid via a separate "Expense Report" listing (sibling
+    // nav item under Accounting > Expense, not a submenu of this list). `employee`/`journal`/
+    // `currency`/`expenseEntryType`/`item.category`/`item.taxTemplate` are best-effort seed names
+    // (this suite's ExpenseReimbursementPage.js falls back to whatever real option already
+    // exists via selectDropdown()'s search+fallback cascade if these don't match exactly - same
+    // reasoning as every other module's own vendor/item/tax fields).
+    expenseReimbursement: {
+      employee:        'John Smith Doe',
+      journal:         'Journal Voucher',
+      currency:        'INR',
+      exchangeRate:    '1',
+      description:     `Automation Expense Reimbursement ${ts}`,
+      expenseEntryType: 'Expense',
+      item: {
+        category:    'Client-related Expenses',
+        taxTemplate: 'UAE VAT',
+        amount:      '500',
+        // Confirmed live: despite the "Reference Number" label, this field is a real
+        // type="number" input - a free-text value like "ER-AUTOMATION-<ts>" throws
+        // "Cannot type text into input[type=number]", and the raw 13-digit `ts` epoch alone
+        // throws "Out of range value for column 'ref_number'" (an INT column server-side) -
+        // truncated to 6 digits to stay safely within range while still varying per run.
+        refNumber:   `${ts % 1000000}`,
+      },
+    },
+
+    // Cash Expense - similar to purchaseInvoice above (same Vendor/Payment Terms/Currency/Item
+    // Entries shape), except "Vendor Invoice No" is required here. Reuses purchaseInvoice's own
+    // vendor/item best-effort seed names and fallback reasoning.
+    cashExpense: {
+      vendor:          'Royal Mine Industries',
+      currency:        'US Dollars',
+      paymentTerm:     'Net 30',
+      // Confirmed live the Save toast blocks with "Please fill all the required fields" unless
+      // both of these are set - same as Purchase Invoice's own required Shipping Address, plus
+      // this module's own required "Account" field (unlike Sales Invoice's account_receivable_id,
+      // which has zero real options in this environment, this one does).
+      accountPayable:  'Accounts Payable',
+      shippingAddress: 'Rajkot',
+      valid: {
+        vendorInvoiceNo: `CE-AUTOMATION-${ts}`,
+      },
+      item: {
+        dropdownOption: 'ELEC-000071 - Playwright Auto Item',
+        quantity:       '2',
+        rate:           '500',
+        taxTemplate:    'UAE VAT',
+      },
+    },
+
+    // Asset Management - account fields (fixedAssetAccount/depreciationAccount/expenseAccount)
+    // are deliberately unique-per-run (via `ts`) so this suite always exercises
+    // AssetManagementPage's create-if-missing fallback (a throwaway-tab Chart of Accounts
+    // create) rather than coincidentally matching a record from an earlier run.
+    assetManagement: {
+      assetType:           'Computer',
+      location:            'Rajkot',
+      department:          'Accounting',
+      acquisitionDate:      '01-07-2026',
+      assetValue:           '1000',
+      notDepreciableValue:  '0',
+      bookValue:            '1000',
+      depreciationMethod:   'Straight line',
+      // Best-effort guess - selectDropdown()'s search+fallback substitutes whatever real
+      // Computation option exists in this environment if this exact text doesn't match.
+      computation:          'Monthly',
+      assetName:            `Automation Asset ${ts}`,
+      seriesNumber:         `AST-AUTOMATION-${ts}`,
+      fixedAssetAccount:    `Automation_FixedAsset_${ts}`,
+      depreciationAccount:  `Automation_Depreciation_${ts}`,
+      expenseAccount:       `Automation_Expense_${ts}`,
+    },
+
     // ---- Master Data: Customer Management ----
   //
   // Routes:
