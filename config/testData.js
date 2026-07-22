@@ -863,6 +863,39 @@ const testData = {
       negativeMaxActiveLoans: "-2",
     },
   },
+
+  // "erp-force" confirmed live-verified: it's the Company pre-filled by default on this module's
+  // own Add form (see ACCRUALS_AND_BENEFIT_TEST_CASES.md's screenshots), same pinned value already
+  // used by Loan Configuration/Leave Policy Master in this suite.
+  accrualsAndBenefit: {
+    valid: {
+      company: "erp-force",
+      name: factory.uniqueName("Automation_AccrualBenefit"),
+      updatedName: factory.uniqueName("Automation_AccrualBenefit_UPDATED"),
+      type: "allowance",
+      amount: "10000",
+      frequency: "monthly",
+    },
+    variableSalaryComponent: {
+      name: factory.uniqueName("Automation_AccrualBenefit_VSC"),
+      baseComponent: "Basic Salary",
+      operator: "+",
+      value: "500",
+      capLimit: "1000",
+    },
+    negative: {
+      // Confirmed source bug (accrual-master.service.js): 0 passes the JSON-schema's minimum:0
+      // but is rejected by a stricter "must be a positive number" service-layer check.
+      zeroAmount: "0",
+      negativeAmount: "-500",
+      zeroValue: "0",
+      // Confirmed source bug: cap_limit's own service guard tests `cap_limit` for truthiness, so
+      // a literal 0 silently bypasses both the "must be positive" and "must be >= value" checks -
+      // this is a deliberate bug-repro value, not a normal boundary case.
+      zeroCapLimit: "0",
+      capLimitBelowValue: "100",
+    },
+  },
 };
 
 module.exports = testData;
