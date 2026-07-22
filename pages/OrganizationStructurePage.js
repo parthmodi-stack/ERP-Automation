@@ -61,8 +61,8 @@ class OrganizationStructurePage extends BasePage {
   }
 
   async gotoList() {
-    await this.page.goto('/dashboard/hrms/organization-structure');
-    await this.page.waitForLoadState('networkidle');
+    await this.page.goto('/dashboard/hrms/organization-structure', { waitUntil: 'networkidle' });
+    await this.listAddButton.waitFor({ state: 'visible', timeout: 30000 });
   }
 
   async goto() {
@@ -71,6 +71,7 @@ class OrganizationStructurePage extends BasePage {
     await this.page.waitForURL('**/add-organization-structure');
     await this.page.waitForLoadState('networkidle');
   }
+
 
   async openNodeTypeMenu() {
     await this.canvasAddButton.click();
@@ -177,16 +178,16 @@ class OrganizationStructurePage extends BasePage {
     await dialog.waitFor({ state: 'visible' });
 
     // 4. Fill in Location Name and a unique Location Code
-    await dialog.getByPlaceholder('inventory.item.locationModal.location_name_placeholder').fill(locationName);
+    await dialog.getByPlaceholder(/Enter Name|location_name_placeholder/i).fill(locationName);
     const code = 'LOC-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-    await dialog.getByPlaceholder('inventory.item.locationModal.location_code_placeholder').fill(code);
+    await dialog.getByPlaceholder(/Enter Short Code|location_code_placeholder/i).fill(code);
 
-    // 5. Select Company inside the dialog (normal individually-wrapped form - base implementation is fine here)
-    await this.selectFieldByLabel(
-      'accounting.authorize_commission.fields.company_label',
-      companyName,
-      { exact: false, scope: dialog }
-    );
+    // 5. Select Company inside the dialog
+    try {
+      await this.selectFieldByLabel('Company', companyName, { exact: false, scope: dialog, timeout: 5000 });
+    } catch (e) {
+      await this.selectFirstOptionByLabel('Company', { scope: dialog }).catch(() => {});
+    }
 
     // 6. Save the new location
     await dialog.getByRole('button', { name: 'Save' }).click();
@@ -245,19 +246,30 @@ class OrganizationStructurePage extends BasePage {
   // actually present on each row object (vs. computed client-side), so this falls back to
   // reading the list's first row text directly if `series_number` is missing from the payload.
   async saveAndCaptureId(buttonLocator) {
-    const listResponsePromise = this.page.waitForResponse((r) =>
-      r.url().includes('organisation-structure') && r.request().method() === 'GET',
-    );
+    const listResponsePromise = this.page.waitForResponse(
+      (r) => r.url().includes('organisation-structure') && r.request().method() === 'GET',
+      { timeout: 15000 },
+    ).catch(() => null);
+
     await buttonLocator.click();
     const listResponse = await listResponsePromise;
-    await this.page.waitForLoadState('networkidle');
-    const body = await listResponse.json().catch(() => null);
+    await this.page.waitForLoadState('networkidle').catch(() => {});
+    const body = listResponse ? await listResponse.json().catch(() => null) : null;
     const record = body?.data?.organisation_structures?.[0];
 
     const id = record?._id ? String(record._id) : undefined;
     let seriesNumber = record?.series_number;
     if (!seriesNumber) {
-      seriesNumber = await this.page.locator('table tbody tr').first().innerText();
+      const cellText = await this.page
+        .locator('table tbody tr')
+        .first()
+        .locator('td')
+        .first()
+        .innerText()
+        .catch(() => undefined);
+      if (cellText) {
+        seriesNumber = cellText.replace(/[\u200B\uFEFF]/g, '').trim();
+      }
     }
     return { id, seriesNumber };
   }

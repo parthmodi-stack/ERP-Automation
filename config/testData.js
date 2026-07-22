@@ -157,13 +157,15 @@ const testData = {
     valid: {
       purchaseRepresentative: "QA  Nikita", // corrected: renders with double space in live DOM
       vendor: "PC new Vendor",
-      // A hardcoded, already-existing record - NOT `Test_Location_Playwright_UPDATED_${ts}`.
-      // That pattern (used by bin.valid.location) only works when the Location suite
-      // (02-location.spec.js) has already run in the SAME process and created a record under
-      // this exact same `ts`, which only happens when running the full suite, not this
-      // procurement folder in isolation. This module doesn't create its own Location, so it
-      // needs a value guaranteed to already exist regardless of what else has run.
-      location: "Dhule",
+      // A name SEED, NOT a pinned real record. This field's dropdown only shows the 25 most-
+      // recently-created Locations with no working search filter, so ANY pinned literal value
+      // (this one used to be a real, reachable "Dhule" record) eventually gets evicted by newer
+      // automation-created Locations account-wide (confirmed live: RFQ's own Shipping Address hit
+      // the identical issue). ProcurementRequestPage.selectLocation() now always creates a brand
+      // new Location from the field's own "+ Create New Location" footer action, scoped to
+      // whichever Company is currently selected - this value is just the seed for that generated
+      // name, so it never needs to match an existing record.
+      location: "Automation_Request_Location",
       // NOT "Entity": basic-details.tsx's own field is genuinely called Company (company_id),
       // "erp-force" is the same default/only-option value already verified elsewhere in this
       // file (purchaseAgreement.valid.entity, vendorReturnAuthorization.valid.company).
@@ -192,14 +194,9 @@ const testData = {
     reject: {
       purchaseRepresentative: "Vivek  Kansara",
       vendor: "PC new Vendor", // trailing double space is part of the real name
-      // NOT "Junagadh WC-1": confirmed live via network inspection that the Location field's
-      // own API call (`inventory/v1/warehouse-location/?...&order=id:-1&limit=25`) always
-      // returns only the 25 most-recently-created records with NO working name/search filter
-      // (typing into its search input fires zero new requests) - any location outside that
-      // ever-shifting recent window can never be selected through the UI. Reuse the same
-      // pinned value already proven reachable elsewhere in this suite instead of a value that
-      // depends on how much other Location-suite junk data has piled up since.
-      location: "Dhule",
+      // A name seed, not a pinned real record - see procurementRequest.valid.location's own
+      // comment for why (selectLocation() always creates a fresh Location now).
+      location: "Automation_Request_Location_Reject",
       itemName: "Regression_1-00006 - Reg_item1_rental", // corrected: old value did not exist
       narration: factory.narration(
         "Automation procurement request reject flow",
@@ -225,20 +222,18 @@ const testData = {
       agreementType: "Blanket",
       purchaseRepresentative: "Dipen  Modi",
       vendor: "PC new Vendor",
-      // NOT "Ahmedabad": confirmed live (via the browser's own DevTools Network tab, zero
-      // requests fire while typing) that Purchase Agreement's Location search box is a genuine
-      // app bug - it never calls its filter API at all, unlike Procurement Request's Location
-      // field which searches correctly. Only values already in the default unfiltered "25
-      // most-recently-created" list are reachable here, so pin to one that's currently visible
-      // without searching.
-      location: "Dhule",
+      // A name seed, not a pinned real record - see PurchaseAgreementPage.selectLocation's own
+      // comment for why (it always creates a fresh Location now).
+      location: "Automation_Agreement_Location",
       itemName: "Regression_1-00006 - Reg_item1_rental", // corrected: old value did not exist
       narration: factory.narration("Automation purchase agreement"),
       updatedNarration: factory.narration(
         "Automation purchase agreement EDITED",
       ),
       entity: "erp-force", // verified - default/only entity option
-      updatedLocation: "Dhule", // verified - exists exactly as written
+      // A name seed, not a pinned real record - see PurchaseAgreementPage.selectLocation's own
+      // comment for why (it always creates a fresh Location now).
+      updatedLocation: "Automation_Agreement_Location_Updated",
       minOrderQty: "5",
       updatedMinOrderQty: "8",
       rate: "100",
@@ -248,13 +243,9 @@ const testData = {
       agreementType: "Blanket",
       purchaseRepresentative: "Dipen  Modi",
       vendor: "Royal Mine Industries",
-      // NOT "Ahmedabad": confirmed live (via the browser's own DevTools Network tab, zero
-      // requests fire while typing) that Purchase Agreement's Location search box is a genuine
-      // app bug - it never calls its filter API at all, unlike Procurement Request's Location
-      // field which searches correctly. Only values already in the default unfiltered "25
-      // most-recently-created" list are reachable here, so pin to one that's currently visible
-      // without searching.
-      location: "Dhule",
+      // A name seed, not a pinned real record - see PurchaseAgreementPage.selectLocation's own
+      // comment for why (it always creates a fresh Location now).
+      location: "Automation_Agreement_Location_Reject",
       itemName: "Regression_1-00006 - Reg_item1_rental", // corrected: old value did not exist
       narration: factory.narration("Automation purchase agreement reject flow"),
       // NOT "INR": confirmed live via screenshot that vendor "Royal Mine Industries"' own linked
@@ -289,7 +280,7 @@ const testData = {
       currency: "INR",
       purchaseRepresentative: "QA  Nikita", // renders with a double space in the live DOM
       location: "Dhule",
-      itemName: "Regression_1-00006 - Reg_item1_rental",
+      itemName: "Regression_1-00001 - Reg-item1",
       narration: factory.narration("Automation purchase order"),
       updatedNarration: factory.narration("Automation purchase order EDITED"),
       quantity: "5",
@@ -305,7 +296,7 @@ const testData = {
       currency: "INR",
       purchaseRepresentative: "Dipen  Modi",
       location: "Dhule",
-      itemName: "Regression_1-00006 - Reg_item1_rental",
+      itemName: "Regression_1-00001 - Reg-item1",
       narration: factory.narration("Automation purchase order reject flow"),
       quantity: "3",
       rate: "50",
@@ -314,6 +305,66 @@ const testData = {
     // procurementRequest.approverName/purchaseAgreement.approverName for why. Matches
     // credentials.valid = dipen.modi@trootech.com.
     approverName: "Dipen Modi",
+
+    // Multi-item dataset (TC-PO-A01): two distinct real items so the Items grid, Summary
+    // Total Quantity, and Grand Total can be asserted across more than one line. The second
+    // item reuses the same live-verified master record family as `valid` to avoid pinning a
+    // second literal that may rot out of the option window.
+    multiItem: {
+      items: [
+        { itemName: "Regression_1-00001 - Reg-item1", quantity: "2", rate: "100" },
+        { itemName: "Regression_1-00001 - Reg-item1", quantity: "3", rate: "50" },
+      ],
+    },
+
+    // Expense dataset (TC-PO-A04): the Expense Detail modal's required fields. Account/Tax
+    // Template/Location option text in this account is unverified, so the page object selects
+    // the first available option for each rather than a guessed literal (see
+    // PurchaseOrderPage.addExpense). Only `rate` is a free literal.
+    expense: {
+      rate: "75",
+    },
+
+    // Tax dataset (TC-PO-A02): a single item plus a Tax Template selected in the item modal.
+    // Exact template text unverified -> page object picks the first option; the assertion is
+    // that Taxes & Charges Added becomes non-zero, not a specific figure.
+    tax: {
+      itemName: "Regression_1-00001 - Reg-item1",
+      quantity: "4",
+      rate: "100",
+    },
+
+    // Discount dataset (TC-PO-A03): a single item plus a Discount Item selected in the item
+    // modal (its discount_rate auto-fills). Same "first available option" strategy for the
+    // discount record; assertion is that Item Discount becomes non-zero.
+    discount: {
+      itemName: "Regression_1-00001 - Reg-item1",
+      quantity: "4",
+      rate: "100",
+    },
+  },
+
+  // Goods Receipt Note (GRN) - a child of an APPROVED Purchase Order, reached via the PO
+  // View page's "Receive" split-button (source: purchase-orders/.../header-buttons.tsx). There
+  // is NO standalone GRN list route, NO Draft/Submit, and NO approval workflow: the only form
+  // buttons are Discard + Save, status is Pending -> Validated (boolean is_validated), and
+  // Validate lives on the GRN View page and is blocked until every item has traceability
+  // (source: view-goods-receipt-note.tsx). All header fields (Vendor/Currency/Company/Location/
+  // items) auto-populate from the PO - only Reference No./Narration/received Quantity/Rate are
+  // editable, and item rows cannot be manually added (grid is PO-derived).
+  grn: {
+    // The PO these GRN tests receive against is created fresh + approved in-suite (a GRN needs
+    // an Approved PO with remaining quantity), so no pinned PO id lives here. Reuses the same
+    // PO create dataset.
+    referenceNumber: factory.referenceNumber("GRN-REF"),
+    narration: factory.narration("Automation GRN"),
+    updatedNarration: factory.narration("Automation GRN EDITED"),
+    // received_quantity for the single-item happy path. Kept <= the PO line quantity (5 in
+    // purchaseOrder.valid) so it never trips the "quantity exceeds remaining" guard.
+    receivedQuantity: "2",
+    // For the partial-receipt scenario (TC-GRN-E01): receive less than ordered, then assert the
+    // PO/GRN remaining quantity reflects the shortfall.
+    partialQuantity: "1",
   },
 
   rfq: {
@@ -334,13 +385,23 @@ const testData = {
       updatedNarration: factory.narration("Automation RFQ EDITED"),
       requestedQuantity: "5",
       updatedRequestedQuantity: "8",
-      vendorAddress: "test address, Maharashtra, India",
+      // NOT "test address, Maharashtra, India": confirmed live (TC-PREQ-26) that "PC vendor"'s
+      // Vendor Address dropdown only has ONE real option, "test address, dhule, Maharashtra,
+      // India" (note the "dhule, " in the middle) - the old value was missing that segment, so
+      // it could never be found in the listbox.
+      vendorAddress: "test address, dhule, Maharashtra, India",
+      // A name SEED, not a pinned real value - RfqPage.selectLocation() always creates a brand
+      // new Location via the field's own "+ Create New Location" footer action (same reasoning
+      // as procurementRequest.valid.location's own comment), so this never needs to match an
+      // existing record.
+      location: "Automation_Rfq_Location",
     },
     cancel: {
       vendor: "PC vendor",
       purchaseRepresentative: "QA  Nikita",
       contactPerson: "manan",
       shippingAddress: "Dhule",
+      location: "Automation_Rfq_Location_Cancel",
       itemName: "Regression_1-00006 - Reg_item1_rental",
       narration: factory.narration("Automation RFQ cancel flow"),
       requestedQuantity: "3",

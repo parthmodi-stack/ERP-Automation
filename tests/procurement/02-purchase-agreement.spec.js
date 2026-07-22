@@ -13,6 +13,10 @@ test.describe('Purchase Agreement Management', () => {
   let createdRequest;
   let editRequest;
   let rejectedRequest;
+  // Set by TC-PAGR-02 (selectLocation() now always creates a fresh, uniquely-named Location -
+  // see PurchaseAgreementPage.selectLocation's own comment for why) - TC-PAGR-03 asserts against
+  // this actual generated name rather than a guessed literal.
+  let updatedLocationName;
   const viewValues = {};
 
   // ── TC-PAGR-01: Create Agreement ─────────────────────────────────────────
@@ -54,7 +58,7 @@ test.describe('Purchase Agreement Management', () => {
     // Location is entity-scoped: the switched entity's valid options differ from the default
     // entity's - selecting an out-of-scope value appears to work in the same client session but
     // silently produces a cross-entity mismatch that renders blank on the next reload.
-    await pa.selectLocation(data.updatedLocation);
+    updatedLocationName = await pa.selectLocation(data.updatedLocation);
     await pa.editFirstItem({ minOrderQty: data.updatedMinOrderQty });
 
     await pa.saveAsDraft();
@@ -74,7 +78,7 @@ test.describe('Purchase Agreement Management', () => {
     // also its own link element, giving 2 matches without this).
     await expect(page.getByText(data.updatedNarration).first()).toBeVisible();
     await expect(page.getByText(data.vendor).first()).toBeVisible();
-    await expect(page.getByText(data.updatedLocation).first()).toBeVisible();
+    await expect(page.getByText(updatedLocationName).first()).toBeVisible();
     await expect(page.getByText(data.itemName.split(' - ')[1] || data.itemName).first()).toBeVisible();
 
     // This module's View page has no aggregate "Total Quantity" summary field - cross-check
@@ -297,6 +301,20 @@ test.describe('Purchase Agreement Management', () => {
     await expect(page.getByText(data.itemName, { exact: true }).first()).toBeVisible();
   });
 
+  // ── TC-PAGR-14: Create > Order navigation ────────────────────────────────
+  // Modeled on the sibling Procurement Request/RFQ pages' own TC-PREQ-27/TC-RFQ-07 - the View
+  // page's "Create" action (only rendered once status is In Progress) offers an "Order" menu
+  // item that navigates to the Add Purchase Order page, carrying this agreement's data via
+  // route state (confirmed in source: header-buttons.tsx's Create > Order MenuItem passes
+  // `state: { purchaseAgreement: data }`, which add-purchase-order.tsx reads back out as
+  // `location.state?.purchaseAgreement` to pre-fill the new Purchase Order).
+  test('TC-PAGR-14 [+] Create > Order navigates to the Add Purchase Order page', async ({ page }) => {
+    const pa = new PurchaseAgreementPage(page);
+    await pa.gotoView(createdRequest.id);
+    await pa.createOrder();
+    await expect(page).toHaveURL(/\/purchase-order\/add-purchase-order/);
+  });
+
   // ── Listing Page (TC-PAGR-L01 - TC-PAGR-L05) ─────────────────────────────
   // Reuses records already created/status-transitioned by the lifecycle tests above
   // (editRequest=Draft, createdRequest=In Progress, rejectedRequest=Rejected).
@@ -340,16 +358,16 @@ test.describe('Purchase Agreement Management', () => {
       expect(await pa.getPaginationLabel()).toMatch(/Page\s*1\s*of\s*\d+/);
 
       await pa.nextPageButton().click();
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
       expect(await pa.getPaginationLabel()).toMatch(/Page\s*2\s*of\s*\d+/);
       await expect(pa.prevPageButton()).toBeEnabled();
 
       await pa.prevPageButton().click();
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
       expect(await pa.getPaginationLabel()).toMatch(/Page\s*1\s*of\s*\d+/);
 
       await pa.goToPage(2);
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
       expect(await pa.getPaginationLabel()).toMatch(/Page\s*2\s*of\s*\d+/);
     });
 
