@@ -144,6 +144,721 @@ const testData = {
     },
   },
 
+  // Accounting module - field lists for Settings entities are backend-driven (FormParser /
+  // getFormDataByResource), so the keys below are a starting point only. Confirm each entity's
+  // real field names by opening its Add form in the running app (or via `npx playwright codegen`)
+  // before relying on these values, then update this block accordingly.
+  accounting: {
+    // RBAC test accounts for chart-of-accounts.rbac.spec.js's `page` fixture. None are filled
+    // in yet - every role below is null until real restricted-permission accounts are
+    // provisioned in this environment, which is why every RBAC test currently skips itself
+    // (see the fixture's test.skip call). Fill in { email, password } once available. See
+    // ACCOUNTING_FINDINGS.md "RBAC test coverage" for what each role needs to grant/deny.
+    rbacRoles: {
+      fullAccess: null, // filled in below with credentials.valid - canView/canAdd/canEdit/canDelete all true
+      readOnly:   null, // canView=true, canAdd/canEdit/canDelete=false
+      noAdd:      null, // canAdd=false, others true
+      noEdit:     null, // canEdit=false, others true
+      noDelete:   null, // canDelete=false, others true
+    },
+
+    // valid.name / valid.updatedName are the generic display-name keys consumed by
+    // tests/accounting/settings-entity.contract.js; each Page Object maps `name` onto its real
+    // backend field via `displayNameField` (see pages/base/SettingsEntityPage.js).
+    chartOfAccounts: {
+      valid: {
+        parentType:  'Assets',
+        accountType: 'Current Assets',
+        name:        `Automation_COA_${ts}`,
+        updatedName: `Automation_COA_UPDATED_${ts}`,
+      },
+      missingRequired: {
+        name: '',
+      },
+      // Used by chart-of-accounts.crud.spec.js. `enabled` accounts for the confirmed-live
+      // Status-checkbox inversion (see ChartOfAccountsPage.setStatusEnabled) - pass a plain
+      // true/false here, not a checkbox state.
+      crud: {
+        valid: {
+          parentType:  'Assets',
+          accountType: 'Current Assets',
+          name:        `Automation_COA_CRUD_${ts}`,
+          allowedJournal: 'Cheque Receipt Voucher',
+          updatedName: `Automation_COA_CRUD_UPDATED_${ts}`,
+          description: 'Created by the Chart of Accounts CRUD spec',
+          enabled:     true,
+        },
+        missingRequired: {
+          name: '',
+        },
+      },
+    },
+
+    // Confirmed against the running app's add-currency form: real fields are currency_name,
+    // fraction, fraction_unit, smallest_fraction_value, symbol, number_format, exchange_rate.
+    // There is no currency_code field (an earlier, unverified guess). Also confirmed live:
+    // duplicate currency_name is currently accepted with NO uniqueness validation (see
+    // ACCOUNTING_FINDINGS.md) - `duplicate` reuses valid.name with an otherwise-complete,
+    // valid payload to demonstrate this.
+    currency: {
+      valid: {
+        name:                    `Automation_Currency_${ts}`,
+        updatedName:             `Automation_Currency_UPDATED_${ts}`,
+        symbol:                  '$',
+        fraction:                'Cents',
+        fraction_unit:           '100',
+        smallest_fraction_value: '0.01',
+        exchange_rate:           '1',
+      },
+      missingRequired: {
+        name: '',
+      },
+      duplicate: {
+        name:                    `Automation_Currency_${ts}`, // intentionally same as valid.name
+        symbol:                  '$',
+        fraction:                'Cents',
+        fraction_unit:           '100',
+        smallest_fraction_value: '0.01',
+        exchange_rate:           '1',
+      },
+    },
+
+    // Confirmed against the running app's add-tax-code form (submitting with only name/rate
+    // surfaced 4 more required fields): effective_start_date, effective_end_date,
+    // tax_category_id (a searchable select - 'VAT' is an existing seeded option),
+    // applies_to (a plain select with options Net/Gross).
+    taxCode: {
+      valid: {
+        name:                 `Automation_TaxCode_${ts}`,
+        updatedName:          `Automation_TaxCode_UPDATED_${ts}`,
+        rate:                 '5',
+        effective_start_date: '01-01-2026',
+        effective_end_date:   '31-12-2026',
+        tax_category_id:      'VAT',
+        applies_to:           'Net',
+      },
+      missingRequired: {
+        name: '',
+      },
+      boundaryRates: {
+        zero:     '0',
+        maxValid: '100',
+        negative: '-1',
+      },
+    },
+
+    // Confirmed against the running app's add-bank form: swift_number is required alongside name.
+    bank: {
+      valid: {
+        name:         `Automation_Bank_${ts}`,
+        updatedName:  `Automation_Bank_UPDATED_${ts}`,
+        swift_number: `AUTOSWIFT${String(ts).slice(-6)}`,
+      },
+      missingRequired: {
+        name: '',
+      },
+    },
+
+    // Confirmed against the running app's add-bank-account form: field-array prefix is
+    // `add_bank_Account` (capital A). Required fields beyond name/bank/account_number are
+    // type_id (select - 'Current Account' is a seeded option), iban_code, branch_code.
+    bankAccount: {
+      // `bank` is a dedicated record created by 05-bank-account.spec.js itself (via BankPage) in
+      // a beforeAll hook, kept independent of 04-bank.spec.js's own bank (which that suite
+      // deletes as part of its own lifecycle) so this spec file can run standalone.
+      valid: {
+        bank:           `Automation_Bank_ForAccount_${ts}`,
+        name:           `Automation_BankAccount_${ts}`,
+        updatedName:    `Automation_BankAccount_UPDATED_${ts}`,
+        account_number: `AC-${ts}`,
+        type_id:        'Current Account',
+        iban_code:      `AE07AUTOMATION${String(ts).slice(-6)}`,
+        branch_code:    `BR${String(ts).slice(-4)}`,
+      },
+      missingRequired: {
+        name: '',
+      },
+    },
+
+    // Confirmed against the running app's add-tax-category form: sales_account_id and
+    // purchase_account_id are both COA selects whose default (no-search) option list surfaces
+    // only 4 accounts in this environment - searching "Sales"/"Purchase" by name returns "No data
+    // available" (no COA account is literally named that here), so these two pre-existing
+    // default-list accounts are used instead; the field doesn't appear to filter by account type.
+    taxCategory: {
+      valid: {
+        name:               `Automation_TaxCategory_${ts}`,
+        updatedName:        `Automation_TaxCategory_UPDATED_${ts}`,
+        sales_account_id:   'Employee Expense Reimbursement',
+        purchase_account_id: 'Depreciation Expense',
+        description:        'Created by the Tax Category automation suite',
+      },
+      missingRequired: {
+        name: '',
+      },
+    },
+
+    // Confirmed against the running app's add-tax-template form: `tax_codes` is a searchable
+    // select of existing Tax Code records, and this environment has none surviving by default
+    // (03-tax-code.spec.js's own CRUD lifecycle deletes its record at the end). Tax Code itself
+    // requires a tax_category_id - confirmed live that the 'VAT' category taxCode.valid assumes
+    // no longer exists either (search returns "No data available") - so 12-tax-template.spec.js's
+    // beforeAll seeds BOTH a fresh Tax Category and a Tax Code referencing it, neither ever
+    // deleted, specifically so `valid.tax_codes` always has a real option to select.
+    taxTemplate: {
+      seedTaxCategoryName: `Automation_TaxTemplate_TCAT_${ts}`,
+      seedTaxCodeName: `Automation_TaxTemplate_TC_${ts}`,
+      valid: {
+        name:        `Automation_TaxTemplate_${ts}`,
+        updatedName: `Automation_TaxTemplate_UPDATED_${ts}`,
+        tax_codes:   `Automation_TaxTemplate_TC_${ts}`,
+      },
+      missingRequired: {
+        name: '',
+      },
+    },
+
+    // Confirmed against the running app's add-fiscal-year form: real fields are year_name,
+    // year_start_date, year_end_date, company_ids (only real option in this single-company
+    // environment is "Trootech" - see journalEntry's comment). The list currently has zero rows,
+    // so a far-future date range is used purely to avoid any future overlap-validation surprises,
+    // not because one is currently known to exist.
+    fiscalYear: {
+      valid: {
+        name:            `Automation_FiscalYear_${ts}`,
+        updatedName:     `Automation_FiscalYear_UPDATED_${ts}`,
+        year_start_date: '01-01-2030',
+        year_end_date:   '31-12-2030',
+        company_ids:     'Trootech',
+      },
+      missingRequired: {
+        name: '',
+      },
+    },
+
+    // Confirmed against the running app's add-payment-term form: required fields are name,
+    // due_date_based_on and credit_days; mode_of_payment is optional but included since it's a
+    // real, always-visible field. Existing rows already include "Net 30"/"Gross10" (used
+    // elsewhere as purchase-invoice payment terms), so a fresh timestamped name avoids colliding
+    // with those.
+    paymentTerm: {
+      valid: {
+        name:               `Automation_PaymentTerm_${ts}`,
+        updatedName:        `Automation_PaymentTerm_UPDATED_${ts}`,
+        due_date_based_on:  "Day's after Invoice date",
+        credit_days:        '30',
+        mode_of_payment:    'Bank Draft',
+      },
+      missingRequired: {
+        name: '',
+      },
+    },
+
+    // Confirmed against the running app's add-currency-exchange form: from_currency_id/
+    // to_currency_id are searchable selects scoped to this suite's own custom Currency (Settings
+    // > Currency) records, NOT the broader currency list Purchase Invoice/Payment Entry draw from
+    // ("US Dollars"/"INR" both return "No data available" here). 15-currency-exchange.spec.js's
+    // beforeAll seeds two dedicated, never-deleted Currency records specifically for this pair.
+    currencyExchange: {
+      seedFromCurrencyName: `Automation_CE_From_${ts}`,
+      seedToCurrencyName:   `Automation_CE_To_${ts}`,
+      valid: {
+        date:              '14-07-2026',
+        from_currency_id:  `Automation_CE_From_${ts}`,
+        to_currency_id:    `Automation_CE_To_${ts}`,
+        exchange_rate:     '3.6725',
+        updatedExchangeRate: '3.75',
+      },
+      missingRequired: {
+        date: '14-07-2026',
+        // from_currency_id/to_currency_id/exchange_rate intentionally left unset
+      },
+    },
+
+    // Confirmed against the running app's add-accounting-setting form: company_id, department_id
+    // and location_id are the ONLY required fields (this triple is the row's uniqueness key -
+    // saving a combination that already exists is rejected with a snackbar, not a field error).
+    // "Trootech" is this environment's one company; "Test"/"Delhi" and "Admin"/"Mumbai" are real
+    // seeded Department/Location options confirmed live - picked to avoid colliding with
+    // pre-existing rows for other Company/Department/Location combinations already in this list.
+    accountingSetting: {
+      valid: {
+        company_id:    'Trootech',
+        department_id: 'Test',
+        location_id:   'Delhi',
+      },
+      updatedLocation: 'Houston',
+      duplicate: {
+        company_id:    'Trootech',
+        department_id: 'Admin',
+        location_id:   'Mumbai',
+      },
+    },
+
+    // Confirmed against the running app's add-journal-type form: the only fields are `name` and
+    // `is_payment` (a plain unprefixed checkbox - see JournalTypePage.js). This environment has
+    // no existing custom Journal Type rows, so duplicate-name behavior is unverified - omitted
+    // rather than guessed.
+    journalType: {
+      valid: {
+        name:        `Automation_JournalType_${ts}`,
+        updatedName: `Automation_JournalType_UPDATED_${ts}`,
+        isPayment:   false,
+      },
+      missingRequired: {
+        name: '',
+      },
+    },
+
+    // Confirmed against the running app: company_id and currency_id both come pre-defaulted
+    // (single company "Trootech", default currency "INR" in this environment) - re-selecting the
+    // already-selected option leaves a stale full-viewport MUI Select backdrop that blocks every
+    // subsequent click (see helpers/dropdown.js's mouse-corner-dismiss workaround), so `header`
+    // intentionally omits companyId/currencyId and only sets journal_type_id, which has no
+    // default. 'Journal Voucher' and 'Cash'/'Bank' are real seeded accounts/types, not guesses.
+    journalEntry: {
+      valid: {
+        header: {
+          journalTypeId: 'Journal Voucher',
+        },
+        lineItems: [
+          { account: 'Cash', debitAmount: '1000', narration: 'Automation debit line' },
+          { account: 'Bank', creditAmount: '1000', narration: 'Automation credit line' },
+        ],
+      },
+      unbalanced: {
+        lineItems: [
+          { account: 'Cash', debitAmount: '1000' },
+          { account: 'Bank', creditAmount: '500' },
+        ],
+      },
+      singleLine: {
+        lineItems: [{ account: 'Cash', debitAmount: '500' }],
+      },
+    },
+
+    // Confirmed against the running app: `party`/`bankAccount` reference real seeded records
+    // (a vendor and a bank account already present in this environment), not fabricated names -
+    // there's no "Create New Party"/"Create New Bank Account" step in this pilot. `advance: true`
+    // bypasses the "Bills is required" validation (see PaymentEntryPage.js) since no vendor in
+    // this environment currently has an outstanding bill to allocate against.
+    paymentEntry: {
+      cash: {
+        type: 'Cash',
+        partyType: 'Vendor',
+        party: 'Keyur  Italiya',
+        currency: 'INR',
+        amount: '500',
+        narration: `Automation Cash Payment ${ts}`,
+        advance: true,
+      },
+      bank: {
+        type: 'Bank',
+        partyType: 'Vendor',
+        party: 'Keyur  Italiya',
+        currency: 'INR',
+        amount: '500',
+        bankAccount: 'Test Acc',
+        narration: `Automation Bank Payment ${ts}`,
+        advance: true,
+      },
+      cheque: {
+        type: 'Cheque',
+        partyType: 'Vendor',
+        party: 'Keyur  Italiya',
+        currency: 'INR',
+        amount: '11.11',
+        bankAccount: 'Test Acc',
+        chequeNumber: `CHQ-${ts}`,
+        chequeDate: '10-07-2026',
+        chequeBank: 'Automation Test Bank',
+        narration: `Automation Cheque Payment ${ts}`,
+        advance: true,
+      },
+      missingRequired: {
+        type: 'Cash',
+        advance: true,
+        // party_type/entry_id/currency/amount all intentionally left unset
+      },
+      approverName: "Dipen Modi",
+    },
+
+    // Seed data confirmed live against the running app (2026-07-14), NOT the values
+    // 08-purchase-invoice-payment-pdc.spec.js uses - that file's vendor ('Keyur  Italiya') and
+    // item ('Test Item') no longer exist in this environment, which was the root cause of
+    // purchase-invoice.crud.spec.js's first run failing end-to-end. Also confirmed live:
+    // - Currency must be 'US Dollars', not 'INR' - searching "INR" collides with an unrelated
+    //   "INR-RAJ1" option and helpers/dropdown.js's fallback silently selects the wrong currency
+    //   instead (no exact single match ever registers for "INR" in this environment).
+    // - A plain "Save" (not Save-to-Draft) additionally requires a Shipping Address on the
+    //   Address & Contact tab ("Shipping Address is required") even though Vendor Address/Contact
+    //   Person auto-fill from the vendor's own saved address - Save-to-Draft skips this check.
+    purchaseInvoice: {
+      vendor:          'Royal Mine Industries',
+      currency:        'US Dollars',
+      paymentTerm:     'Net 30',
+      shippingAddress: 'Rajkot',
+      // `name` is the item's actual display name as it renders inside the invoice's own item
+      // table/view (confirmed live - no SKU prefix there); `dropdownOption` is the full
+      // "<SKU> - <name>" string the item-entry modal's search dropdown requires as its exact,
+      // matchable option text. Keep both - using `dropdownOption` for on-page assertions never
+      // matches, since the SKU prefix isn't part of the rendered cell text.
+      item: {
+        name:           'Playwright Auto Item',
+        dropdownOption: 'ELEC-000071 - Playwright Auto Item',
+        quantity:       '2',
+        rate:           '500',
+        taxTemplate:    'UAE VAT',
+      },
+      valid: {
+        vendorInvoiceNo: `PI-AUTOMATION-${ts}`,
+      },
+      updated: {
+        vendorInvoiceNo: `PI-AUTOMATION-${ts}-UPDATED`,
+        quantity:        '3',
+      },
+    },
+
+    // Sales Invoice - the Sales-side mirror of purchaseInvoice above. Confirmed against the
+    // running app: `customer`/`item.taxCode` are best-effort seed names (this suite's
+    // SalesInvoicePage.js falls back to whatever real customer/tax code already exists via
+    // selectDropdown()'s search+fallback+create cascade if these don't match exactly - see
+    // helpers/dropdown.js), same reasoning as purchaseInvoice's own vendor/item/taxTemplate.
+    // Unlike Purchase Invoice, a plain "Save" here does NOT require anything from the
+    // "Shipping" tab (confirmed live: that tab is shipping cost/rules, not an address, and Save
+    // succeeded without touching it).
+    salesInvoice: {
+      customer:          'AutoCorp',
+      currency:          'INR',
+      paymentTerm:       'Net 30',
+      accountReceivable: 'Accounts Receivable',
+      item: {
+        name:           'Playwright Auto Item',
+        dropdownOption: 'ELEC-000071 - Playwright Auto Item',
+        quantity:       '2',
+        rate:           '500',
+        taxCode:        'UAE VAT',
+      },
+    },
+
+    // Collection Entry - the Sales-side mirror of paymentEntry above (money IN from a Customer,
+    // via a specific Sales Invoice's Actions -> "Collection Entry" menu item rather than a
+    // standalone add form). `party`/`bankAccount` reuse the same real seeded records
+    // paymentEntry.cash/cheque already rely on (a Bank Account confirmed to exist - see
+    // paymentEntry.bank's comment); `party` here should instead match whatever customer actually
+    // ends up on the linked invoice (captured live, not hardcoded - see the spec file).
+    // Confirmed live the Invoice Entries table lists EVERY outstanding invoice for that customer
+    // (not just the one the Collection Entry was opened from) - this suite only applies payment
+    // against our own invoice's row (matched by series number, see CollectionPage.
+    // applyToInvoiceRow), so `amount`/invoicePaymentAmount here match just that one invoice's own
+    // total (salesInvoice.item: quantity 2 x rate 500 = 1000 gross + 50 tax = 1050).
+    collection: {
+      cash: {
+        type: 'Cash',
+        partyType: 'Customer',
+        currency: 'INR',
+        amount: '1050',
+        narration: `Automation Collection ${ts}`,
+        invoicePaymentAmount: '1050',
+      },
+      cheque: {
+        type: 'Cheque',
+        partyType: 'Customer',
+        currency: 'INR',
+        amount: '1050',
+        bankAccount: 'Test Acc',
+        chequeNumber: `COLL-CHQ-${ts}`,
+        chequeDate: '30-09-2026',
+        chequeBank: 'Automation Test Bank',
+        narration: `Automation Cheque Collection ${ts}`,
+        invoicePaymentAmount: '1050',
+      },
+    },
+
+    // Debit Note - raised against a Vendor, either standalone or tied to an approved Purchase
+    // Invoice (bill). Confirmed live: `vendor` here is a best-effort seed name (this suite's
+    // DebitNotePage.js falls back to whatever real Vendor already exists via selectDropdown()'s
+    // search+fallback cascade if it doesn't match exactly - same reasoning as purchaseInvoice's
+    // own vendor field) - always assert against the actualPartyName createDebitNote() returns,
+    // not this literal value. `journalType`/`currency` are confirmed live to always have at
+    // least one real option ("Journal Voucher"/company default currency).
+    debitNote: {
+      vendor:      'Royal Mine Industries',
+      journalType: 'Journal Voucher',
+      currency:    'US Dollars',
+      reference:   `Automation Debit Note ${ts}`,
+      amount:      '750',
+      item: {
+        dropdownOption: 'ELEC-000071 - Playwright Auto Item',
+        quantity:       '1',
+        rate:           '750',
+        taxTemplate:    'UAE VAT',
+      },
+    },
+
+    // Credit Note - the Sales-side mirror of debitNote above (raised against a Customer, tied
+    // to an approved Sales Invoice instead of a Purchase Invoice). `customer`/`item.taxCode`
+    // reuse salesInvoice's own best-effort seed names/fallback reasoning above.
+    creditNote: {
+      customer:    'AutoCorp',
+      journalType: 'Journal Voucher',
+      currency:    'INR',
+      reference:   `Automation Credit Note ${ts}`,
+      item: {
+        dropdownOption: 'ELEC-000071 - Playwright Auto Item',
+        quantity:       '1',
+        rate:           '750',
+        taxCode:        'UAE VAT',
+      },
+    },
+
+    // Expense Reimbursement - approved/paid via a separate "Expense Report" listing (sibling
+    // nav item under Accounting > Expense, not a submenu of this list). `employee`/`journal`/
+    // `currency`/`expenseEntryType`/`item.category`/`item.taxTemplate` are best-effort seed names
+    // (this suite's ExpenseReimbursementPage.js falls back to whatever real option already
+    // exists via selectDropdown()'s search+fallback cascade if these don't match exactly - same
+    // reasoning as every other module's own vendor/item/tax fields).
+    expenseReimbursement: {
+      employee:        'John Smith Doe',
+      journal:         'Journal Voucher',
+      currency:        'INR',
+      exchangeRate:    '1',
+      description:     `Automation Expense Reimbursement ${ts}`,
+      expenseEntryType: 'Expense',
+      item: {
+        category:    'Client-related Expenses',
+        taxTemplate: 'UAE VAT',
+        amount:      '500',
+        // Confirmed live: despite the "Reference Number" label, this field is a real
+        // type="number" input - a free-text value like "ER-AUTOMATION-<ts>" throws
+        // "Cannot type text into input[type=number]", and the raw 13-digit `ts` epoch alone
+        // throws "Out of range value for column 'ref_number'" (an INT column server-side) -
+        // truncated to 6 digits to stay safely within range while still varying per run.
+        refNumber:   `${ts % 1000000}`,
+      },
+    },
+
+    // Cash Expense - similar to purchaseInvoice above (same Vendor/Payment Terms/Currency/Item
+    // Entries shape), except "Vendor Invoice No" is required here. Reuses purchaseInvoice's own
+    // vendor/item best-effort seed names and fallback reasoning.
+    cashExpense: {
+      vendor:          'Royal Mine Industries',
+      currency:        'US Dollars',
+      paymentTerm:     'Net 30',
+      // Confirmed live the Save toast blocks with "Please fill all the required fields" unless
+      // both of these are set - same as Purchase Invoice's own required Shipping Address, plus
+      // this module's own required "Account" field (unlike Sales Invoice's account_receivable_id,
+      // which has zero real options in this environment, this one does).
+      accountPayable:  'Accounts Payable',
+      shippingAddress: 'Rajkot',
+      valid: {
+        vendorInvoiceNo: `CE-AUTOMATION-${ts}`,
+      },
+      item: {
+        dropdownOption: 'ELEC-000071 - Playwright Auto Item',
+        quantity:       '2',
+        rate:           '500',
+        taxTemplate:    'UAE VAT',
+      },
+    },
+
+    // Asset Management - account fields (fixedAssetAccount/depreciationAccount/expenseAccount)
+    // are deliberately unique-per-run (via `ts`) so this suite always exercises
+    // AssetManagementPage's create-if-missing fallback (a throwaway-tab Chart of Accounts
+    // create) rather than coincidentally matching a record from an earlier run.
+    assetManagement: {
+      assetType:           'Computer',
+      location:            'Rajkot',
+      department:          'Accounting',
+      acquisitionDate:      '01-07-2026',
+      assetValue:           '1000',
+      notDepreciableValue:  '0',
+      bookValue:            '1000',
+      depreciationMethod:   'Straight line',
+      // Best-effort guess - selectDropdown()'s search+fallback substitutes whatever real
+      // Computation option exists in this environment if this exact text doesn't match.
+      computation:          'Monthly',
+      assetName:            `Automation Asset ${ts}`,
+      seriesNumber:         `AST-AUTOMATION-${ts}`,
+      fixedAssetAccount:    `Automation_FixedAsset_${ts}`,
+      depreciationAccount:  `Automation_Depreciation_${ts}`,
+      expenseAccount:       `Automation_Expense_${ts}`,
+    },
+
+    // Asset Transfer - the prerequisite Asset is created fresh each run (via AssetManagementPage,
+    // same account-creation shape as `assetManagement` above) rather than reused from the shared
+    // environment's existing assets: this environment has several duplicate-named assets (e.g.
+    // 3x "Dell XPS 21") that selectDropdown()'s exact-match search can't reliably disambiguate by
+    // name, so a uniquely-named prerequisite asset is the only way to deterministically know
+    // which record's Location actually changed after the transfer.
+    assetTransfer: {
+      prereqAsset: {
+        assetType:           'Computer',
+        seriesNumber:        `AT-PREREQ-${ts}`,
+        assetName:           `Automation Transfer Prereq Asset ${ts}`,
+        location:            'Mumbai',
+        department:          'Procurement',
+        acquisitionDate:     '01-07-2026',
+        assetValue:          '1000',
+        notDepreciableValue: '0',
+        bookValue:           '1000',
+        depreciationMethod:  'Straight line',
+        computation:         'Monthly',
+        fixedAssetAccount:   `Automation_AT_FixedAsset_${ts}`,
+        depreciationAccount: `Automation_AT_Depreciation_${ts}`,
+        expenseAccount:      `Automation_AT_Expense_${ts}`,
+      },
+      transferName:          `Automation Asset Transfer ${ts}`,
+      // Despite the "Reference Number" label this is a real type="number" input (same quirk
+      // ExpenseReimbursementPage's own refNumber documents) - numeric-only, truncated to stay
+      // within a plausible range while still varying per run.
+      referenceNumber:       `${ts % 1000000}`,
+      // Confirmed live: this environment's Location list has both "Mumbai" (used as the
+      // prerequisite Asset's own source location above) and "Baroda" - a genuinely different,
+      // real destination distinct from the source, not a best-effort guess.
+      destinationLocation:  'Baroda',
+      destinationDepartment: 'Finance',
+    },
+
+    // ---- Master Data: Customer Management ----
+  //
+  // Routes:
+  //   List:  /dashboard/accounting/master-data/customer-management
+  //   Add:   /dashboard/accounting/master-data/customer-management/add-customer
+  //   Edit:  /dashboard/accounting/master-data/customer-management/:id/edit-customer
+  //   View:  /dashboard/accounting/master-data/customer-management/:id/view-customer
+  //
+  // account_type: 'Individual' | 'Company'  (confirmed from parties.service.js)
+  // Individual required fields: first_name + last_name
+  // Company required field: company_name (labelled "Entity Name" in the UI)
+  // Both types require at least one Address and at least one Contact before Save.
+  //
+  // account_id on the Accounting tab is the Account Receivable COA record.
+  // Update the seeded names below to match what actually exists in your environment.
+  // ── Customer Management ──────────────────────────────────────────────────────
+  //
+  // Routes (CRM module, also duplicated in accounting module):
+  //   List:  /dashboard/accounting/master-data/customer-management
+  //   Add:   .../add-customer
+  //   Edit:  .../:id/edit-customer
+  //   View:  .../:id/view-customer
+  //
+  // account_type: 'Individual' | 'Company'  (parties.service.js)
+  //   Individual → first_name + last_name required
+  //   Company    → company_name required (label "Entity Name")
+  //
+  // At least one Address AND one Contact are required before Save.
+  // Accounting tab → account_id = Accounts Receivable COA.
+  //
+  // Address object keys must match PartyPage.addAddress() params:
+  //   addressType, contactName, mobile, street1, zipCode, country, defaultBilling
+  //
+  // Update seeded names (accountName, paymentTerm, currencies) to match your environment.
+  customerManagement: {
+    individual: {
+      accountType:     'Individual',
+      firstName:       'Auto',
+      lastName:        `Cust_${ts}`,
+      // No vatNumber/crn — VAT requires exactly 15 digits, CRN exactly 10 digits;
+      // invalid values show inline errors that block the Next button.
+      address: {
+        addressType:    'Office',
+        contactName:    'Auto Cust Contact',
+        street1:        '10 Automation Avenue',
+        zipCode:        '100001',
+        defaultBilling: true,
+      },
+      contact: {
+        name:        'Auto Cust Contact',
+        email:       `autocust.${ts}@example.com`,
+        designation: 'QA Tester',
+      },
+      accountName:     'Accounts Receivable',
+      paymentTerm:     'Net 30',
+      currencies:      ['INR'],
+      displayName:     `Auto Cust_${ts}`,
+      updatedLastName: `Cust_${ts}_UPD`,
+    },
+    company: {
+      accountType:        'Company',
+      companyName:        `AutoCorp_${ts}`,
+      // No vatNumber/crn for same reason
+      address: {
+        addressType:    'Office',
+        contactName:    'Corp Contact',
+        street1:        '20 Business Park',
+        zipCode:        '200002',
+        defaultBilling: true,
+      },
+      contact: {
+        name:        'Corp Contact Person',
+        email:       `autocorp.${ts}@example.com`,
+        designation: 'Manager',
+      },
+      accountName:        'Accounts Receivable',
+      paymentTerm:        'Net 30',
+      currencies:         ['INR'],
+      displayName:        `AutoCorp_${ts}`,
+      updatedCompanyName: `AutoCorp_${ts}_UPD`,
+    },
+    missingRequired: {
+      accountType: 'Individual',
+      firstName:   '',
+      lastName:    '',
+    },
+  },
+
+  vendorManagement: {
+    individual: {
+      accountType:     'Individual',
+      firstName:       'Auto',
+      lastName:        `Vend_${ts}`,
+      address: {
+        addressType:    'Office',
+        contactName:    'Auto Vend Contact',
+        street1:        '30 Supplier Lane',
+        zipCode:        '300003',
+        defaultBilling: true,
+      },
+      contact: {
+        name:        'Auto Vend Contact',
+        email:       `autovend.${ts}@example.com`,
+        designation: 'Sales Rep',
+      },
+      accountName:     'Accounts Payable',
+      paymentTerm:     'Net 30',
+      currencies:      ['INR'],
+      displayName:     `Auto Vend_${ts}`,
+      updatedLastName: `Vend_${ts}_UPD`,
+    },
+    company: {
+      accountType:        'Company',
+      companyName:        `AutoVendCorp_${ts}`,
+      address: {
+        addressType:    'Office',
+        contactName:    'VendCorp Contact',
+        street1:        '40 Trade Centre',
+        zipCode:        '400004',
+        defaultBilling: true,
+      },
+      contact: {
+        name:        'VendCorp Contact Person',
+        email:       `autovendcorp.${ts}@example.com`,
+        designation: 'Account Manager',
+      },
+      accountName:        'Accounts Payable',
+      paymentTerm:        'Net 30',
+      currencies:         ['INR'],
+      displayName:        `AutoVendCorp_${ts}`,
+      updatedCompanyName: `AutoVendCorp_${ts}_UPD`,
+    },
+    missingRequired: {
+      accountType: 'Individual',
+      firstName:   '',
+      lastName:    '',
+    },
+  },
+  },  // closes accounting
   // Vendor/item/location/representative/approver values below are foreign-key references to
   // existing master data (same pattern as bin.valid.entity above), not freeform strings this
   // suite creates. purchaseRepresentative/vendor/approverName were live-verified against this
@@ -1028,5 +1743,9 @@ const testData = {
     },
   },
 };
+
+// The "full access" RBAC role reuses the one admin login this suite already has - it's a real,
+// working account, just not one with restricted permissions.
+testData.accounting.rbacRoles.fullAccess = testData.credentials.valid;
 
 module.exports = testData;

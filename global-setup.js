@@ -1,7 +1,13 @@
 const { chromium } = require('@playwright/test');
-const testData = require('./config/testData');
 
 async function globalSetup() {
+  // Pin one timestamp for the entire run *before* testData.js is first required, so every
+  // worker process (including ones Playwright spins up fresh after a test failure) shares the
+  // same value instead of each computing its own Date.now(). See config/testData.js for why
+  // this matters.
+  process.env.TEST_RUN_TS = String(Date.now());
+  const testData = require('./config/testData');
+
   const browser = await chromium.launch({ headless: false, slowMo: 500 });
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const page    = await context.newPage();

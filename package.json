@@ -15,7 +15,8 @@
         "test:rfq": "playwright test tests/procurement/03-rfq.spec.js",
         "test:purchase-order": "playwright test tests/procurement/04-purchase-order.spec.js",
         "test:smoke": "playwright test --grep @smoke",
-        "test:regression": "playwright test"
+        "test:regression": "playwright test",
+        "test:accounting": "playwright test tests/accounting"
     },
     "devDependencies": {
         "@playwright/test": "^1.45.0",

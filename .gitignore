@@ -8,5 +8,13 @@ auth.json
 Thumbs.db
 Inventory_Test_Cases.xlsx
 Inventory_Test_Cases.new.xlsx
+
+# Playwright
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+package-lock.json
+
 .env.example
 .pw-browsers/
