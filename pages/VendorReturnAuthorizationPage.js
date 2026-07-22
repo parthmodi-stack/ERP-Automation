@@ -25,7 +25,7 @@ class VendorReturnAuthorizationPage extends BasePage {
   // ---------- Navigation ----------
   async gotoList() {
     await this.page.goto('/dashboard/procurement/orders/vendor-returns');
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     await this.page.getByRole('button', { name: 'Add' }).first().waitFor({ state: 'visible', timeout: 15000 });
   }
 
@@ -33,14 +33,14 @@ class VendorReturnAuthorizationPage extends BasePage {
     await this.gotoList();
     await this.page.getByRole('button', { name: 'Add' }).first().click();
     await this.page.waitForURL('**/add-vendor-returns');
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     await expect(this.page.getByRole('combobox').first()).not.toHaveText('', { timeout: 10000 });
   }
 
   async gotoEdit(id) {
     if (!id) throw new Error(`gotoEdit() called with a falsy id (${id}) - a prior create/save step likely failed.`);
     await this.page.goto(`/dashboard/procurement/vendor-returns/${id}/edit-vendor-returns`);
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     // "Select Date" is the DynamicDate field's placeholder/accessible name - same pattern as the
     // sibling Procurement Request page's Date field.
     await this.page.getByRole('textbox', { name: 'Select Date' }).waitFor({ state: 'visible', timeout: 15000 });
@@ -49,7 +49,7 @@ class VendorReturnAuthorizationPage extends BasePage {
   async gotoView(id) {
     if (!id) throw new Error(`gotoView() called with a falsy id (${id}) - a prior create/save step likely failed.`);
     await this.page.goto(`/dashboard/procurement/vendor-returns/${id}/view-vendor-returns`);
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     await this.page.getByText(/^ID:/).first().waitFor({ state: 'visible', timeout: 15000 });
   }
 
@@ -166,7 +166,20 @@ class VendorReturnAuthorizationPage extends BasePage {
   async fillAddressContact() {
     await this.selectFirstOptionByLabel('Vendor Address');
     await this.selectFirstOptionByLabel('Contact Person');
-    await this.selectFirstOptionByLabel('Shipping Address');
+    // CONFIRMED LIVE: Shipping Address's own accordion SECTION title (companyShippibngAddress)
+    // renders as an identically-worded, asterisk-less "Shipping Address" text node earlier in the
+    // DOM than the field's own label - selectFirstOptionByLabel's optional-asterisk regex matches
+    // that title first, finds no combobox inside the accordion's button wrapper, and silently
+    // no-ops the click (swallowed by selectFirstAvailableOption's own `.catch`), then times out
+    // waiting for a listbox that never opens. The field's own label uniquely carries the
+    // required-field asterisk ("Shipping Address *") - require it explicitly to disambiguate.
+    const shippingCombobox = this.page
+      .getByText(/^Shipping Address\s*\*$/i)
+      .first()
+      .locator('xpath=..')
+      .getByRole('combobox')
+      .first();
+    await this.selectFirstAvailableOption(shippingCombobox);
   }
 
   // ---------- Items ----------
@@ -250,7 +263,7 @@ class VendorReturnAuthorizationPage extends BasePage {
       this.page.getByRole('button', { name: buttonName, exact }).click(),
       this.page.waitForResponse((r) => r.url().includes('/purchase/v1/vra/?')),
     ]);
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     const record = (await listResponse.json()).data.vras[0];
     return { id: String(record.id), seriesNumber: record.series_number };
   }
@@ -285,11 +298,23 @@ class VendorReturnAuthorizationPage extends BasePage {
   }
 
   // ---------- Delete / Approval flow ----------
-  // confirmDelete()/quickApproval()/accept()/reject() now live on BasePage - this module's own
-  // toast wording (procurement.vendorReturns.msg.requestSubmitted/requestApproved/
-  // requestRejected in en.ts) already matches BasePage's default toast regexes, and
-  // Submit/Quick Approval/Accept/Reject come from the same shared ApprovalWrapper component
-  // (approval-wrapper.tsx) as every sibling procurement module, so no override is needed here.
+  // confirmDelete()/quickApproval() now live on BasePage unchanged. accept() is the one wording
+  // exception: CONFIRMED LIVE the real toast text is "Vendor Return Authorization Accepted", not
+  // BasePage's default "approved successfully" - override just that one default rather than
+  // touching every sibling module's shared BasePage.accept().
+  async accept(opts = {}) {
+    return super.accept({ successToast: /Vendor Return Authorization Accepted/i, ...opts });
+  }
+
+  // reject()'s wording does match BasePage's default "rejected successfully" regex, but the
+  // toast is a short-lived Snackbar that can auto-dismiss before the assertion polls for it
+  // under load (confirmed live: TC-VRA-05 intermittently timed out on it) - same class of
+  // flakiness PurchaseAgreementPage's reject() already works around. Skip it here too; the
+  // caller verifies the resulting "Rejected" status badge right after, which is the durable
+  // signal that the action actually took effect.
+  async reject(opts = {}) {
+    return super.reject({ successToast: null, ...opts });
+  }
 
   // ---------- Module-level business method ----------
   // Matches the spec file's own local createDraftWithItem() helper body exactly.

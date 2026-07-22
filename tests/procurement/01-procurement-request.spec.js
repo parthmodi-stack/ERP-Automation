@@ -1,8 +1,17 @@
 const { test, expect } = require("@playwright/test");
 const ProcurementRequestPage = require("../../pages/ProcurementRequestPage");
+const RfqPage = require("../../pages/RfqPage");
+const PurchaseOrderPage = require("../../pages/PurchaseOrderPage");
 const testData = require("../../config/testData");
 
-test.describe("Procurement Request Management", () => {
+// .serial: every test below reads module-level state (createdRequest/editRequest/
+// approvedRequest/rejectedRequest) set by an earlier test in this same file - see the
+// test.skip() guards throughout that only exist because that dependency can go unmet (per the
+// comment just below: a hard failure appears to restart the worker and re-require this file,
+// resetting every `let` above to undefined). A plain describe still runs these tests in file
+// order, but .serial additionally skips the remaining tests in the block once one fails, instead
+// of letting them run against reset state and fail with a confusing, unrelated-looking error.
+test.describe.serial("Procurement Request Management", () => {
   // This account's environment is slower than the default 30s test timeout allows for (shared
   // dataset, added network latency) - a test that hits that ceiling doesn't just fail, it takes
   // down every later test that reads module-level state set by an earlier test too (Playwright
@@ -19,6 +28,10 @@ test.describe("Procurement Request Management", () => {
   let editRequest;
   let rejectedRequest;
   const viewValues = {};
+  // selectLocation() now creates a fresh Location every call (see its own comment) rather than
+  // selecting a pinned name - captures the name actually created for createdRequest so TC-PREQ-03
+  // can assert against it instead of the static testData value.
+  let createdRequestLocation;
 
   // ── TC-PREQ-01: Create Request ───────────────────────────────────────────
   test(
@@ -64,7 +77,7 @@ test.describe("Procurement Request Management", () => {
     // Unlike Entity/Purchase Representative/Vendor/Currency/Narration, the edit form does not
     // pre-populate the previously saved Location - it must be re-selected or Save fails
     // "Location is required".
-    await pr.selectLocation(data.location);
+    createdRequestLocation = await pr.selectLocation(data.location);
     await pr.editFirstItem({ quantity: data.updatedQuantity });
 
     // saveAsDraft (not save) keeps status Draft, since TC-PREQ-04 separately drives approval.
@@ -87,11 +100,13 @@ test.describe("Procurement Request Management", () => {
     ).toBeVisible();
     await expect(page.getByText(data.updatedNarration)).toBeVisible();
     await expect(page.getByText(data.vendor)).toBeVisible();
-    // NOT getByText: confirmed live via ARIA snapshot that the Location value ("Dhule") is
-    // rendered visually but absent from the accessibility tree entirely (aria-hidden or
-    // equivalent) - only the "Location" label paragraph itself is exposed. getFieldValueOnView
-    // reads structurally via DOM position instead, which works regardless.
-    expect(await pr.getFieldValueOnView("Location")).toBe(data.location);
+    // NOT getByText: confirmed live via ARIA snapshot that the Location value is rendered
+    // visually but absent from the accessibility tree entirely (aria-hidden or equivalent) -
+    // only the "Location" label paragraph itself is exposed. getFieldValueOnView reads
+    // structurally via DOM position instead, which works regardless. Compared against the name
+    // TC-PREQ-02 actually created (selectLocation() creates a fresh Location every call), not the
+    // static testData seed.
+    expect(await pr.getFieldValueOnView("Location")).toBe(createdRequestLocation);
     await expect(
       page.getByText(data.itemName.split(" - ")[1] || data.itemName).first(),
     ).toBeVisible();
@@ -288,18 +303,11 @@ test.describe("Procurement Request Management", () => {
     await expect(page.locator("table tbody tr").first()).toContainText("4");
   });
 
-  // ── TC-PREQ-10: Known issue - Location does not auto-populate on Edit ────
-  test("TC-PREQ-10 [-] Known issue: Location does not auto-populate on Edit", async ({
-    page,
-  }) => {
-    // Every other field checked in TC-PREQ-09 correctly pre-populates; Location is a genuine,
-    // isolated app bug (confirmed by polling the field with no change). This test tracks the
-    // gap: if it's ever fixed, Playwright will report it as an unexpected pass.
-    test.fail(
-      true,
-      "Known gap: Location renders blank on the Edit form despite a saved value.",
-    );
-
+  // ── TC-PREQ-10: Location now auto-populates on Edit ──────────────────────
+  test("TC-PREQ-10 [+] Location auto-populates on Edit", async ({ page }) => {
+    // This used to be a tracked gap (Location rendered blank on the Edit form despite a saved
+    // value) guarded by test.fail() - confirmed live that it now round-trips correctly, same as
+    // every other field checked in TC-PREQ-09, so this asserts the fix directly instead.
     const pr = new ProcurementRequestPage(page);
     if (!editRequest?.id) test.skip();
     await pr.gotoEdit(editRequest.id);
@@ -457,7 +465,7 @@ test.describe("Procurement Request Management", () => {
     ).toBeVisible();
   });
 
-  // ── Classification & Item Field Coverage (TC-PREQ-17 - TC-PREQ-19) ──────
+  // ── Classification & Item Field Coverage (TC-PREQ-18 - TC-PREQ-19) ──────
   // WRITTEN FROM erpforce-fe SOURCE (basic-details.tsx, item-entry-modal.tsx), NOT YET
   // LIVE-VERIFIED end-to-end - same "unverified live" caveat this repo already carries for
   // VendorReturnAuthorizationPage. "Entity" in the original test plan is this module's Company
@@ -597,7 +605,7 @@ test.describe("Procurement Request Management", () => {
       await pr.fillBasicDetails({ narration: "TC-PREQ-24 should not persist" });
 
       await page.reload();
-      await page.waitForLoadState("networkidle");
+      await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
       await expect(page.getByPlaceholder("Enter Narration")).toHaveValue("");
     });
 
@@ -611,8 +619,161 @@ test.describe("Procurement Request Management", () => {
 
       await pr.gotoAdd();
       await page.goBack();
-      await page.waitForLoadState("networkidle");
+      await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
       await expect(page).toHaveURL(/\/dashboard\/procurement\/requests$/);
+    });
+  });
+
+  // ── Create RFQ from Request (TC-PREQ-26) ─────────────────────────────────
+  // WRITTEN FROM erpforce-fe SOURCE - add-request-for-quote.tsx re-fetches the source Request by
+  // id (fetchpurchaseRequestById) once "Create > RFQ" navigates over with { state: { request } },
+  // and pre-fills the Add RFQ form from that fresh fetch: Vendor/Location/Purchase
+  // Representative/Narration/Attachment are copied directly (actionCreator.ts's
+  // fetchpurchaseRequestById mapping), and each item's `quantity` is copied onto the RFQ item's
+  // `requested_quantity` (renamed, not identical). Currency/Company are deliberately NOT part of
+  // that mapping (commented out at source) - they get re-derived from the copied Vendor's own
+  // defaults instead once basic-details-tab.tsx's vendor-dependent-fields effect runs. Rate/Amount
+  // do not exist anywhere in the RFQ item schema at all (an RFQ has no pricing until a vendor
+  // responds) - do not assert on them.
+  test.describe("Create RFQ from Request", () => {
+    // A dedicated source Request using vendor "PC vendor" - NOT this suite's usual "PC new
+    // Vendor". Create RFQ copies vendor_id straight from the source Request (source-confirmed
+    // above), and testData.rfq's own comment already documents that "PC new Vendor" has ZERO
+    // configured Contact Persons on this account, a required field on the RFQ's Address &
+    // Contact tab that would otherwise permanently block Save. "PC vendor" is the exact vendor
+    // testData.rfq.valid already uses successfully for that same reason.
+    test("TC-PREQ-26 [+] Create RFQ from an approved Request copies Vendor/Purchase Representative/Narration/Items, then Save succeeds", async ({
+      page,
+    }) => {
+      const pr = new ProcurementRequestPage(page);
+      const rfq = new RfqPage(page);
+      const data = testData.procurementRequest.valid;
+      const rfqData = testData.rfq.valid;
+      const narration = "TC-PREQ-26 create RFQ from request";
+
+      await pr.gotoAdd();
+      await pr.fillBasicDetails({
+        purchaseRepresentative: data.purchaseRepresentative,
+        vendor: rfqData.vendor,
+        narration,
+      });
+      await pr.selectLocation(data.location);
+      await pr.addItem({ itemName: data.itemName, quantity: "6", rate: "15" });
+
+      const rfqSourceRequest = await pr.save(); // plain save on a new record goes straight to Pending
+      expect(rfqSourceRequest.id).toBeTruthy();
+
+      await pr.gotoView(rfqSourceRequest.id);
+      await pr.quickApproval(testData.procurementRequest.approverName);
+      await pr.accept();
+      await expect(page.getByText("In Progress", { exact: true })).toBeVisible();
+
+      await pr.createRfq();
+      await page.waitForURL(/\/procurement\/orders\/request-for-quote\/add-request-for-quote/);
+      await page
+        .getByRole("textbox", { name: "Select Date" })
+        .first()
+        .waitFor({ state: "visible", timeout: 15000 });
+
+      // The pre-fill lands after a real network round-trip (fetchPurchaseRequestById) behind a
+      // loading state - wait for it to actually land rather than a fixed delay.
+      await expect(page.getByPlaceholder("Enter Narration")).toHaveValue(narration, {
+        timeout: 15000,
+      });
+
+      // Vendor/Purchase Representative are direct copies from the source Request.
+      await expect(page.getByText(rfqData.vendor).first()).toBeVisible();
+      await expect(page.getByText(data.purchaseRepresentative).first()).toBeVisible();
+
+      // Items: the source item and its quantity (copied onto requested_quantity) carry over.
+      const row = page.locator("table tbody tr").first();
+      await expect(row).toContainText(data.itemName.split(" - ")[1] || data.itemName);
+      await expect(row).toContainText("6");
+
+      await rfq.fillAddressContact({
+        contactPerson: rfqData.contactPerson,
+        shippingAddress: rfqData.shippingAddress,
+        vendorAddress: rfqData.vendorAddress,
+      });
+
+      const createdRfq = await rfq.saveAsDraft();
+      expect(createdRfq.id).toBeTruthy();
+      expect(await rfq.getRowStatus(createdRfq.seriesNumber)).toContain("Draft");
+    });
+  });
+
+  // ── Create Purchase Order from Request (TC-PREQ-27) ──────────────────────
+  // add-purchase-order.tsx re-fetches the source Request by id (route state's confusingly-named
+  // `purchase_order` key - its VALUE is the source Request, not an actual purchase order - set by
+  // ProcurementRequestPage.createOrder()'s own in-app navigation) and copies Vendor/Company/
+  // Location/Currency directly onto the new PO's Basic Details, and each item's Rate/Tax
+  // Template/Location/Department carry over too (unlike RFQ items, PO items DO have pricing -
+  // source-confirmed in utils/common.ts's processItemsFormForm). Vendor Address/Contact Person/
+  // Shipping Address are one thing NOT pre-filled (`purchase_order_contacts: {}` when sourced
+  // from a Request) and must be filled in, same as a from-scratch PO. CONFIRMED LIVE: Payment
+  // Terms is NOT copied either - processRequestResponseForForm (utils/common.ts) copies it
+  // straight from the source record's own payment_term_id/payment_term_data, but a Procurement
+  // Request has no Payment Terms field of its own to source from, so it renders blank and Submit
+  // is blocked ("Please fill all the required fields") until it's picked here, same as a
+  // from-scratch PO.
+  test.describe("Create Purchase Order from Request", () => {
+    test("TC-PREQ-27 [+] Create Purchase Order from an In Progress Request copies Vendor/Location/Item Rate, then Submit succeeds", async ({
+      page,
+    }) => {
+      const pr = new ProcurementRequestPage(page);
+      const po = new PurchaseOrderPage(page);
+      const data = testData.procurementRequest.valid;
+      // NOT data.vendor ("PC new Vendor"): confirmed live (TC-PREQ-26) that this vendor has ZERO
+      // configured Contact Persons, which PurchaseOrderPage's own Address & Contact tab also
+      // requires - "PC vendor" (testData.rfq.valid) is the same vendor already proven to have
+      // real Contact Person/Vendor Address/Shipping Address options.
+      const rfqData = testData.rfq.valid;
+      const narration = "TC-PREQ-27 create PO from request";
+
+      await pr.gotoAdd();
+      await pr.fillBasicDetails({
+        purchaseRepresentative: data.purchaseRepresentative,
+        vendor: rfqData.vendor,
+        narration,
+      });
+      const sourceLocation = await pr.selectLocation(data.location);
+      await pr.addItem({ itemName: data.itemName, quantity: "3", rate: "60" });
+
+      const sourceRequest = await pr.save(); // plain save on a new record goes straight to Pending
+      expect(sourceRequest.id).toBeTruthy();
+
+      await pr.gotoView(sourceRequest.id);
+      await pr.quickApproval(testData.procurementRequest.approverName);
+      await pr.accept();
+      await expect(page.getByText("In Progress", { exact: true })).toBeVisible();
+
+      await pr.createOrder();
+      await po.waitForCreateFromSourceReady();
+
+      // Basic Details are copied straight from the source Request (source-confirmed:
+      // processRequestResponseForForm in utils/common.ts).
+      await expect(page.getByText(rfqData.vendor).first()).toBeVisible();
+      await expect(page.getByText(sourceLocation).first()).toBeVisible();
+
+      // Item Rate/Quantity carry over too - no addItem()/editFirstItem() needed here.
+      const row = page.locator("table tbody tr").first();
+      await expect(row).toContainText("3");
+      await expect(row).toContainText("60");
+
+      // Not copied from a Request source (see comment above the describe block) - must be
+      // picked, same as a from-scratch PO, or Submit is blocked on a required field.
+      await po.selectPaymentTerm();
+
+      await po.fillAddressContact();
+
+      const createdOrder = await po.save();
+      expect(createdOrder.id).toBeTruthy();
+
+      // This single PO fully covers the source item's requested quantity (3 == 3, unedited) -
+      // the backend's quantity-reconciliation logic (source-confirmed, rental.js's
+      // updatePurchaseRequestStatus) flips the Request to Completed once ordered >= requested.
+      await pr.gotoView(sourceRequest.id);
+      await expect(page.getByText("Completed", { exact: true })).toBeVisible();
     });
   });
 
@@ -677,17 +838,17 @@ test.describe("Procurement Request Management", () => {
       }
 
       await pr.nextPageButton().click();
-      await page.waitForLoadState("networkidle");
+      await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
       expect(await pr.getPaginationLabel()).toMatch(/Page\s*2\s*of\s*\d+/);
       await expect(pr.prevPageButton()).toBeEnabled();
 
       await pr.prevPageButton().click();
-      await page.waitForLoadState("networkidle");
+      await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
       expect(await pr.getPaginationLabel()).toMatch(/Page\s*1\s*of\s*\d+/);
 
       // "Go To" spinbutton navigates directly and stays in sync with the Page X of Y indicator.
       await pr.goToPage(2);
-      await page.waitForLoadState("networkidle");
+      await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
       expect(await pr.getPaginationLabel()).toMatch(/Page\s*2\s*of\s*\d+/);
     });
 
@@ -720,15 +881,25 @@ test.describe("Procurement Request Management", () => {
       if (!editRequest?.seriesNumber || !approvedRequest?.seriesNumber || !rejectedRequest?.seriesNumber) test.skip();
       await pr.gotoList();
 
+      // Records created earlier in this run can scroll off the default (newest-first) first
+      // page once enough other automation-created records accumulate account-wide - scope each
+      // lookup with a search first, same as TC-PREQ-L04 above.
+      await pr.searchList(editRequest.seriesNumber);
       expect(await pr.getRowStatus(editRequest.seriesNumber)).toContain(
         "Draft",
       );
+
+      await pr.searchList(approvedRequest.seriesNumber);
       expect(await pr.getRowStatus(approvedRequest.seriesNumber)).toContain(
         "In Progress",
       );
+
+      await pr.searchList(rejectedRequest.seriesNumber);
       expect(await pr.getRowStatus(rejectedRequest.seriesNumber)).toContain(
         "Rejected",
       );
+
+      await pr.clearSearch();
     });
 
     // default-data.tsx's column set: ID/Date/Company/Purchase Representative/Vendor/Total

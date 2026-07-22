@@ -8,7 +8,16 @@ const testData = require('../../config/testData');
 // dev.erpforce.co - it has not been run live yet. Expect some locator/flow adjustments once it's
 // first executed, the same way the other suites' many "confirmed live" comments accumulated over
 // real runs.
-test.describe('Vendor Return Authorization Management', () => {
+// .serial: every test below reads module-level state (createdVra/editVra/rejectedVra) set by an
+// earlier test in this same file. Per 01-procurement-request.spec.js's own comment, Playwright
+// appears to restart the worker after a hard failure in this environment, which re-requires the
+// file and resets every module-level `let` above to undefined - a later test then reads that
+// reset variable instead of the value an earlier test set (confirmed live: TC-VRA-07/08
+// intermittently threw "Cannot read properties of undefined (reading 'id')" on editVra). A plain
+// describe still runs these tests in file order, but .serial additionally skips the remaining
+// tests in the block once one fails, instead of letting them run against reset state and fail
+// with a confusing, unrelated-looking error.
+test.describe.serial('Vendor Return Authorization Management', () => {
   // Two-tab form (Basic Details -> Next -> Address & Contact) plus an approval workflow - give
   // it the same headroom as the sibling Purchase Order/Purchase Agreement suites.
   test.describe.configure({ timeout: 150000 });
@@ -280,7 +289,10 @@ test.describe('Vendor Return Authorization Management', () => {
     await vra.gotoAdd();
     await page.getByRole('button', { name: 'Add', exact: true }).click();
     const modal = page.getByRole('dialog').filter({ hasText: 'Add Item' });
-    await modal.getByRole('combobox', { name: /Item/i }).click();
+    // exact: true - a loose /Item/i regex also matches the modal's separate "Search Discount
+    // Item" combobox, causing a strict-mode violation (same fix as VendorReturnAuthorizationPage's
+    // own addItem()).
+    await modal.getByRole('combobox', { name: 'Search Item', exact: true }).click();
     await expect(page.getByText(data.itemName, { exact: true }).first()).toBeVisible();
   });
 
@@ -361,16 +373,16 @@ test.describe('Vendor Return Authorization Management', () => {
       const totalPages = match ? parseInt(match[1], 10) : 1;
       if (totalPages > 1) {
         await vra.nextPageButton().click();
-        await page.waitForLoadState('networkidle');
+        await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
         expect(await vra.getPaginationLabel()).toMatch(/Page\s*2\s*of\s*\d+/);
         await expect(vra.prevPageButton()).toBeEnabled();
 
         await vra.prevPageButton().click();
-        await page.waitForLoadState('networkidle');
+        await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
         expect(await vra.getPaginationLabel()).toMatch(/Page\s*1\s*of\s*\d+/);
 
         await vra.goToPage(2);
-        await page.waitForLoadState('networkidle');
+        await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
         expect(await vra.getPaginationLabel()).toMatch(/Page\s*2\s*of\s*\d+/);
       } else {
         console.log('Skipping page 2 pagination tests because only 1 page of records exists.');
