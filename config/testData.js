@@ -740,6 +740,23 @@ const testData = {
       updatedDescription: `Updated by automation ${ts}`,
     },
 
+    // Commission Target - master data (no approval workflow), same archetype as commissionPlan
+    // above. This suite creates and uses its own disposable record for the full CRUD lifecycle.
+    commissionTarget: {
+      valid: {
+        salesperson:  'Dipen Modi', // matches credentials.valid's own logged-in user
+        type:         'Monthly',
+        startDate:    '01-07-2026',
+        // No endDate - confirmed live that field is disabled/auto-computed from startDate+type.
+        targetAmount: '5000',
+        // Confirmed live real options in this environment - selectLocation()/selectDepartment()
+        // both fall back gracefully (optional: true) if these exact names don't match.
+        location:     'Mumbai',
+        department:   'Finance',
+      },
+      updatedTargetAmount: '7500',
+    },
+
     // ---- Master Data: Customer Management ----
   //
   // Routes:
