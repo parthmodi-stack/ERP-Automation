@@ -720,6 +720,26 @@ const testData = {
       destinationDepartment: 'Finance',
     },
 
+    // Commission Plan - master data (no approval workflow, plain Active/Inactive status). Create
+    // was previously blocked by a confirmed live app bug (a dead duplicate form section polluting
+    // Save's payload with a stray `company_id` field) - confirmed fixed (both duplicate sections
+    // are gone from the Add form now), so this suite creates and uses its own disposable record
+    // for the full CRUD lifecycle rather than mutating/reading a pre-existing shared one.
+    commissionPlan: {
+      valid: {
+        title:            `Automation Commission Plan ${ts}`,
+        type:              'Fixed Rate',
+        commissionAmount:  '500',
+        description:       `Automation-created commission plan ${ts}`,
+        // Confirmed live: this environment's Location/Department lists are real but this exact
+        // pair isn't pinned/verified against a specific option - selectLocation()/selectDepartment()
+        // both fall back gracefully (optional: true) if these exact names don't match.
+        location:          'Mumbai',
+        department:        'Finance',
+      },
+      updatedDescription: `Updated by automation ${ts}`,
+    },
+
     // ---- Master Data: Customer Management ----
   //
   // Routes:
