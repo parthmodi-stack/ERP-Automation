@@ -1,49 +1,81 @@
-const { expect } = require('@playwright/test');
-const BasePage = require('./BasePage');
+const { expect } = require("@playwright/test");
+const BasePage = require("./BasePage");
 
 class ProcurementRequestPage extends BasePage {
   // ---------- Navigation ----------
   async gotoList() {
-    await this.page.goto('/dashboard/procurement/requests');
-    await this.page.waitForLoadState('networkidle');
+    await this.page.goto("/dashboard/procurement/requests");
+    await this.page
+      .waitForLoadState("networkidle", { timeout: 15000 })
+      .catch(() => {});
     // networkidle can fire before the page has actually rendered anything under this
     // environment's latency (confirmed live: a bare loading spinner, no list/table content at
     // all, under concurrent multi-worker load) - wait for the "Add" button, always present once
     // the list is ready, same pattern gotoEdit()/gotoAdd()/gotoView() already use.
-    await this.page.getByRole('button', { name: 'Add' }).first().waitFor({ state: 'visible', timeout: 15000 });
+    await this.page
+      .getByRole("button", { name: "Add" })
+      .first()
+      .waitFor({ state: "visible", timeout: 15000 });
   }
 
   async gotoAdd() {
     await this.gotoList();
-    await this.page.getByRole('button', { name: 'Add' }).first().click();
-    await this.page.waitForURL('**/add-requests');
-    await this.page.waitForLoadState('networkidle');
+    await this.page.getByRole("button", { name: "Add" }).first().click();
+    await this.page.waitForURL("**/add-requests");
+    await this.page
+      .waitForLoadState("networkidle", { timeout: 15000 })
+      .catch(() => {});
     // Location's options are entity-scoped; selecting it before the default Entity resolves
     // can race and time out. Other flows avoid this incidentally via prior field selections.
-    await expect(this.page.getByRole('combobox').first()).not.toHaveText('', { timeout: 10000 });
+    await expect(this.page.getByRole("combobox").first()).not.toHaveText("", {
+      timeout: 10000,
+    });
+    // Company/Vendor/Purchase Representative's own dependent-fetch chain can get stuck on
+    // "Loading..." indefinitely on page load - same shared DynamicSelect-family bug documented on
+    // BasePage.recoverFromStuckLoadingFields (confirmed live on the sibling RFQ module, TC-RFQ-09)
+    // - recover before any later step can hang on it.
+    await this.recoverFromStuckLoadingFields();
   }
 
   async gotoEdit(id) {
-    if (!id) throw new Error(`gotoEdit() called with a falsy id (${id}) - a prior create/save step likely failed.`);
+    if (!id)
+      throw new Error(
+        `gotoEdit() called with a falsy id (${id}) - a prior create/save step likely failed.`,
+      );
     await this.page.goto(`/dashboard/procurement/requests/${id}/edit-requests`);
-    await this.page.waitForLoadState('networkidle');
+    await this.page
+      .waitForLoadState("networkidle", { timeout: 15000 })
+      .catch(() => {});
     // networkidle can fire before the form has actually finished rendering under this
     // environment's latency (confirmed live via screenshot: still showing a loading spinner
     // well after networkidle) - wait for a field that's always present once the form is ready,
     // same pattern gotoAdd() already uses.
-    await this.page.getByRole('textbox', { name: 'Select Date' }).waitFor({ state: 'visible', timeout: 15000 });
+    await this.page
+      .getByRole("textbox", { name: "Select Date" })
+      .waitFor({ state: "visible", timeout: 15000 });
+    // Same stuck-"Loading..." class of bug as gotoAdd() (source-confirmed on RFQ's own Edit page,
+    // TC-RFQ-09) - this module shares the identical DynamicSelect component/dependent-fetch chain.
+    await this.recoverFromStuckLoadingFields();
   }
 
   async gotoView(id) {
-    if (!id) throw new Error(`gotoView() called with a falsy id (${id}) - a prior create/save step likely failed.`);
+    if (!id)
+      throw new Error(
+        `gotoView() called with a falsy id (${id}) - a prior create/save step likely failed.`,
+      );
     await this.page.goto(`/dashboard/procurement/requests/${id}/view-requests`);
-    await this.page.waitForLoadState('networkidle');
+    await this.page
+      .waitForLoadState("networkidle", { timeout: 15000 })
+      .catch(() => {});
     // networkidle can fire before the page has actually rendered anything under this
     // environment's latency (confirmed live on the sibling Purchase Agreement page: a fully
     // blank white page, no content at all, under concurrent multi-worker load) - wait for the
     // breadcrumb's own "ID:" text, always present once the View page is ready, same pattern
     // gotoEdit()/gotoAdd() already use.
-    await this.page.getByText(/^ID:/).first().waitFor({ state: 'visible', timeout: 15000 });
+    await this.page
+      .getByText(/^ID:/)
+      .first()
+      .waitFor({ state: "visible", timeout: 15000 });
   }
 
   // ---------- Generic helpers ----------
@@ -55,7 +87,9 @@ class ProcurementRequestPage extends BasePage {
   // Editing a record on a later day than it was created leaves its stored Date in the past,
   // which the form rejects on save ("Date cannot be in the past") - reset it to today first.
   async setDateToToday() {
-    await this.page.getByRole('textbox', { name: 'Select Date' }).fill(this.formatDateToday());
+    await this.page
+      .getByRole("textbox", { name: "Select Date" })
+      .fill(this.formatDateToday());
   }
 
   // ---------- Basic Details ----------
@@ -66,125 +100,96 @@ class ProcurementRequestPage extends BasePage {
   // value, so this is usually a no-op on Add; it matters on flows that need a NON-default Company
   // to exercise Location/Department's dependent-reset behavior.
   async selectCompany(companyName) {
-    await this.selectFieldByLabel('Company *', companyName);
+    await this.selectFieldByLabel("Company *", companyName);
   }
 
-  async fillBasicDetails({ purchaseRepresentative, vendor, currency, narration } = {}) {
+  // Reads the Company combobox's current visible text - used to scope a freshly created Location
+  // to whichever Company is ACTUALLY selected right now (Location's own options are company-
+  // scoped, `filterField={'company_id'}` per basic-details.tsx), without every caller needing to
+  // thread the company value through separately.
+  async getSelectedCompany() {
+    const combobox = this.page
+      .getByText("Entity *", { exact: true })
+      .first()
+      .locator("xpath=..")
+      .getByRole("combobox")
+      .first();
+    return ((await combobox.textContent()) || "").replace(/[​﻿]/g, "").trim();
+  }
+
+  async fillBasicDetails({
+    purchaseRepresentative,
+    vendor,
+    currency,
+    narration,
+  } = {}) {
     if (purchaseRepresentative) {
-      await this.openDropdownAndPick('Search Purchase Representative', purchaseRepresentative);
+      await this.openDropdownAndPick(
+        "Search Purchase Representative",
+        purchaseRepresentative,
+      );
     }
     if (vendor) {
-      await this.openDropdownAndPick('Search Vendor', vendor);
+      await this.openDropdownAndPick("Search Vendor", vendor);
     }
     if (currency) {
       // Currency defaults to a real value on the Add form and does not round-trip onto the
       // Edit form (confirmed live: blank immediately after navigating to Edit) - re-selecting
       // it structurally by label is a no-op-equivalent on Add (still picks the same value) and
       // a fix on Edit, and doesn't care which state the combobox's accessible name is in.
-      await this.selectFieldByLabel('Currency *', currency);
+      await this.selectFieldByLabel("Currency *", currency);
     }
     if (narration) {
-      await this.page.getByPlaceholder('Enter Narration').fill(narration);
+      await this.page.getByPlaceholder("Enter Narration").fill(narration);
     }
   }
 
+  // The Location dropdown's default (unfiltered) list only returns the 25 most-recently-created
+  // records with no working search filter (confirmed live via its own API call:
+  // `order=id:-1&limit=25` - typing into the popover's search box never triggers a filtered
+  // re-fetch for this field). Any PINNED literal value - even a previously-confirmed-live one -
+  // eventually gets evicted from that ever-shifting window by newer automation-created records
+  // account-wide (confirmed live: the sibling RFQ Shipping Address field hit this exact issue
+  // when its own pinned "Dhule" fell out of the window). Rather than keep re-pinning a "currently
+  // visible" name that will inevitably rot again, create a brand new Location from the field's
+  // own "+ Create New Location" footer action every time (createLocationFromFooter, BasePage) and
+  // use that - it's guaranteed to exist, and scoped to whichever Company is CURRENTLY selected
+  // (getSelectedCompany()) since Location's own options are company-scoped
+  // (`filterField={'company_id'}` per basic-details.tsx).
+  //
   // TEMPORARY WORKAROUND: on this project's dev.erpforce.co account, the Location field's
   // translation key (crm.salesOrder.fields.location_label) isn't resolving, so its paragraph
-  // label reads literally "crm.salesOrder.fields.location_label *" instead of "Location *"
-  // (confirmed live via ARIA snapshot - this is a real app/content bug, not a test issue).
-  // Also, unlike what an earlier pass assumed, this field DOES already hold a value on the
-  // Edit page in this account's current data - once populated, a combobox's accessible NAME
-  // becomes that value instead of any "Search X" prompt (confirmed live: name was literally
-  // "Test_Location_Playwright_UPDATED_..."), so selecting by combobox name can never work
-  // reliably here. Locate structurally via the paragraph label instead (same pattern as
-  // purchaseAgreement.page.ts's selectFieldByLabel), which works whether the field is blank,
-  // pre-filled, or under the broken translation key.
-  async selectLocation(locationName) {
-    const properLabelText = 'Location *';
-    const brokenLabelText = 'crm.salesOrder.fields.location_label *';
+  // label can read literally "crm.salesOrder.fields.location_label *" instead of "Location *"
+  // (confirmed live via ARIA snapshot - a real app/content bug, not a test issue) - resolve the
+  // field's own combobox structurally and pass it to createLocationFromFooter directly, since its
+  // own generic "Location" label lookup would miss the broken-translation state entirely.
+  //
+  // `namePrefix` seeds the generated name (existing callers keep passing a familiar seed like
+  // "Dhule"/"Automation_Request_Location") - a per-call timestamp+random suffix is appended so
+  // concurrent/rapid calls within the same suite never collide. Returns the actual generated name
+  // so callers that need to assert on it later (e.g. TC-PREQ-03's View-page check) can capture it.
+  async selectLocation(namePrefix) {
+    const properLabelText = "Location *";
+    const brokenLabelText = "crm.salesOrder.fields.location_label *";
     const label = this.page
       .getByText(properLabelText, { exact: true })
       .or(this.page.getByText(brokenLabelText, { exact: true }));
     const combobox = label.locator('xpath=following::*[@role="combobox"][1]');
-    // Scoped to the open listbox popover, not the whole page - unlike every other dropdown
-    // helper in this file, this was previously a page-wide getByText(...).first(), which could
-    // silently resolve to a same-text element outside the popover. Even scoped to the listbox,
-    // this field has a SECOND decoy match: the popover's own search textbox is wrapped in a
-    // role="option" element whose accessible name mirrors whatever's currently typed (confirmed
-    // live via ARIA snapshot: two "option \"Dhule\"" entries after typing "Dhule" - one wrapping
-    // a nested "Search Location" textbox, one a real <paragraph> option below it). `.first()`
-    // resolved to the decoy every time - a force-click on it "succeeds" (no error) but selects
-    // nothing, so the real popover never closes and is left covering whatever renders underneath
-    // it (this is exactly what blocked the Items "Add" button). Exclude any option that contains
-    // a nested textbox to reliably land on the real, selectable one.
-    const option = this.page
-      .getByRole('listbox')
-      .getByRole('option', { name: locationName, exact: true })
-      .filter({ hasNot: this.page.getByRole('textbox') })
-      .first();
-    // The visible search box only exists inside the popover once it's open, as its OWN
-    // element (not a sibling of the trigger, and not the same as the trigger's hidden
-    // `MuiSelect-nativeInput` shadow input - confirmed live those are two different elements).
-    // Its placeholder mirrors the (possibly broken-i18n) field label.
-    const searchInput = this.page
-      .getByPlaceholder('Search Location')
-      .or(this.page.getByPlaceholder('Search crm.salesOrder.fields.location_label'));
 
-    // The dropdown's default (unfiltered) list only returns the 25 most-recently-created
-    // records (confirmed live via its own API call: `order=id:-1&limit=25`) - values outside
-    // that ever-shifting window never appear without searching. Typing into the popover's own
-    // search input DOES trigger a real filtered re-fetch (confirmed live: a `search=<value>`
-    // query param gets appended and the target value comes back) - my earlier conclusion that
-    // search was broken was from typing into the wrong (hidden) element.
-    //
-    // Separately, this field can ALSO hit a genuine app bug (documented in memory, not fixed
-    // here - it lives in the shared erpforce-common-hub-fe DynamicSelect component and we were
-    // told not to touch it): its `isAlreadyLoaded` flag can get stuck true when a sibling
-    // field's selection (Purchase Representative/Vendor, selected just before this call) causes
-    // a form-wide re-render mid-fetch, permanently blocking the options list for that open
-    // attempt (confirmed via trace network-log: zero HTTP requests fire when this happens). A
-    // plain re-click without closing first is NOT reliable (the popover can still be "open"
-    // from the failed attempt, so the next click just toggles it shut instead of triggering a
-    // fresh fetch) - an explicit Escape + short settle before reopening is what actually
-    // re-triggers it.
-    for (let attempt = 1; attempt <= 6; attempt++) {
-      await combobox.click({ force: true });
-      if (await searchInput.first().isVisible().catch(() => false)) {
-        await searchInput.first().fill(locationName);
-        await this.page.waitForTimeout(1000);
-      }
+    const companyName = (await this.getSelectedCompany()) || "erp-force";
+    const locationName = `${namePrefix}_${Date.now()}_${Math.floor(
+      Math.random() * 10000,
+    )}`;
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        // force: true - this menu's own MuiBackdrop can still be mid-transition (rendered
-        // "invisible" but still intercepting pointer events) right as the popover opens, which
-        // fails Playwright's actionability check even though the option itself is genuinely
-        // visible/stable (same class of issue as the Purchase Representative/Vendor fields).
-        await option.click({ force: true, timeout: 7000 });
-        // A force click bypasses normal interaction semantics and can leave the popover
-        // rendered "expanded" with its full option list still in the DOM (confirmed live via
-        // ARIA snapshot: the listbox stayed open and blocked a later Save button click) even
-        // though the value itself did get selected - explicitly verify it closes rather than
-        // assuming the click's side effects did. Escape alone isn't always enough (nothing may
-        // have keyboard focus after a forced click), so fall back to clicking an inert corner
-        // of the page to force a blur/outside-click dismissal.
-        await this.page.keyboard.press('Escape');
-        const listbox = this.page.getByRole('listbox');
-        if (await listbox.isVisible().catch(() => false)) {
-          await this.page.locator('body').click({ position: { x: 2, y: 2 }, force: true });
-          await expect(listbox).not.toBeVisible({ timeout: 5000 }).catch(() => {});
-        }
-        // Verify the click actually committed a value - confirmed live (TC-PREQ-05) that this
-        // exact sequence can complete with no thrown error while the combobox is still showing
-        // its blank "Search Location" placeholder, later failing Save's own "Location is
-        // required" validation. Don't trust "the click didn't throw" as proof of success; treat
-        // a non-matching combobox value as a failed attempt and let the retry loop try again.
-        const committedValue = (await combobox.innerText().catch(() => '')).replace(/[​﻿]/g, '').trim();
-        if (!committedValue.includes(locationName)) {
-          throw new Error(`selectLocation("${locationName}") did not commit - combobox shows "${committedValue}"`);
-        }
-        return;
+        await this.createLocationFromFooter(locationName, companyName, {
+          combobox,
+        });
+        return locationName;
       } catch (e) {
-        if (attempt === 6) throw e;
-        await this.page.keyboard.press('Escape');
+        if (attempt === 2) throw e;
+        await this.page.keyboard.press("Escape").catch(() => {});
         await this.page.waitForTimeout(500);
       }
     }
@@ -198,9 +203,9 @@ class ProcurementRequestPage extends BasePage {
   // unverified required fields) unless a caller explicitly needs a specific value.
   async selectDepartment(departmentName) {
     if (departmentName) {
-      await this.selectFieldByLabel('Department *', departmentName);
+      await this.selectFieldByLabel("Department *", departmentName);
     } else {
-      await this.selectFirstOptionByLabel('Department *');
+      await this.selectFirstOptionByLabel("Department *");
     }
   }
 
@@ -216,18 +221,25 @@ class ProcurementRequestPage extends BasePage {
   // to wait out here, so any click elsewhere on the page needs to defend against the popover
   // having silently reappeared in between, not just check for it once beforehand.
   async closeAnyOpenPopover() {
-    const openListbox = this.page.getByRole('listbox');
+    const openListbox = this.page.getByRole("listbox");
     if (await openListbox.isVisible().catch(() => false)) {
-      await this.page.keyboard.press('Escape');
-      await this.page.locator('body').click({ position: { x: 2, y: 2 }, force: true });
-      await expect(openListbox).not.toBeVisible({ timeout: 5000 }).catch(() => {});
+      await this.page.keyboard.press("Escape");
+      await this.page
+        .locator("body")
+        .click({ position: { x: 2, y: 2 }, force: true });
+      await expect(openListbox)
+        .not.toBeVisible({ timeout: 5000 })
+        .catch(() => {});
     }
   }
 
   async addItem({ itemName, quantity, rate }) {
     // exact: true avoids matching the "Items*Please add atleast one Item" accordion header,
     // whose accessible name contains "add" as a case-insensitive substring.
-    const addButton = this.page.getByRole('button', { name: 'Add', exact: true });
+    const addButton = this.page.getByRole("button", {
+      name: "Add",
+      exact: true,
+    });
     for (let attempt = 1; attempt <= 4; attempt++) {
       await this.closeAnyOpenPopover();
       try {
@@ -238,15 +250,20 @@ class ProcurementRequestPage extends BasePage {
       }
     }
 
-    const modal = this.page.getByRole('dialog').filter({ hasText: 'Edit Item' });
-    await modal.getByRole('combobox', { name: 'Search Item' }).click();
+    const modal = this.page
+      .getByRole("dialog")
+      .filter({ hasText: "Edit Item" });
+    await modal.getByRole("combobox", { name: "Search Item" }).click();
     await this.page.getByText(itemName, { exact: true }).first().click();
 
-    await modal.getByPlaceholder('0.00').first().fill(quantity); // Quantity field
-    await modal.locator('text=Rate *').locator('xpath=following::input[1]').fill(rate);
+    await modal.getByPlaceholder("0.00").first().fill(quantity); // Quantity field
+    await modal
+      .locator("text=Rate *")
+      .locator("xpath=following::input[1]")
+      .fill(rate);
 
     await this.waitForItemAmountsToSettle(modal);
-    await modal.getByRole('button', { name: 'Save' }).click();
+    await modal.getByRole("button", { name: "Save" }).click();
     await expect(modal).not.toBeVisible();
   }
 
@@ -258,8 +275,19 @@ class ProcurementRequestPage extends BasePage {
   // Rate/Discount Amount/Net Amount/Tax Code/Tax Rate/Tax Amount/Total Amount are all read-only,
   // auto-computed fields (source-confirmed disabled inputs) - read back via
   // getItemModalFieldValue(), never filled.
-  async addItemWithFullDetails({ itemName, quantity, rate, taxTemplate, discountItem, location, department } = {}) {
-    const addButton = this.page.getByRole('button', { name: 'Add', exact: true });
+  async addItemWithFullDetails({
+    itemName,
+    quantity,
+    rate,
+    taxTemplate,
+    discountItem,
+    location,
+    department,
+  } = {}) {
+    const addButton = this.page.getByRole("button", {
+      name: "Add",
+      exact: true,
+    });
     for (let attempt = 1; attempt <= 4; attempt++) {
       await this.closeAnyOpenPopover();
       try {
@@ -270,34 +298,49 @@ class ProcurementRequestPage extends BasePage {
       }
     }
 
-    const modal = this.page.getByRole('dialog').filter({ hasText: 'Edit Item' });
-    await modal.getByRole('combobox', { name: 'Search Item' }).click();
+    const modal = this.page
+      .getByRole("dialog")
+      .filter({ hasText: "Edit Item" });
+    await modal.getByRole("combobox", { name: "Search Item" }).click();
     await this.page.getByText(itemName, { exact: true }).first().click();
 
-    await modal.getByPlaceholder('0.00').first().fill(quantity);
-    await modal.locator('text=Rate *').locator('xpath=following::input[1]').fill(rate);
+    await modal.getByPlaceholder("0.00").first().fill(quantity);
+    await modal
+      .locator("text=Rate *")
+      .locator("xpath=following::input[1]")
+      .fill(rate);
     await this.waitForItemAmountsToSettle(modal);
 
     if (taxTemplate) {
-      await this.selectFieldByLabel('Tax Template *', taxTemplate, { scope: modal });
+      await this.selectFieldByLabel("Tax Template *", taxTemplate, {
+        scope: modal,
+      });
     } else {
-      await this.selectFirstOptionByLabel('Tax Template *', { scope: modal });
+      await this.selectFirstOptionByLabel("Tax Template *", { scope: modal });
     }
     if (discountItem) {
-      await this.selectFieldByLabel('Discounted Item', discountItem, { scope: modal });
+      await this.selectFieldByLabel("Discounted Item", discountItem, {
+        scope: modal,
+      });
     }
     // Location/Department here are the ITEM's own classification fields (item-entry-modal.tsx),
     // a distinct pair from the main form's Classification accordion - Department is additionally
     // scoped to the request's already-selected Company (`&company_id.eq` filter, source-confirmed).
     if (location) {
-      await this.selectFieldByLabel('Location', location, { scope: modal, exact: false });
+      await this.selectFieldByLabel("Location", location, {
+        scope: modal,
+        exact: false,
+      });
     }
     if (department) {
-      await this.selectFieldByLabel('Department', department, { scope: modal, exact: false });
+      await this.selectFieldByLabel("Department", department, {
+        scope: modal,
+        exact: false,
+      });
     }
 
     await this.waitForItemAmountsToSettle(modal);
-    await modal.getByRole('button', { name: 'Save' }).click();
+    await modal.getByRole("button", { name: "Save" }).click();
     await expect(modal).not.toBeVisible();
   }
 
@@ -305,7 +348,10 @@ class ProcurementRequestPage extends BasePage {
   // the exact modal locator returned mid-flow by tests that need to assert BEFORE Save (e.g.
   // confirming Gross/Net/Tax/Total Amount settled to a non-empty, correctly-computed value).
   async getItemModalFieldValue(modal, label) {
-    return modal.locator(`text=${label}`).locator('xpath=following::input[1]').inputValue();
+    return modal
+      .locator(`text=${label}`)
+      .locator("xpath=following::input[1]")
+      .inputValue();
   }
 
   async editFirstItem({ quantity, rate } = {}) {
@@ -319,7 +365,11 @@ class ProcurementRequestPage extends BasePage {
     // the modal then never opens and every later step fails deep inside `modal.locator(...)`
     // with a confusing error. A normal (non-forced) click blocks on real obscuring elements and
     // throws if one's still there, so the retry loop below can react to a genuine miss.
-    const editIcon = this.page.locator('table tbody tr').first().locator('button').first();
+    const editIcon = this.page
+      .locator("table tbody tr")
+      .first()
+      .locator("button")
+      .first();
     for (let attempt = 1; attempt <= 4; attempt++) {
       await this.closeAnyOpenPopover();
       try {
@@ -329,19 +379,27 @@ class ProcurementRequestPage extends BasePage {
         if (attempt === 4) throw e;
       }
     }
-    const modal = this.page.getByRole('dialog').filter({ hasText: 'Edit Item' });
-    await modal.waitFor({ state: 'visible', timeout: 10000 });
+    const modal = this.page
+      .getByRole("dialog")
+      .filter({ hasText: "Edit Item" });
+    await modal.waitFor({ state: "visible", timeout: 10000 });
 
     if (quantity) {
-      await modal.locator('text=Quantity *').locator('xpath=following::input[1]').fill(quantity);
+      await modal
+        .locator("text=Quantity *")
+        .locator("xpath=following::input[1]")
+        .fill(quantity);
     }
     if (rate) {
-      await modal.locator('text=Rate *').locator('xpath=following::input[1]').fill(rate);
+      await modal
+        .locator("text=Rate *")
+        .locator("xpath=following::input[1]")
+        .fill(rate);
     }
     if (quantity || rate) {
       await this.waitForItemAmountsToSettle(modal);
     }
-    await modal.getByRole('button', { name: 'Save' }).click();
+    await modal.getByRole("button", { name: "Save" }).click();
     await expect(modal).not.toBeVisible();
   }
 
@@ -359,11 +417,16 @@ class ProcurementRequestPage extends BasePage {
     // for the same reason documented on editFirstItem()'s edit-icon click: a forced click can
     // silently land on the popover instead of Save, leaving the subsequent waitForResponse
     // hanging on a request that never fires.
-    const saveButton = this.page.getByRole('button', { name: buttonName, exact });
+    const saveButton = this.page.getByRole("button", {
+      name: buttonName,
+      exact,
+    });
     let listResponsePromise;
     for (let attempt = 1; attempt <= 4; attempt++) {
       await this.closeAnyOpenPopover();
-      listResponsePromise = this.page.waitForResponse((r) => r.url().includes('/purchase/v1/purchase-requests/?'));
+      listResponsePromise = this.page.waitForResponse((r) =>
+        r.url().includes("/purchase/v1/purchase-requests/?"),
+      );
       try {
         await saveButton.click({ timeout: 5000 });
         break;
@@ -372,7 +435,9 @@ class ProcurementRequestPage extends BasePage {
       }
     }
     const listResponse = await listResponsePromise;
-    await this.page.waitForLoadState('networkidle');
+    await this.page
+      .waitForLoadState("networkidle", { timeout: 15000 })
+      .catch(() => {});
     const record = (await listResponse.json()).data.purchase_requests[0];
     // The "ID" column renders a FORMATTED display string (e.g. "PR-2026-000349"), not the raw
     // numeric `id` (confirmed live via ARIA snapshot/screenshot - series_number itself does NOT
@@ -380,23 +445,31 @@ class ProcurementRequestPage extends BasePage {
     // guessing its exact prefix/year/padding convention is fragile). Read it directly from the
     // list's own first row instead: `record` above IS that same first row (both come from the
     // identical API response the table renders from), so there's no ambiguity about which row.
-    await this.page.getByRole('button', { name: 'Add' }).first().waitFor({ state: 'visible', timeout: 15000 });
-    const seriesNumber = await this.page.locator('table tbody tr').first().getByRole('link').first().innerText();
+    await this.page
+      .getByRole("button", { name: "Add" })
+      .first()
+      .waitFor({ state: "visible", timeout: 15000 });
+    const seriesNumber = await this.page
+      .locator("table tbody tr")
+      .first()
+      .getByRole("link")
+      .first()
+      .innerText();
     return { id: String(record.id), seriesNumber };
   }
 
   async saveAsDraft() {
-    return this.saveAndCaptureId('Save To Draft', false);
+    return this.saveAndCaptureId("Save To Draft", false);
   }
 
   async save() {
-    return this.saveAndCaptureId('Save', true);
+    return this.saveAndCaptureId("Save", true);
   }
 
   // ---------- List actions ----------
   async editFromList(id, seriesNumber) {
     await this.openRowActionMenu(seriesNumber);
-    await this.page.getByText('Edit', { exact: true }).click();
+    await this.page.getByText("Edit", { exact: true }).click();
     await this.page.waitForURL(new RegExp(`${id}/edit-requests`));
   }
 
@@ -405,20 +478,28 @@ class ProcurementRequestPage extends BasePage {
     // list page has actually mounted its search bar (same class of issue documented on
     // gotoList()), so searchList() below can otherwise time out waiting for a placeholder that
     // hasn't rendered yet.
-    await this.page.getByRole('button', { name: 'Add' }).first().waitFor({ state: 'visible', timeout: 15000 });
+    await this.page
+      .getByRole("button", { name: "Add" })
+      .first()
+      .waitFor({ state: "visible", timeout: 15000 });
     // This shared, ever-growing dataset can easily exceed the list's default page size (10) -
     // the just-created/edited record isn't guaranteed to land on the currently displayed page
     // (confirmed live: a timeout waiting for a row that genuinely exists, just not on page 1).
     // Search for it explicitly rather than assuming it's already visible.
     await this.searchList(seriesNumber);
-    const status = await this.getRowStatusMatching(seriesNumber, /Draft|Pending|In Progress|Completed|Rejected/);
+    const status = await this.getRowStatusMatching(
+      seriesNumber,
+      /Draft|Pending|In Progress|Completed|Rejected/,
+    );
     await this.clearSearch();
     return status;
   }
 
   // ---------- Edit page value readers ----------
   async isIdFieldReadOnly() {
-    return this.page.getByRole('textbox', { name: 'ID', exact: true }).isDisabled();
+    return this.page
+      .getByRole("textbox", { name: "ID", exact: true })
+      .isDisabled();
   }
 
   // ---------- Delete / Approval flow ----------
@@ -432,32 +513,21 @@ class ProcurementRequestPage extends BasePage {
   // Submit/Accept) that only renders once status is "In Progress", and only shows the
   // "Order"/"RFQ" menu items the logged-in user has permission for. Its main button is a
   // no-op, same as Accept's.
+  // clickSubmitMenuItem() (BasePage) retries the whole open-menu-then-click sequence, not just
+  // the click - same MuiMenu remount-on-open instability already fixed there for Submit/Accept/
+  // Reject (confirmed live, TC-PREQ-26: this "Create" menu shares the identical split-button/
+  // caret pattern, so it's exposed to the exact same detach-mid-click race).
   async createOrder() {
-    await this.openSubmitMenu();
-    await this.page.getByRole('menuitem', { name: 'Order', exact: true }).click();
+    await this.clickSubmitMenuItem("Order");
   }
 
   async createRfq() {
-    await this.openSubmitMenu();
-    await this.page.getByRole('menuitem', { name: 'RFQ', exact: true }).click();
+    await this.clickSubmitMenuItem("RFQ");
   }
 
   // ---------- Summary (View/Edit sidebar accordion) ----------
-  // summary/utils/common.ts's own label strings carry inconsistent trailing whitespace baked
-  // into the source ("Grand Total ", "Subtotal Excluding Taxes ") - match structurally via a
-  // trimmed, whitespace-tolerant regex instead of an exact label string (same class of issue
-  // Location/Currency's trailing-asterisk labels already need selectFieldByLabel's regex for).
-  async getSummaryValue(label) {
-    const escaped = label.trim().replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    const labelRegex = new RegExp(`^${escaped}\\s*$`, 'i');
-    const text = await this.page
-      .getByText(labelRegex)
-      .first()
-      .locator('xpath=./following::*[1]')
-      .first()
-      .textContent();
-    return (text ?? '').trim();
-  }
+  // getSummaryValue() now lives on BasePage (identical implementation, shared across every
+  // document-style module) - see BasePage.js.
 
   // ---------- Listing row field visibility ----------
   // default-data.tsx's column set: ID/Date/Company/Purchase Representative/Vendor/Total
@@ -466,7 +536,9 @@ class ProcurementRequestPage extends BasePage {
   async verifyListingRowVisible(seriesNumber) {
     const row = this.rowBySeriesNumber(seriesNumber);
     await expect(row).toBeVisible();
-    await expect(row.getByText(/Draft|Pending|In Progress|Completed|Rejected/)).toBeVisible();
+    await expect(
+      row.getByText(/Draft|Pending|In Progress|Completed|Rejected/),
+    ).toBeVisible();
     return row;
   }
 
@@ -482,7 +554,11 @@ class ProcurementRequestPage extends BasePage {
       narration: data.narration,
     });
     await this.selectLocation(data.location);
-    await this.addItem({ itemName: data.itemName, quantity: data.quantity, rate: data.rate });
+    await this.addItem({
+      itemName: data.itemName,
+      quantity: data.quantity,
+      rate: data.rate,
+    });
     return this.saveAsDraft();
   }
 }

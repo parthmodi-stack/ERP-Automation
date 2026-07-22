@@ -10,7 +10,7 @@ class LandedCostPage extends BasePage {
   // ---------------- Navigation ----------------
   async gotoList() {
     await this.page.goto(this.listUrl);
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     await this.page.getByRole('button', { name: 'Add' }).first().waitFor({ state: 'visible', timeout: 15000 });
   }
 
@@ -23,13 +23,13 @@ class LandedCostPage extends BasePage {
   async gotoEdit(id) {
     if (!id) throw new Error(`gotoEdit() called with a falsy id (${id})`);
     await this.page.goto(`/dashboard/procurement/landed-cost/${id}/edit-landed-cost`);
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
   }
 
   async gotoView(id) {
     if (!id) throw new Error(`gotoView() called with a falsy id (${id})`);
     await this.page.goto(`/dashboard/procurement/landed-cost/${id}/view-landed-cost`);
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     await this.page.getByText(/^ID:/).first().waitFor({ state: 'visible', timeout: 15000 });
   }
 
@@ -107,9 +107,21 @@ class LandedCostPage extends BasePage {
     await this.page.getByRole('button', { name: 'Compute' }).click();
   }
 
+  // CONFIRMED LIVE: `page.locator('div').filter({ has: <the "Item Valuation" button-role
+  // accordion header> }).first()` does NOT scope to the Item Valuation accordion - `.first()`
+  // resolves to the first (outermost) ancestor div in DOM order that merely CONTAINS that header
+  // as a descendant, which is also an ancestor of the Items entry grid table above it. Since the
+  // Items grid's own "Item" column can render the same cost-line substring (e.g. testData's
+  // itemName "345 - act" contains "act"), `section.getByRole('row', { name: /act/ })` matched the
+  // Items grid's row instead of the Item Valuation table's row, and reading td[3]/td[4] off THAT
+  // row (Account/Split Method, not Original/New Value) silently returned blank/non-numeric text -
+  // the root cause of TC-V06 always seeing `updated === original === 0`. Anchor structurally off
+  // the "Item Valuation" heading text itself (same following::table[1] pattern as
+  // itemsGridRowCount()) so this only ever looks inside the table that actually renders after it.
   async getItemValuationRow(costLine) {
-    const section = this.page.locator('div').filter({ has: this.page.getByRole('button', { name: 'Item Valuation', exact: true }) }).first();
-    const row = section.getByRole('row', { name: new RegExp(costLine) }).first();
+    const heading = this.page.getByText('Item Valuation', { exact: true }).first();
+    const table = heading.locator('xpath=following::table[1]');
+    const row = table.getByRole('row', { name: new RegExp(costLine) }).first();
     return {
       originalValue: this.clean(await row.locator('td').nth(3).innerText()),
       newValue: this.clean(await row.locator('td').nth(4).innerText()),
@@ -126,7 +138,16 @@ class LandedCostPage extends BasePage {
   async save() {
     await this.page.getByRole('button', { name: 'Save', exact: true }).click();
     await this.page.waitForURL(this.listUrl, { timeout: 15000 });
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+  }
+
+  // For Field Validations tests that deliberately submit invalid/incomplete header data: the
+  // create/update dispatch never even fires there (client-side Yup validation blocks it before
+  // any request goes out), so save()'s waitForURL(this.listUrl) would just hang for the full
+  // 15s and time out for no reason. Those callers only want the click + the inline error to
+  // render, never a navigation.
+  async clickSaveWithoutNav() {
+    await this.page.getByRole('button', { name: 'Save', exact: true }).click();
   }
 
   // Dual identifiers, same pattern as every sibling page (VendorReturnAuthorizationPage/
@@ -144,7 +165,7 @@ class LandedCostPage extends BasePage {
       ),
       this.page.reload(),
     ]);
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     const record = (await resp.json())?.data?.landing_costs?.[0];
     return { id: String(record?.id), seriesNumber: record?.series_number };
   }

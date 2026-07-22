@@ -1,5 +1,7 @@
 const { test, expect } = require('@playwright/test');
-const PurchaseOrderPage = require('../../pages/PurchaseOrderPage');
+const PurchaseOrderPage         = require('../../pages/PurchaseOrderPage');
+const GoodsReceiptNotePage      = require('../../pages/GoodsReceiptNotePage');
+const VendorReturnAuthorizationPage = require('../../pages/VendorReturnAuthorizationPage');
 const testData          = require('../../config/testData');
 
 // NOTE ON VERIFICATION: unlike the sibling Procurement Request/Purchase Agreement/RFQ suites,
@@ -274,8 +276,15 @@ test.describe('Purchase Order Management', () => {
     await po.gotoAdd();
     await page.getByRole('button', { name: 'Add', exact: true }).first().click();
     const modal = page.getByRole('dialog').filter({ hasText: /Item/i });
-    await modal.getByRole('combobox', { name: /Item/i }).click();
-    await expect(page.getByText(data.itemName, { exact: true }).first()).toBeVisible();
+    // Exact 'Search Item' (not a bare /Item/i regex): the modal also has a "Search Discount Item"
+    // combobox whose accessible name substring-matches the regex, causing a strict-mode violation
+    // (same fix as PurchaseOrderPage.addItem).
+    await modal.getByRole('combobox', { name: 'Search Item', exact: true }).click();
+    // The popover's default (unfiltered) option list only shows a limited recent-N window and may
+    // not include this specific item - narrow via its own filter textbox first (same fix as
+    // PurchaseOrderPage.addItem).
+    await page.getByPlaceholder('Search Item').fill(data.itemName).catch(() => {});
+    await expect(page.getByRole('listbox').getByText(data.itemName, { exact: true }).first()).toBeVisible();
   });
 
   // ── TC-PO-V01: Required fields left empty block save ──────────────────────
@@ -283,11 +292,17 @@ test.describe('Purchase Order Management', () => {
     const po = new PurchaseOrderPage(page);
     await po.gotoAdd();
 
-    // No Vendor/Entity/Location/Currency/Payment Term/item filled in - Save should not
-    // navigate away from the Add form.
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    // CONFIRMED LIVE: the Add form's actual buttons are Discard/Save To Draft/Next/Submit - there
+    // is NO plain "Save" button on this form (same distinction already documented on
+    // PurchaseOrderPage.save()). No Vendor/Entity/Location/Currency/Payment Term/item filled in -
+    // Submit should not navigate away from the Add form.
+    await page.getByRole('button', { name: 'Submit', exact: true }).click();
     await expect(page).toHaveURL(/add-purchase-order/);
-    await expect(page.getByText(/requierd|required/i).first()).toBeVisible({ timeout: 5000 });
+    // CONFIRMED LIVE: Entity/Currency/Payment Terms arrive pre-filled with account defaults (see
+    // fillBasicDetails), so with nothing else filled in, the Items array is the one validation
+    // that actually fires - its real wording is "Please add at least one item or expense" (not
+    // a generic "required" string, which never appears here at all).
+    await expect(page.getByText(/add at least one item/i).first()).toBeVisible({ timeout: 5000 });
   });
 
   // ── Listing Page (TC-PO-L01 - TC-PO-L05) ──────────────────────────────────
@@ -302,7 +317,14 @@ test.describe('Purchase Order Management', () => {
       await expect(po.rowBySeriesNumber(editOrder.seriesNumber)).toBeVisible();
 
       await po.searchList('no-such-purchase-order-zzz-999');
-      await expect(po.noDataRow()).toBeVisible();
+      // A second consecutive search on this page's narrow-viewport Menu-wrapped search input can
+      // race the debounced re-fetch/dismiss sequence (BasePage.searchList's own waitForResponse
+      // can catch an unrelated response before the real filtered one lands, and the grid reverts
+      // to its full unfiltered state instead of showing "No Data") - retry once before asserting.
+      if (!(await po.noDataRow().isVisible().catch(() => false))) {
+        await po.searchList('no-such-purchase-order-zzz-999');
+      }
+      await expect(po.noDataRow()).toBeVisible({ timeout: 10000 });
       await expect(page.locator('table tbody tr').filter({ has: page.locator('a') })).toHaveCount(0);
 
       await po.clearSearch();
@@ -312,15 +334,20 @@ test.describe('Purchase Order Management', () => {
       const po = new PurchaseOrderPage(page);
       await po.gotoList();
 
-      const initialSort = await po.getColumnAriaSort('Date');
+      // CONFIRMED LIVE: a bare 'Date' strict-mode-violates - this grid ALSO has "Confirmation
+      // Date"/"Expected Receipt Date" columns that substring-match it, and the Date column's own
+      // accessible name is actually "Date 0" (a sort-count badge baked into the header's text).
+      // /^Date/i matches only that column (the other two don't start with "Date").
+      const dateColumn = /^Date/i;
+      const initialSort = await po.getColumnAriaSort(dateColumn);
       expect(initialSort).toBe('none');
 
-      await po.clickColumnHeader('Date');
-      const afterFirstClick = await po.getColumnAriaSort('Date');
+      await po.clickColumnHeader(dateColumn);
+      const afterFirstClick = await po.getColumnAriaSort(dateColumn);
       expect(['ascending', 'descending']).toContain(afterFirstClick);
 
-      await po.clickColumnHeader('Date');
-      const afterSecondClick = await po.getColumnAriaSort('Date');
+      await po.clickColumnHeader(dateColumn);
+      const afterSecondClick = await po.getColumnAriaSort(dateColumn);
       expect(afterSecondClick).not.toBe(afterFirstClick);
       expect(['ascending', 'descending']).toContain(afterSecondClick);
     });
@@ -333,16 +360,16 @@ test.describe('Purchase Order Management', () => {
       expect(await po.getPaginationLabel()).toMatch(/Page\s*1\s*of\s*\d+/);
 
       await po.nextPageButton().click();
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
       expect(await po.getPaginationLabel()).toMatch(/Page\s*2\s*of\s*\d+/);
       await expect(po.prevPageButton()).toBeEnabled();
 
       await po.prevPageButton().click();
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
       expect(await po.getPaginationLabel()).toMatch(/Page\s*1\s*of\s*\d+/);
 
       await po.goToPage(2);
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
       expect(await po.getPaginationLabel()).toMatch(/Page\s*2\s*of\s*\d+/);
     });
 
@@ -365,6 +392,100 @@ test.describe('Purchase Order Management', () => {
       expect(await po.getRowStatus(editOrder.seriesNumber)).toContain('Draft');
       expect(await po.getRowStatus(createdOrder.seriesNumber)).toContain('Approved');
       expect(await po.getRowStatus(rejectedOrder.seriesNumber)).toContain('Rejected');
+    });
+  });
+
+  // ── Create Vendor Return from Purchase Order (TC-PO-R01) ─────────────────
+  // CONFIRMED LIVE: "Return" (header-buttons.tsx's Action menu) only appears once the PO has
+  // actually been received AND that receipt validated - plain GRN creation/save alone is NOT
+  // enough (receiving_status stays short of Partially/Fully Received until the GRN's own
+  // Validate succeeds, which itself is disabled until every item has traceability added,
+  // regardless of the item's tracking type in this account). The real precondition chain is
+  // therefore PO Approved -> Receive -> GRN -> add traceability -> Validate -> PO Actions ▸
+  // Return - not a simple "Approved PO" alone. Also confirmed live: unlike the RFQ->PO flow,
+  // Vendor/Currency/Entity/Location/Payment Terms/Purchase Representative AND the whole Address &
+  // Contact tab all copy straight from the source PO, but Items do NOT (the source PO's own item
+  // never appears in the grid - "No Data") - the user must pick what's actually being returned,
+  // so addItem() below is required, not optional.
+  test.describe('Create Vendor Return from Purchase Order', () => {
+    test('TC-PO-R01 [+] Create Vendor Return from a received Purchase Order copies Vendor/Location/Address & Contact, then Submit succeeds', async ({
+      page,
+    }) => {
+      const po  = new PurchaseOrderPage(page);
+      const grn = new GoodsReceiptNotePage(page);
+      const vra = new VendorReturnAuthorizationPage(page);
+      const data = testData.purchaseOrder.valid;
+
+      await po.gotoAdd();
+      await po.fillBasicDetails({
+        vendor:                 data.vendor,
+        entity:                 data.entity,
+        currency:               data.currency,
+        purchaseRepresentative: data.purchaseRepresentative,
+        narration:              'TC-PO-R01 source PO for Vendor Return conversion',
+      });
+      const sourceLocation = await po.selectLocation('Automation_PO_Return_Location');
+      await po.selectPaymentTerm();
+      await po.fillAddressContact();
+      // NOT poData's own 5/100 (confirmed live elsewhere in this suite: that total makes the
+      // backend reject a direct create+Submit with an accounting-mismatch 400) - 3/50 is the
+      // same proven-safe combination the sibling GRN suite already uses.
+      await po.addItem({ itemName: data.itemName, quantity: '3', rate: '50' });
+
+      const sourcePo = await po.save(); // brand-new record -> straight to Pending
+      expect(sourcePo.id).toBeTruthy();
+
+      await po.gotoView(sourcePo.id);
+      await po.quickApproval(testData.purchaseOrder.approverName);
+      await po.accept();
+      await expect(page.getByText('Approved', { exact: true })).toBeVisible();
+
+      await po.clickReceive();
+      await grn.waitForCreateReady();
+      await grn.fillBasicDetails({ referenceNumber: 'AUTO-PO-RETURN-GRN', narration: 'TC-PO-R01 receiving GRN' });
+      const createdGrn = await grn.save();
+      expect(createdGrn.id).toBeTruthy();
+
+      // "Return" doesn't appear on the PO until this receipt is actually Validated - Validate
+      // itself stays disabled until traceability is added, so that step can't be skipped even
+      // though this test isn't otherwise about traceability.
+      await grn.gotoView(createdGrn.poId, createdGrn.id);
+      await grn.addTraceabilityForItem(0, { lotSerial: 'AUTO-PO-RETURN-LOT', quantity: '3' });
+      await grn.validate();
+
+      await po.gotoView(sourcePo.id);
+      await po.createVendorReturn();
+      await expect(page).toHaveURL(/\/vendor-returns\/add-vendor-returns/);
+
+      // Basic Details + Address & Contact are copied straight from the source PO. The dependent
+      // fields (Entity/Location/Payment Terms/Purchase Representative) briefly show a "Loading..."
+      // placeholder while their own async fetches settle - wait for that to clear before reading.
+      await expect(page.getByText(data.vendor).first()).toBeVisible();
+      await expect(page.getByRole('combobox', { name: 'Loading...' })).toHaveCount(0, { timeout: 10000 });
+      expect(await vra.getEditComboboxValue('Location')).toBe(sourceLocation);
+      await page.getByText('Address & Contact', { exact: true }).click();
+      await page.waitForTimeout(500);
+      const vendorAddressValue = await vra.getEditComboboxValue('Vendor Address');
+      // Not getEditComboboxValue('Shipping Address'): same accordion-title collision already
+      // documented on VendorReturnAuthorizationPage.fillAddressContact() - the section title and
+      // the field's own label are both bare "Shipping Address" text, and only the field's label
+      // carries a mandatory trailing asterisk.
+      const shippingAddressValue = await page
+        .getByText(/^Shipping Address\s*\*$/i)
+        .first()
+        .locator('xpath=following-sibling::*[1]')
+        .innerText();
+      expect(vendorAddressValue).toBeTruthy();
+      expect(vendorAddressValue).not.toMatch(/^Search/i);
+      expect(shippingAddressValue).toBeTruthy();
+      expect(shippingAddressValue).not.toMatch(/^Search/i);
+
+      // Items are NOT copied (confirmed live: "No Data" in the grid right after Return) - the
+      // user picks what's actually being returned, same as a from-scratch VRA.
+      await vra.addItem({ item: data.itemName, quantity: '3', rate: '50' });
+
+      const createdVra = await vra.save();
+      expect(createdVra.id).toBeTruthy();
     });
   });
 

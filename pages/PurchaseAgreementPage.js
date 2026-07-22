@@ -5,7 +5,7 @@ class PurchaseAgreementPage extends BasePage {
   // ---------- Navigation ----------
   async gotoList() {
     await this.page.goto('/dashboard/procurement/purchase-agreements');
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     // networkidle can fire before the page has actually rendered anything under this
     // environment's latency (confirmed live on the sibling Procurement Request page: a bare
     // loading spinner, no list/table content at all, under concurrent multi-worker load) - wait
@@ -18,14 +18,14 @@ class PurchaseAgreementPage extends BasePage {
     await this.gotoList();
     await this.page.getByRole('button', { name: 'Add' }).first().click();
     await this.page.waitForURL('**/add-purchase-agreements');
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     await expect(this.page.getByRole('combobox').first()).not.toHaveText('', { timeout: 10000 });
   }
 
   async gotoEdit(id) {
     if (!id) throw new Error(`gotoEdit() called with a falsy id (${id}) - a prior create/save step likely failed.`);
     await this.page.goto(`/dashboard/procurement/purchase-agreements/${id}/edit-purchase-agreements`);
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     // networkidle can fire before the form has actually finished rendering under this
     // environment's latency (confirmed live on the sibling Procurement Request Edit page: still
     // showing a loading spinner well after networkidle) - wait for a field that's always
@@ -36,7 +36,7 @@ class PurchaseAgreementPage extends BasePage {
   async gotoView(id) {
     if (!id) throw new Error(`gotoView() called with a falsy id (${id}) - a prior create/save step likely failed.`);
     await this.page.goto(`/dashboard/procurement/purchase-agreements/${id}/view-purchase-agreements`);
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     // networkidle can fire before the page has actually rendered anything under this
     // environment's latency (confirmed live: a fully blank white page, no content at all, under
     // concurrent multi-worker load) - wait for the breadcrumb's own "ID:" text, always present
@@ -46,11 +46,9 @@ class PurchaseAgreementPage extends BasePage {
 
   // ---------- Generic helpers ----------
   // openDropdownAndPick()/selectFieldByLabel() now live on BasePage; this module's own quirks
-  // (always attempts combobox.fill() - see the `tryFill: true` passed at each call site below;
-  // Location needs scrollIntoViewIfNeeded()+a 10000ms option timeout since its search box never
-  // calls a filter API at all, unlike the sibling Procurement Request page's equivalent field -
-  // see the `scrollIntoView: true, timeout: 10000` passed in selectLocation()) are now passed as
-  // options instead of being separately re-implemented here.
+  // (always attempts combobox.fill() - see the `tryFill: true` passed at each call site below)
+  // are now passed as options instead of being separately re-implemented here. Location itself
+  // no longer goes through these (see selectLocation()'s own comment for why).
 
   async selectAgreementType(type) {
     const dropdown = this.page.locator('div[class*="MuiSelect-select"]').first();
@@ -103,8 +101,22 @@ class PurchaseAgreementPage extends BasePage {
     }
   }
 
-  async selectLocation(locationName) {
-    await this.selectFieldByLabel('Location', locationName, { scrollIntoView: true, timeout: 10000 });
+  // Purchase Agreement's Location field never calls its own filter API at all (confirmed live:
+  // zero requests fire while typing), unlike the sibling Procurement Request page's equivalent
+  // field - a value is only ever reachable while it's still inside the default unfiltered "25
+  // most-recently-created" list. Pinning to a literal name (the old "Dhule" seed) is unreliable
+  // under any real concurrent load: confirmed live that it gets pushed out of that list entirely
+  // once enough OTHER Locations are created (e.g. Procurement Request's own selectLocation()
+  // already creates a brand new Location on every single call it makes). Match the sibling
+  // Procurement Request page's own fix for this exact failure mode: always create a fresh,
+  // uniquely-named Location right before selecting it (via BasePage's shared
+  // createLocationFromFooter), landing it at the very top of that list regardless of what
+  // anything else concurrently creates. Returns the generated name so callers that need to
+  // assert against it later (e.g. the View page) don't have to guess it.
+  async selectLocation(namePrefix) {
+    const locationName = `${namePrefix}_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+    await this.createLocationFromFooter(locationName, 'erp-force');
+    return locationName;
   }
 
   // ---------- Items ----------
@@ -160,7 +172,7 @@ class PurchaseAgreementPage extends BasePage {
       this.page.getByRole('button', { name: buttonName, exact }).click(),
       this.page.waitForResponse((r) => r.url().includes('/purchase/v1/purchase-agreements/?')),
     ]);
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
     const record = (await listResponse.json()).data.purchase_agreements[0];
     return { id: String(record.id), seriesNumber: record.series_number };
   }
@@ -208,6 +220,18 @@ class PurchaseAgreementPage extends BasePage {
     await this.page.getByRole('button', { name: 'Validate' }).click();
     // The confirmation dialog's own button is also labeled "Validate", not "Confirm"/"Submit".
     await this.page.getByRole('dialog').getByRole('button', { name: 'Validate', exact: true }).click();
+  }
+
+  // ---------- Create Order (View page, In Progress status) ----------
+  // Unlike the sibling Procurement Request/RFQ pages' own "Create" action (a DropdownButton
+  // sharing the "select merge strategy" caret/MuiMenu pattern - see BasePage.openSubmitMenu/
+  // clickSubmitMenuItem), Purchase Agreement's header-buttons.tsx implements "Create" as its own
+  // plain Box wrapping two Buttons with a bare onClick (confirmed in source: no DropdownButton
+  // import at all) - open it by its own visible "Create" button text instead of reusing that
+  // shared caret helper, which would never find its aria-label here.
+  async createOrder() {
+    await this.page.getByRole('button', { name: 'Create', exact: true }).click();
+    await this.page.getByRole('menuitem', { name: 'Order', exact: true }).click();
   }
 
   // ---------- Module-level business method ----------

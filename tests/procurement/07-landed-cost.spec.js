@@ -70,6 +70,11 @@ test.describe('Landed Cost Management', () => {
     let id;
 
     test.beforeAll(async ({ browser }) => {
+      // beforeAll/afterAll hooks default to the global 30s test timeout regardless of this
+      // file's own describe.configure({ timeout: 150000 }) - that only extends test BODIES, not
+      // hooks (confirmed live: this hook's multi-step create flow hit "beforeAll hook timeout of
+      // 30000ms exceeded" even with the parent configure already in place). Extend it explicitly.
+      test.setTimeout(150000);
       const context = await browser.newContext();
       const page = await context.newPage();
       const lc = new LandedCostPage(page);
@@ -221,16 +226,16 @@ test.describe('Landed Cost Management', () => {
       const totalPages = match ? parseInt(match[1], 10) : 1;
       if (totalPages > 1) {
         await lc.nextPageButton().click();
-        await page.waitForLoadState('networkidle');
+        await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
         expect(await lc.getPaginationLabel()).toMatch(/Page\s*2\s*of\s*\d+/);
         await expect(lc.prevPageButton()).toBeEnabled();
 
         await lc.prevPageButton().click();
-        await page.waitForLoadState('networkidle');
+        await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
         expect(await lc.getPaginationLabel()).toMatch(/Page\s*1\s*of\s*\d+/);
 
         await lc.goToPage(2);
-        await page.waitForLoadState('networkidle');
+        await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
         expect(await lc.getPaginationLabel()).toMatch(/Page\s*2\s*of\s*\d+/);
       }
     });
@@ -259,7 +264,10 @@ test.describe('Landed Cost Management', () => {
     test('TC-V01 - Required header fields (Receipt, Items) block save with correct inline errors', async ({ page }) => {
       const lc = new LandedCostPage(page);
       await lc.gotoAdd();
-      await lc.save();
+      // Deliberately-invalid submit: client-side Yup validation blocks the create dispatch before
+      // any request fires, so there is no list-page navigation to wait for here (unlike save(),
+      // which every OTHER test in this suite uses after filling out a valid record).
+      await lc.clickSaveWithoutNav();
       await expect(page.getByText('Please select receipts')).toBeVisible();
       await expect(page.getByText('Please add atleast one item')).toBeVisible();
     });
@@ -278,9 +286,14 @@ test.describe('Landed Cost Management', () => {
       const lc = new LandedCostPage(page);
       await lc.gotoAdd();
       const modal = await lc.openAddItemModal();
-      await modal.getByPlaceholder('Enter Cost').fill('abc');
+      const costInput = modal.getByPlaceholder('Enter Cost');
+      // A native <input type="number"> refuses non-numeric keystrokes at the browser level -
+      // pressSequentially (not fill(), which throws outright for this input type) confirms the
+      // letters never register.
+      await costInput.pressSequentially('abc');
+      await expect(costInput).toHaveValue('');
       await modal.getByRole('button', { name: 'Save' }).click();
-      await expect(modal.getByText(/must be a number|invalid/i)).toBeVisible();
+      await expect(modal.getByText('Please enter cost')).toBeVisible();
     });
 
     test('TC-V03 - Negative Cost is rejected', async ({ page }) => {
@@ -318,7 +331,7 @@ test.describe('Landed Cost Management', () => {
     test('TC-V07 - Correcting an invalid field clears its error', async ({ page }) => {
       const lc = new LandedCostPage(page);
       await lc.gotoAdd();
-      await lc.save();
+      await lc.clickSaveWithoutNav();
       await expect(page.getByText('Please select receipts')).toBeVisible();
       await lc.fillHeader({ receipts: [FIXTURE_RECEIPT] });
       await expect(page.getByText('Please select receipts')).toBeHidden();

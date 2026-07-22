@@ -1,11 +1,26 @@
 const { test, expect } = require('@playwright/test');
 const RfqPage           = require('../../pages/RfqPage');
+const PurchaseOrderPage = require('../../pages/PurchaseOrderPage');
 const testData          = require('../../config/testData');
 
-test.describe('RFQ (Request for Quote) Management', () => {
+// .serial: every test below depends on createdRfq/approvedRfq/editRfq set by an earlier test in
+// this same file (see e.g. Listing Page's own comment: "Reuses records already created/status-
+// transitioned by the lifecycle tests above"). Per 01-procurement-request.spec.js's own comment,
+// Playwright appears to restart the worker after a hard failure in this environment, which
+// re-requires the file and resets every module-level `let` above to undefined - a later test
+// then reads that reset variable instead of the value an earlier test set (confirmed live:
+// TC-RFQ-04/05 intermittently threw "Cannot read properties of undefined (reading 'id')" on
+// createdRfq right after TC-RFQ-03 failed). A plain describe still runs these in file order, but
+// .serial additionally skips the remaining tests in the block once one fails, instead of letting
+// them run against reset state and fail with a confusing, unrelated-looking error.
+test.describe.serial('RFQ (Request for Quote) Management', () => {
   // This account's environment is slower than the default 30s test timeout allows for (shared
-  // dataset, added network latency) - match procurement-request.spec.js's same fix.
-  test.describe.configure({ timeout: 90000 });
+  // dataset, added network latency) - match procurement-request.spec.js's same fix. 90000 was
+  // still not enough headroom: confirmed live that multi-step flows here (create+view+edit in
+  // TC-RFQ-09, create+delete in TC-RFQ-12/13, create+response in TC-RFQ-15/16) reliably run
+  // right up against/over a 90s ceiling even with no other load - bump to 150000 to match every
+  // other multi-step spec file in this suite (01/02/04/05/07/09 all use 150000, 08 uses 200000).
+  test.describe.configure({ timeout: 150000 });
 
   // Each of these holds { id, seriesNumber } once set - see the comment on
   // RfqPage.saveAndCaptureId for why both are needed.
@@ -63,8 +78,10 @@ test.describe('RFQ (Request for Quote) Management', () => {
 
     await rfq.gotoView(createdRfq.id);
 
-    // The View page's own "ID" display uses the series_number format.
-    await expect(page.getByText(createdRfq.seriesNumber, { exact: true })).toBeVisible();
+    // The View page's own "ID" display uses the series_number format. .first(): the read-only
+    // Summary sidebar echoes the same ID text (same collision class as PurchaseAgreementPage's
+    // openDropdownAndPick comment), so an exact match resolves to 2 elements without it.
+    await expect(page.getByText(createdRfq.seriesNumber, { exact: true }).first()).toBeVisible();
     await expect(page.getByText(data.updatedNarration)).toBeVisible();
     await expect(page.getByText(data.vendor)).toBeVisible();
     await expect(page.getByText(data.itemName.split(' - ')[1] || data.itemName).first()).toBeVisible();
@@ -137,7 +154,7 @@ test.describe('RFQ (Request for Quote) Management', () => {
     const rfq = new RfqPage(page);
     await rfq.gotoView(approvedRfq.id);
     await rfq.createResponse();
-    await expect(page).toHaveURL(/\/request-for-quote\/add-response-for-quote/);
+    await expect(page).toHaveURL(/\/request-for-quote\/add-response/);
   });
 
   // ── TC-RFQ-09: Auto-filled fields on Edit match View ───────────────────────
@@ -237,10 +254,188 @@ test.describe('RFQ (Request for Quote) Management', () => {
     // Create a new RFQ and verify the item is still available.
     await rfq.gotoAdd();
     await rfq.fillBasicDetails({ vendor: data.vendor });
-    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    // .first(): Basic Details also has a "Call For Tender" accordion with its own
+    // identically-labeled "Add" button further down the page (same as RfqPage.addItem()) -
+    // Items comes first in DOM order.
+    await page.getByRole('button', { name: 'Add', exact: true }).first().click();
     const modal = page.getByRole('dialog');
     await modal.getByRole('combobox', { name: /Item/i }).click();
     await expect(page.getByText(data.itemName, { exact: true }).first()).toBeVisible();
+  });
+
+  // ── Create Response from RFQ (TC-RFQ-15 - TC-RFQ-16) ───────────────────────
+  // WRITTEN FROM erpforce-fe/erpforce-be SOURCE, NOT YET LIVE-VERIFIED end-to-end - same
+  // "unverified live" caveat this repo already carries for VendorReturnAuthorizationPage. Uses
+  // its own dedicated source RFQ (not the shared `approvedRfq`) so creating a Response here -
+  // which flips the source RFQ's own status - can't disturb the Listing Page block below, which
+  // still depends on `approvedRfq` staying "Open".
+  test.describe('Create Response from RFQ', () => {
+    test('TC-RFQ-15 [+] Create a Response from an Open RFQ moves it to Response Received', async ({
+      page,
+    }) => {
+      const rfq = new RfqPage(page);
+      const data = testData.rfq.valid;
+      const narration = 'TC-RFQ-15 create response from rfq';
+
+      await rfq.gotoAdd();
+      await rfq.fillBasicDetails({
+        vendor: data.vendor,
+        purchaseRepresentative: data.purchaseRepresentative,
+        narration,
+      });
+      await rfq.fillAddressContact({
+        contactPerson: data.contactPerson,
+        shippingAddress: data.shippingAddress,
+        vendorAddress: data.vendorAddress,
+      });
+      await rfq.addItem({ itemName: data.itemName, requestedQuantity: '2' });
+
+      const sourceRfq = await rfq.save(); // plain save on a new record -> Open
+      expect(sourceRfq.id).toBeTruthy();
+
+      await rfq.gotoView(sourceRfq.id);
+      await expect(page.getByText('Open', { exact: true })).toBeVisible();
+
+      await rfq.createResponse();
+      await rfq.waitForResponseFormReady();
+
+      // The pre-fill lands after a real network round-trip (fetchRequestForQuoteId behind the
+      // scenes) - wait for it to actually land rather than a fixed delay.
+      await expect(page.getByPlaceholder('Enter Narration')).toHaveValue(narration, {
+        timeout: 15000,
+      });
+
+      // Date carries over the source RFQ's own (now-past) date and must be reset, or Save fails
+      // "Date cannot be in the past" validation.
+      await rfq.setDateToToday();
+      // Payment Terms is required but never pre-filled from the source RFQ at all.
+      await rfq.selectResponsePaymentTerms();
+      // Rate is the one item field genuinely required and left blank by the source-RFQ copy.
+      await rfq.editResponseItemRate('75');
+
+      await rfq.saveResponse();
+
+      // Saving a Response automatically flips the PARENT RFQ's own status to "Response Received"
+      // (source-confirmed, rfq-response.service.js - only from Open/RFQ Sent).
+      await rfq.gotoView(sourceRfq.id);
+      await expect(page.getByText('Response Received', { exact: true })).toBeVisible();
+    });
+
+    test('TC-RFQ-16 [-] Save is blocked when Payment Terms/Rate are left empty', async ({
+      page,
+    }) => {
+      const rfq = new RfqPage(page);
+      const data = testData.rfq.valid;
+
+      await rfq.gotoAdd();
+      await rfq.fillBasicDetails({
+        vendor: data.vendor,
+        purchaseRepresentative: data.purchaseRepresentative,
+        narration: 'TC-RFQ-16 response validation check',
+      });
+      await rfq.fillAddressContact({
+        contactPerson: data.contactPerson,
+        shippingAddress: data.shippingAddress,
+        vendorAddress: data.vendorAddress,
+      });
+      await rfq.addItem({ itemName: data.itemName, requestedQuantity: '2' });
+
+      const sourceRfq = await rfq.save();
+      await rfq.gotoView(sourceRfq.id);
+      await rfq.createResponse();
+      await rfq.waitForResponseFormReady();
+      await rfq.setDateToToday();
+
+      // Neither Payment Terms nor the item's Rate is filled in - Save is expected to be blocked
+      // by required-field validation rather than silently creating a Response with no rate.
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await expect(page).toHaveURL(/\/request-for-quote\/add-response/);
+    });
+  });
+
+  // ── Create Purchase Order from RFQ (TC-RFQ-17) ───────────────────────────────
+  // Create > Order is available directly on an Open RFQ (no Response needed first - source:
+  // header-buttons.tsx's CreateActionBtn gates the Order menu item on canAddPurchaseOrder only,
+  // unlike Response/Agreement which also require a specific status list). add-purchase-order.tsx
+  // re-fetches the RFQ server-side (getV1RfqIdProvidePoDetails) and copies Vendor/Company/
+  // Location/Currency/Payment Term straight onto the new PO, same as the sibling Request-sourced
+  // flow (TC-PREQ-27) - but unlike a Request, an RFQ's own Add form collects Address & Contact
+  // (RfqPage.fillAddressContact(), already called below), and the backend copies that
+  // (rfqContacts) onto the new PO's own Address & Contact tab too. This is the one inheritance
+  // TC-PREQ-27 could never assert (a Procurement Request has no such tab at all) - assert it here
+  // instead of blindly overwriting via PurchaseOrderPage.fillAddressContact().
+  test.describe('Create Purchase Order from RFQ', () => {
+    test('TC-RFQ-17 [+] Create Purchase Order from an Open RFQ copies Vendor/Payment Term/Address & Contact, then Submit succeeds', async ({
+      page,
+    }) => {
+      const rfq  = new RfqPage(page);
+      const po   = new PurchaseOrderPage(page);
+      const data = testData.rfq.valid;
+      const narration = 'TC-RFQ-17 create PO from RFQ';
+
+      await rfq.gotoAdd();
+      await rfq.fillBasicDetails({
+        vendor:                 data.vendor,
+        purchaseRepresentative: data.purchaseRepresentative,
+        narration,
+      });
+      // Location is optional on the RFQ's own form (unlike the required field it becomes on the
+      // PO it sources) - the sibling Request/Agreement flows always set one, but this RFQ suite
+      // never has before now. Give the source RFQ one so there's something for the new PO to
+      // actually inherit (confirmed live: leaving it unset here left the new PO's own required
+      // Location blank, blocking Submit with "Location is required").
+      const sourceLocation = await rfq.selectLocation('Automation_Rfq_PO_Location');
+      await rfq.fillAddressContact({
+        contactPerson:   data.contactPerson,
+        shippingAddress: data.shippingAddress,
+        vendorAddress:   data.vendorAddress,
+      });
+      await rfq.addItem({ itemName: data.itemName, requestedQuantity: '4' });
+
+      const sourceRfq = await rfq.save(); // plain save on a new record → Open
+      expect(sourceRfq.id).toBeTruthy();
+
+      await rfq.gotoView(sourceRfq.id);
+      await expect(page.getByText('Open', { exact: true })).toBeVisible();
+
+      await rfq.createOrder();
+      await po.waitForCreateFromSourceReady();
+
+      // Basic Details are copied straight from the source RFQ.
+      await expect(page.getByText(data.vendor).first()).toBeVisible();
+      await expect(page.getByText(sourceLocation).first()).toBeVisible();
+
+      // Items: the source item and its requested quantity carry over (rate is system-defaulted
+      // from the item's own master cost, not from any test data, since no Response was created).
+      const row = page.locator('table tbody tr').first();
+      await expect(row).toContainText(data.itemName.split(' - ')[1] || data.itemName);
+      await expect(row).toContainText('4');
+
+      // Address & Contact should already be populated from the source RFQ's own contacts - read
+      // it BEFORE touching the tab so a real pre-fill isn't masked by fillAddressContact()'s own
+      // unconditional "pick first available" overwrite.
+      await page.getByText('Address & Contact', { exact: true }).click();
+      await page.waitForTimeout(500);
+      const vendorAddressValue = await po.getEditComboboxValue('Vendor Address');
+      const contactPersonValue = await po.getEditComboboxValue('Contact Person');
+      const shippingAddressValue = await po.getEditComboboxValue('Shipping Address');
+      expect(vendorAddressValue).toBeTruthy();
+      expect(vendorAddressValue).not.toMatch(/^Search/i);
+      expect(contactPersonValue).toBeTruthy();
+      expect(contactPersonValue).not.toMatch(/^Search/i);
+      expect(shippingAddressValue).toBeTruthy();
+      expect(shippingAddressValue).not.toMatch(/^Search/i);
+      await page.getByText('Basic Details', { exact: true }).click();
+      await page.waitForTimeout(500);
+
+      // Payment Terms is also expected to carry over here (RFQ's own vendor-selection cascade
+      // auto-sets it, unlike a Request) - selectPaymentTerm() is a no-op when already populated,
+      // so it's safe to call regardless and only fills a gap if the copy didn't happen.
+      await po.selectPaymentTerm();
+
+      const createdOrder = await po.save();
+      expect(createdOrder.id).toBeTruthy();
+    });
   });
 
   // ── TC-RFQ-V01: Required Vendor validation ─────────────────────────────────
@@ -340,16 +535,16 @@ test.describe('RFQ (Request for Quote) Management', () => {
       expect(await rfq.getPaginationLabel()).toMatch(/Page\s*1\s*of\s*\d+/);
 
       await rfq.nextPageButton().click();
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
       expect(await rfq.getPaginationLabel()).toMatch(/Page\s*2\s*of\s*\d+/);
       await expect(rfq.prevPageButton()).toBeEnabled();
 
       await rfq.prevPageButton().click();
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
       expect(await rfq.getPaginationLabel()).toMatch(/Page\s*1\s*of\s*\d+/);
 
       await rfq.goToPage(2);
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
       expect(await rfq.getPaginationLabel()).toMatch(/Page\s*2\s*of\s*\d+/);
     });
 
