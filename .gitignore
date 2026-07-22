@@ -8,3 +8,5 @@ auth.json
 Thumbs.db
 .env.example
 .pw-browsers/
+*.xlsx
+*.csv
