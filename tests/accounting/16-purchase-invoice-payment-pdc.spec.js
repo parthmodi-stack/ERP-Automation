@@ -31,8 +31,7 @@ const { selectDropdown } = require('../../helpers/dropdown');
 // Update them to match your environment before running.
 // =============================================================================
 
-const BASE_URL = 'http://localhost:7172';
-const PURCHASE_INVOICES_URL = `${BASE_URL}/dashboard/accounting/invoice/purchase-invoices`;
+const PURCHASE_INVOICES_URL = `${testData.baseUrl}/dashboard/accounting/invoice/purchase-invoices`;
 const ADD_PURCHASE_INVOICE_URL = `${PURCHASE_INVOICES_URL}/add-purchase-invoice`;
 
 // --------------- Seed-data references (update per environment) ---------------

@@ -615,9 +615,15 @@ test.describe('Payment Entry', () => {
         await pe.gotoList();
         await pe.openFilterModal();
 
-        // Add two rules then clear
+        // Add two rules then clear. Confirmed live: "Clear all filters" stays disabled while a
+        // rule has no field selected yet (an empty, unconfigured rule doesn't count as an active
+        // filter) - give each rule a real field so the button actually enables, rather than
+        // asserting against an incomplete rule state.
         await pe.addFilterRule();
+        await pe.selectFilterField('Approval Status');
         await pe.addFilterRule();
+        await pe.selectFilterField('Approval Status');
+        await expect(pe.clearAllFiltersButton).toBeEnabled({ timeout: 5000 });
         await pe.clearAllFiltersButton.click();
 
         const rulesAfterClear = await pe.filterDialog.locator('[testid="fields"]').count();

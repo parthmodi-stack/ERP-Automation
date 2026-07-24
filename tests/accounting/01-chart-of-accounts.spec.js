@@ -22,7 +22,10 @@ test.describe('Chart of Accounts Management', () => {
     await coa.selectParentType(data.valid.parentType);
     await coa.selectAccountType(data.valid.accountType);
 
-    await expect(coa.accountCodeField()).not.toHaveValue('');
+    // account_code is derived server-side (getV1ChartOfAccountNextCode, fired by an
+    // account_type_id change-watcher) - confirmed live this can outlast the 5s default expect
+    // timeout, so give it explicit headroom rather than relying on the default.
+    await expect(coa.accountCodeField()).not.toHaveValue('', { timeout: 15000 });
     await expect(coa.accountCodeField()).toBeDisabled();
   });
 

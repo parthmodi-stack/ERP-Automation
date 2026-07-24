@@ -156,8 +156,8 @@ class SettingsEntityPage {
     );
   }
 
-  async selectField(fieldName, searchText, optionText = searchText) {
-    await selectDropdown(this.page, this.selectTriggerLocator(fieldName), searchText, optionText);
+  async selectField(fieldName, searchText, optionText = searchText, opts = {}) {
+    await selectDropdown(this.page, this.selectTriggerLocator(fieldName), searchText, optionText, opts);
   }
 
   async save() {
@@ -206,8 +206,15 @@ class SettingsEntityPage {
     return this.page.getByRole('link', { name: rowText, exact: true }).first();
   }
 
+  /**
+   * Searches first, same reasoning as openRowMenu() below: with this suite's accumulated test
+   * data (including orphaned records left behind by earlier failed runs), a target row can land
+   * past the default list's first page, so a plain gotoList()+click can't find it even though the
+   * record genuinely exists.
+   */
   async openRow(rowText) {
     await this.gotoList();
+    await this.search(rowText);
     await this.rowLink(rowText).click();
     await this.page.waitForLoadState('networkidle');
   }

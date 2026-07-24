@@ -85,7 +85,10 @@ function registerSettingsEntityTests({
     await entity.fillForm({ name: validData.updatedName });
     await entity.save();
     await page.waitForLoadState('networkidle');
-    await expect(page.getByText(validData.updatedName).first()).toBeVisible();
+    // Search rather than asserting straight off the unfiltered list - with this suite's
+    // accumulated data, the renamed row isn't guaranteed to land on the default first page.
+    await entity.search(validData.updatedName);
+    await expect(page.getByText(validData.updatedName).first()).toBeVisible({ timeout: 10000 });
 
     // Restore the original name so later tests (search/delete) can keep referencing it.
     await entity.openEdit(validData.updatedName);

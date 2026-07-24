@@ -182,6 +182,15 @@ test.describe.serial('Commission Target - Create, Read, Update, Listing, Delete'
         await page.waitForURL(ct.listPath, { timeout: 20000 });
       }
       await ct.gotoList();
+      // Same settle-wait as the initial measurement above - without it, the list can still be
+      // showing its pre-filler "Page 1 of 1" render at the moment goToPage(2) is called, so the
+      // input gets filled before the pagination control even knows a page 2 exists.
+      await page
+        .locator('.MuiSkeleton-root, .MuiCircularProgress-root, .MuiLinearProgress-root, [role="progressbar"]')
+        .first()
+        .waitFor({ state: 'detached', timeout: 10000 })
+        .catch(() => {});
+      await page.waitForTimeout(500);
     }
 
     try {

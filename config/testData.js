@@ -3,7 +3,7 @@ const ts = Date.now();
 const factory = require("./testDataFactory");
 
 const testData = {
-  baseUrl: process.env.BASE_URL || "http://localhost:7172",
+  baseUrl: process.env.BASE_URL || "http://localhost:7173",
 
   credentials: {
     valid: {
@@ -378,19 +378,29 @@ const testData = {
     // Confirmed against the running app's add-accounting-setting form: company_id, department_id
     // and location_id are the ONLY required fields (this triple is the row's uniqueness key -
     // saving a combination that already exists is rejected with a snackbar, not a field error).
-    // "Trootech" is this environment's one company; "Test"/"Delhi" and "Admin"/"Mumbai" are real
-    // seeded Department/Location options confirmed live - picked to avoid colliding with
-    // pre-existing rows for other Company/Department/Location combinations already in this list.
+    // Every other Settings field (currency_id, inventory_valuation_in/out, and ~35 other
+    // account-mapping selects) auto-fills its own default once Company is picked. "Trootech" is
+    // this environment's one company; "Procurement"/"Administration" are real seeded Department
+    // options confirmed live (the previously-assumed "Test"/"Admin" no longer exist - selecting
+    // them silently fell back to whatever real option the dropdown defaults to instead).
+    // Confirmed live: a specific Location value can only ever be used successfully ONCE in this
+    // environment's whole lifetime - even deleting the row that used it doesn't free it back up,
+    // Save just silently fails again. `valid`/`updatedLocation` are timestamped so every run uses
+    // a genuinely new Location (created on the fly via the dropdown's own "+ Create New" option -
+    // see AccountingSettingPage.create()'s `createNewLocation`), rather than a static name that
+    // only ever works on the very first run. `duplicate` deliberately stays static/reused - it's
+    // supposed to already exist so the duplicate-rejection path actually triggers - the spec's own
+    // self-heal step creates it once if missing and leaves it in place after that.
     accountingSetting: {
       valid: {
         company_id:    'Trootech',
-        department_id: 'Test',
-        location_id:   'Delhi',
+        department_id: 'Procurement',
+        location_id:   `Automation_Location_${ts}`,
       },
-      updatedLocation: 'Houston',
+      updatedLocation: `Automation_Location_${ts}_UPD`,
       duplicate: {
         company_id:    'Trootech',
-        department_id: 'Admin',
+        department_id: 'Administration',
         location_id:   'Mumbai',
       },
     },
@@ -443,10 +453,14 @@ const testData = {
     // bypasses the "Bills is required" validation (see PaymentEntryPage.js) since no vendor in
     // this environment currently has an outstanding bill to allocate against.
     paymentEntry: {
+      // `party` was 'Keyur  Italiya' - confirmed live that vendor no longer exists in this
+      // environment (see the purchaseInvoice block's own comment below, where the same stale
+      // vendor was already swapped out) - switched to 'Royal Mine Industries', the same
+      // confirmed-live, currently-existing vendor purchaseInvoice already uses.
       cash: {
         type: 'Cash',
         partyType: 'Vendor',
-        party: 'Keyur  Italiya',
+        party: 'Royal Mine Industries',
         currency: 'INR',
         amount: '500',
         narration: `Automation Cash Payment ${ts}`,
@@ -455,7 +469,7 @@ const testData = {
       bank: {
         type: 'Bank',
         partyType: 'Vendor',
-        party: 'Keyur  Italiya',
+        party: 'Royal Mine Industries',
         currency: 'INR',
         amount: '500',
         bankAccount: 'Test Acc',
@@ -465,7 +479,7 @@ const testData = {
       cheque: {
         type: 'Cheque',
         partyType: 'Vendor',
-        party: 'Keyur  Italiya',
+        party: 'Royal Mine Industries',
         currency: 'INR',
         amount: '11.11',
         bankAccount: 'Test Acc',
@@ -550,28 +564,31 @@ const testData = {
     // Confirmed live the Invoice Entries table lists EVERY outstanding invoice for that customer
     // (not just the one the Collection Entry was opened from) - this suite only applies payment
     // against our own invoice's row (matched by series number, see CollectionPage.
-    // applyToInvoiceRow), so `amount`/invoicePaymentAmount here match just that one invoice's own
-    // total (salesInvoice.item: quantity 2 x rate 500 = 1000 gross + 50 tax = 1050).
+    // applyToInvoiceRow), so `amount`/invoicePaymentAmount here must match that invoice's own
+    // total. The original '1050' assumed quantity 2 x rate 500 = 1000 gross + 50 tax - confirmed
+    // live the Collection dialog's own "Invoice Amount" instead reads 1000 (no tax component
+    // included there), so '1050' overpays by 50 and is rejected with "Payment cannot be added
+    // more than the due amount: 1000" (TC-SI-COLL-01). Use 1000 - the confirmed-live real total.
     collection: {
       cash: {
         type: 'Cash',
         partyType: 'Customer',
         currency: 'INR',
-        amount: '1050',
+        amount: '1000',
         narration: `Automation Collection ${ts}`,
-        invoicePaymentAmount: '1050',
+        invoicePaymentAmount: '1000',
       },
       cheque: {
         type: 'Cheque',
         partyType: 'Customer',
         currency: 'INR',
-        amount: '1050',
+        amount: '1000',
         bankAccount: 'Test Acc',
         chequeNumber: `COLL-CHQ-${ts}`,
         chequeDate: '30-09-2026',
         chequeBank: 'Automation Test Bank',
         narration: `Automation Cheque Collection ${ts}`,
-        invoicePaymentAmount: '1050',
+        invoicePaymentAmount: '1000',
       },
     },
 
@@ -861,6 +878,10 @@ const testData = {
       accountName:     'Accounts Receivable',
       paymentTerm:     'Net 30',
       currencies:      ['INR'],
+      // Recently added, required field on the Accounting tab (confirmed live - Save silently
+      // stays on the add form with "This Field is required" under "Default tax template" if
+      // omitted); 'UAE VAT' is the same confirmed-live Tax Template used elsewhere in this suite.
+      defaultTaxTemplate: 'UAE VAT',
       displayName:     `Auto Cust_${ts}`,
       updatedLastName: `Cust_${ts}_UPD`,
     },
@@ -883,6 +904,7 @@ const testData = {
       accountName:        'Accounts Receivable',
       paymentTerm:        'Net 30',
       currencies:         ['INR'],
+      defaultTaxTemplate: 'UAE VAT',
       displayName:        `AutoCorp_${ts}`,
       updatedCompanyName: `AutoCorp_${ts}_UPD`,
     },
@@ -913,6 +935,7 @@ const testData = {
       accountName:     'Accounts Payable',
       paymentTerm:     'Net 30',
       currencies:      ['INR'],
+      defaultTaxTemplate: 'UAE VAT',
       displayName:     `Auto Vend_${ts}`,
       updatedLastName: `Vend_${ts}_UPD`,
     },
@@ -934,6 +957,7 @@ const testData = {
       accountName:        'Accounts Payable',
       paymentTerm:        'Net 30',
       currencies:         ['INR'],
+      defaultTaxTemplate: 'UAE VAT',
       displayName:        `AutoVendCorp_${ts}`,
       updatedCompanyName: `AutoVendCorp_${ts}_UPD`,
     },
