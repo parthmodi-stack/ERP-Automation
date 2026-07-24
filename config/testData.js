@@ -757,6 +757,32 @@ const testData = {
       updatedTargetAmount: '7500',
     },
 
+    // Commission Assignment - master data (no approval workflow), same archetype as
+    // commissionPlan/commissionTarget above. This suite creates and uses its own disposable
+    // record for the full CRUD lifecycle. The "Salesperson" line item references real, existing
+    // Commission Plan/Commission Target records already in this environment (best-effort seed
+    // names - selectDropdown()'s search+fallback substitutes a real option if these don't match
+    // exactly) rather than ones this suite creates itself, since cross-referencing a specific
+    // record by name is simpler than provisioning one - see CommissionAssignmentPage.js's own
+    // header comment for why the line item is an inline table row, not a modal.
+    commissionAssignment: {
+      valid: {
+        title:       `Automation Commission Assignment ${ts}`,
+        description: `Automation-created commission assignment ${ts}`,
+        lineItem: {
+          salesperson:    'Dipen Modi', // matches credentials.valid's own logged-in user
+          commissionPlan: 'Sales Commission Plan',
+          target:         'CMT-2025-000039',
+          // Day-of-month for the calendar-picker helper (see fillLineItemEndDate) - the masked
+          // date input doesn't reliably accept typed/filled values, confirmed live. Start Date
+          // auto-defaults to today and isn't user-settable (see class doc comment), so only End
+          // Date needs a day picked here.
+          endDateDay:     25,
+        },
+      },
+      updatedDescription: `Updated by automation ${ts}`,
+    },
+
     // ---- Master Data: Customer Management ----
   //
   // Routes:
