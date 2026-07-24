@@ -783,6 +783,28 @@ const testData = {
       updatedDescription: `Updated by automation ${ts}`,
     },
 
+    // Budget - document with an approval workflow (Draft-less: Save creates it directly in
+    // "Pending" status, same status model as Asset Transfer). This suite creates and uses its own
+    // disposable record for the CRUD lifecycle.
+    budget: {
+      valid: {
+        budgetName:      `Automation Budget ${ts}`,
+        budgetType:      'Company budget',
+        // Best-effort seed - selectDropdown()'s search+fallback substitutes a real option if this
+        // exact Financial Year name doesn't match (this environment's Financial Year list is
+        // large and includes several near-duplicates like "2024-2025 (New)").
+        financialYear:   '2024-2025 (New)',
+        totalAmount:     '50000',
+        budgetPeriod:    'Monthly',
+        budgetMonths:    'January',
+        // Top-level account category selected via the multi-step "Select Account" picker (see
+        // BudgetPage.js's own class doc comment) - confirmed live real options are Assets/
+        // Expense/Income/Liabilities/Equity.
+        accountCategory: 'Assets',
+      },
+      updatedTotalAmount: '75000',
+    },
+
     // ---- Master Data: Customer Management ----
   //
   // Routes:
