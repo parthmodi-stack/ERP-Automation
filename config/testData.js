@@ -1,4 +1,4 @@
-require('dotenv').config();
+require("dotenv").config();
 const ts = Date.now();
 const factory = require("./testDataFactory");
 
@@ -312,8 +312,16 @@ const testData = {
     // second literal that may rot out of the option window.
     multiItem: {
       items: [
-        { itemName: "Regression_1-00001 - Reg-item1", quantity: "2", rate: "100" },
-        { itemName: "Regression_1-00001 - Reg-item1", quantity: "3", rate: "50" },
+        {
+          itemName: "Regression_1-00001 - Reg-item1",
+          quantity: "2",
+          rate: "100",
+        },
+        {
+          itemName: "Regression_1-00001 - Reg-item1",
+          quantity: "3",
+          rate: "50",
+        },
       ],
     },
 
@@ -470,14 +478,13 @@ const testData = {
     approverName: "Dipen Modi",
   },
 
-
   landedCost: {
     valid: {
       receipt: "PO-GRN-2026-000246",
       itemName: "345 - act",
       narration: "Automation Landed Cost",
       cost: "100",
-    }
+    },
   },
   // ========================
   // ORGANIZATION STRUCTURE
@@ -523,7 +530,9 @@ const testData = {
       noOfSubDepartments: "2",
       status: "Active",
       description: "Automated test department created by Playwright",
-      updatedDepartmentName: factory.uniqueName("Automation_Department_UPDATED"),
+      updatedDepartmentName: factory.uniqueName(
+        "Automation_Department_UPDATED",
+      ),
       updatedParentDepartment: "HR Operations",
       duplicatedName: factory.uniqueName("Automation_Department_COPY"),
     },
@@ -595,7 +604,9 @@ const testData = {
       level: "5",
       status: "Active",
       description: "Automated test designation created by Playwright",
-      updatedDesignationName: factory.uniqueName("Automation_Designation_UPDATED"),
+      updatedDesignationName: factory.uniqueName(
+        "Automation_Designation_UPDATED",
+      ),
       updatedLevel: "7",
       updatedReportsTo: "Senior Manager",
       duplicatedName: factory.uniqueName("Automation_Designation_COPY"),
@@ -691,8 +702,16 @@ const testData = {
       documentType: factory.uniqueName("Employee_Onboarding"),
       company: "erp-force",
       documents: [
-        { documentName: factory.uniqueName("Aadhaar_Card"), remarks: "Identity Proof", validityCheck: true },
-        { documentName: factory.uniqueName("Driving_License"), remarks: "Address Verification", validityCheck: false },
+        {
+          documentName: factory.uniqueName("Aadhaar_Card"),
+          remarks: "Identity Proof",
+          validityCheck: true,
+        },
+        {
+          documentName: factory.uniqueName("Driving_License"),
+          remarks: "Address Verification",
+          validityCheck: false,
+        },
       ],
     },
     vendorCompliance: {
@@ -700,8 +719,16 @@ const testData = {
       company: "erp-force",
       status: "Inactive",
       documents: [
-        { documentName: factory.uniqueName("GST_Certificate"), remarks: "Tax Document", validityCheck: true },
-        { documentName: factory.uniqueName("MSME_Certificate"), remarks: "Government Registration", validityCheck: false },
+        {
+          documentName: factory.uniqueName("GST_Certificate"),
+          remarks: "Tax Document",
+          validityCheck: true,
+        },
+        {
+          documentName: factory.uniqueName("MSME_Certificate"),
+          remarks: "Government Registration",
+          validityCheck: false,
+        },
       ],
     },
     missingDocumentType: {
@@ -787,9 +814,21 @@ const testData = {
     // Cross-field time validation cases - exact messages confirmed in calendar-card.tsx.
     invalidWorkingHours: { start: "06:00 PM", end: "09:00 AM" }, // start after end
     breakOutsideWorkingHours: { start: "07:00 AM", end: "08:00 AM" }, // before working hours start
-    holidayMissingTitle: { startDate: "26-01-2026", endDate: "26-01-2026", type: "Full Day" },
-    holidayMissingStartDate: { title: "No Start Date Holiday", endDate: "26-01-2026", type: "Full Day" },
-    holidayMissingEndDate: { title: "No End Date Holiday", startDate: "26-01-2026", type: "Full Day" },
+    holidayMissingTitle: {
+      startDate: "26-01-2026",
+      endDate: "26-01-2026",
+      type: "Full Day",
+    },
+    holidayMissingStartDate: {
+      title: "No Start Date Holiday",
+      endDate: "26-01-2026",
+      type: "Full Day",
+    },
+    holidayMissingEndDate: {
+      title: "No End Date Holiday",
+      startDate: "26-01-2026",
+      type: "Full Day",
+    },
     holidayEndBeforeStart: {
       title: "Backwards Holiday",
       startDate: "26-01-2026",
@@ -863,7 +902,9 @@ const testData = {
       // since this account has no stable pinnable Location name.
       location: factory.uniqueName("Automation_Location"),
       structureName: factory.uniqueName("Automation_SalaryStructure"),
-      updatedStructureName: factory.uniqueName("Automation_SalaryStructure_UPDATED"),
+      updatedStructureName: factory.uniqueName(
+        "Automation_SalaryStructure_UPDATED",
+      ),
       minSalary: "10000",
       maxSalary: "50000",
     },
@@ -939,6 +980,52 @@ const testData = {
     workingDaysOptions: ["5 Days", "6 Days"],
     workingHoursOptions: ["08 Hours", "10 Hours"],
     employmentTypeOptions: ["Limited", "Unlimited"],
+  },
+  // "erp-force" confirmed live-verified: it's the Company pre-filled by default on this module's
+  // own Add form (see ACCRUALS_AND_BENEFIT_TEST_CASES.md's screenshots), same pinned value already
+  // used by Loan Configuration/Leave Policy Master in this suite.
+  accrualsAndBenefit: {
+    valid: {
+      company: "erp-force",
+      name: factory.uniqueName("Automation_AccrualBenefit"),
+      updatedName: factory.uniqueName("Automation_AccrualBenefit_UPDATED"),
+      type: "allowance",
+      amount: "10000",
+      frequency: "monthly",
+    },
+    variableSalaryComponent: {
+      name: factory.uniqueName("Automation_AccrualBenefit_VSC"),
+      baseComponent: "Basic Salary",
+      operator: "+",
+      value: "500",
+      capLimit: "1000",
+    },
+    negative: {
+      // Confirmed source bug (accrual-master.service.js): 0 passes the JSON-schema's minimum:0
+      // but is rejected by a stricter "must be a positive number" service-layer check.
+      zeroAmount: "0",
+      negativeAmount: "-500",
+      zeroValue: "0",
+      // Confirmed source bug: cap_limit's own service guard tests `cap_limit` for truthiness, so
+      // a literal 0 silently bypasses both the "must be positive" and "must be >= value" checks -
+      // this is a deliberate bug-repro value, not a normal boundary case.
+      zeroCapLimit: "0",
+      capLimitBelowValue: "100",
+    },
+  },
+
+  // Time Sheet (erpforce-hrms-fe: src/views/time-tracking/time-sheet/) - route
+  // `/time-tracking/time-sheet`. Company is the same live-verified "erp-force" value used
+  // throughout this suite. No Location/Department/Employee values are pinned here on purpose -
+  // the Add page's Generate flow is scoped by the LOGGED-IN user's own company by default, and
+  // this suite's tests reuse whatever employees/attendance already exist for that company/date
+  // range rather than requiring a specific pinned department or employee name (none was
+  // confirmed live as stably present under a given date range - attendance data changes over
+  // time, unlike a Location/Grade master record).
+  timeSheet: {
+    valid: {
+      company: "erp-force",
+    },
   },
 };
 

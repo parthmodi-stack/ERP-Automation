@@ -1,5 +1,5 @@
-const { expect } = require('@playwright/test');
-const BasePage = require('./BasePage');
+const { expect } = require("@playwright/test");
+const BasePage = require("./BasePage");
 
 // Loan Configuration (erpforce-hrms-fe: src/views/loan-configuration/) - confirmed real module,
 // route `/dashboard/hrms/loan-configuration`. Backend module/API path is `loan-master`, NOT
@@ -58,51 +58,75 @@ class LoanConfigurationPage extends BasePage {
     super(page);
     this.page = page;
 
-    this.listAddButton = page.getByRole('button', { name: 'Add' }).first();
+    this.listAddButton = page.getByRole("button", { name: "Add" }).first();
 
     // ---------- Basic Details ----------
-    this.companyField = 'Company';
-    this.loanNameInput = this.fieldInputByLabel('Loan Name');
-    this.categoryField = 'Category'; // list column header is "Loan Type" for this SAME field - form label is "Category"
-    this.descriptionInput = this.fieldTextareaByLabel('Description');
+    this.companyField = "Company";
+    this.loanNameInput = this.fieldInputByLabel("Loan Name");
+    this.categoryField = "Category"; // list column header is "Loan Type" for this SAME field - form label is "Category"
+    this.descriptionInput = this.fieldTextareaByLabel("Description");
     // A generic label-text lookup for "Company" is ambiguous on this page: the Listing page's own
     // "Company" column header (confirmed live via DOM dump - Mui-TableHeadCell-Content classes)
     // can still be present/matched by a bare getByText("Company") even on the Add form, so this
     // targets the field's own stable `data-name` attribute (set by the shared FormParser) instead.
     this.companyClearButton = page
       .locator('[data-name="loanConfiguration.company_id"]')
-      .locator('xpath=following-sibling::*[1]')
-      .getByRole('button', { name: 'clear selection' });
+      .locator("xpath=following-sibling::*[1]")
+      .getByRole("button", { name: "clear selection" });
 
     // ---------- Loan Limits ----------
-    this.maxLoanAmountFixedRadio = page.getByRole('radio', { name: 'Fixed Amount', exact: true });
-    this.maxLoanAmountPercentageRadio = page.getByRole('radio', { name: '% of CTC', exact: true });
-    this.maxLoanAmountValueInput = page.getByPlaceholder('Amount', { exact: true }).nth(0);
-    this.maxLoanAmountPercentageInput = page.getByPlaceholder('Percentage', { exact: true }).nth(0);
-    this.maxTenureInput = this.fieldInputByLabel('Maximum Tenure (In Months)');
-    this.interestTypeField = 'Interest Type';
-    this.interestRateInput = this.fieldInputByLabel('Interest Rate');
-    this.latePenaltyFlatRadio = page.getByRole('radio', { name: 'Flat Amount', exact: true });
-    this.latePenaltyPercentageRadio = page.getByRole('radio', { name: 'In %', exact: true });
-    this.latePenaltyValueInput = page.getByPlaceholder('Amount', { exact: true }).nth(1);
-    this.latePenaltyPercentageInput = page.getByPlaceholder('Percentage', { exact: true }).nth(1);
+    this.maxLoanAmountFixedRadio = page.getByRole("radio", {
+      name: "Fixed Amount",
+      exact: true,
+    });
+    this.maxLoanAmountPercentageRadio = page.getByRole("radio", {
+      name: "% of CTC",
+      exact: true,
+    });
+    this.maxLoanAmountValueInput = page
+      .getByPlaceholder("Amount", { exact: true })
+      .nth(0);
+    this.maxLoanAmountPercentageInput = page
+      .getByPlaceholder("Percentage", { exact: true })
+      .nth(0);
+    this.maxTenureInput = this.fieldInputByLabel("Maximum Tenure (In Months)");
+    this.interestTypeField = "Interest Type";
+    this.interestRateInput = this.fieldInputByLabel("Interest Rate");
+    this.latePenaltyFlatRadio = page.getByRole("radio", {
+      name: "Flat Amount",
+      exact: true,
+    });
+    this.latePenaltyPercentageRadio = page.getByRole("radio", {
+      name: "In %",
+      exact: true,
+    });
+    this.latePenaltyValueInput = page
+      .getByPlaceholder("Amount", { exact: true })
+      .nth(1);
+    this.latePenaltyPercentageInput = page
+      .getByPlaceholder("Percentage", { exact: true })
+      .nth(1);
 
     // ---------- Repayment Configuration ----------
     // Fixed titles (unlike Status), so toggleByLabel() works directly.
-    this.autoDeductEmisLabel = 'Auto Deduct EMIs';
-    this.allowPreClosureLabel = 'Allow Pre-Closure';
+    this.autoDeductEmisLabel = "Auto Deduct EMIs";
+    this.allowPreClosureLabel = "Allow Pre-Closure";
 
     // ---------- Eligibility Criteria ----------
-    this.limitedToggleLabel = 'Limited';
-    this.minServiceDurationInput = this.fieldInputByLabel('Minimum Service Duration');
-    this.eligibleDepartmentsField = 'Eligible Departments';
-    this.eligibleGradesField = 'Eligible Grades';
-    this.minCtcRequiredInput = this.fieldInputByLabel('Minimum CTC Required');
-    this.maxActiveLoansAllowedInput = this.fieldInputByLabel('Maximum Active Loans Allowed');
-    this.remarksInput = this.fieldTextareaByLabel('Remarks');
+    this.limitedToggleLabel = "Limited";
+    this.minServiceDurationInput = this.fieldInputByLabel(
+      "Minimum Service Duration",
+    );
+    this.eligibleDepartmentsField = "Eligible Departments";
+    this.eligibleGradesField = "Eligible Grades";
+    this.minCtcRequiredInput = this.fieldInputByLabel("Minimum CTC Required");
+    this.maxActiveLoansAllowedInput = this.fieldInputByLabel(
+      "Maximum Active Loans Allowed",
+    );
+    this.remarksInput = this.fieldTextareaByLabel("Remarks");
 
     // ---------- Classification ----------
-    this.locationField = 'Location';
+    this.locationField = "Location";
 
     // ---------- Required-field errors (common.validation.required = "{{field}} is required") ----------
     this.companyRequiredError = page.getByText(/^Company is required$/i);
@@ -110,16 +134,18 @@ class LoanConfigurationPage extends BasePage {
     this.categoryRequiredError = page.getByText(/^Category is required$/i);
 
     // ---------- Page-level actions (same shared i18n keys as every HRMS module in this suite) ----------
-    this.discardButton = page.getByRole('button', { name: 'Discard' });
-    this.saveToDraftButton = page.getByRole('button', { name: 'Save To Draft' });
-    this.saveButton = page.getByRole('button', { name: 'Save', exact: true });
+    this.discardButton = page.getByRole("button", { name: "Discard" });
+    this.saveToDraftButton = page.getByRole("button", {
+      name: "Save To Draft",
+    });
+    this.saveButton = page.getByRole("button", { name: "Save", exact: true });
 
-    this.viewActionsButton = page.getByRole('button', { name: 'Actions' });
+    this.viewActionsButton = page.getByRole("button", { name: "Actions" });
   }
 
   async gotoList() {
-    await this.page.goto('/dashboard/hrms/loan-configuration');
-    await this.page.waitForLoadState('networkidle');
+    await this.page.goto("/dashboard/hrms/loan-configuration");
+    await this.page.waitForLoadState("networkidle");
   }
 
   async goto() {
@@ -132,26 +158,34 @@ class LoanConfigurationPage extends BasePage {
     try {
       await this.listAddButton.click();
     } catch (e) {
-      if (!this.page.url().includes('add-loan-configuration')) throw e;
+      if (!this.page.url().includes("add-loan-configuration")) throw e;
     }
-    await this.page.waitForURL('**/add-loan-configuration');
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForURL("**/add-loan-configuration");
+    await this.page.waitForLoadState("networkidle");
     await this.recoverFromStuckLoadingFields();
   }
 
   // ---------- Textarea fields (is_multiline DynamicInput renders a <textarea>, not <input>) ----------
-  fieldTextareaByLabel(labelText, { scope = this.page.getByRole('main') } = {}) {
-    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+  fieldTextareaByLabel(
+    labelText,
+    { scope = this.page.getByRole("main") } = {},
+  ) {
+    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
     const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`);
-    return scope.getByText(labelRegex).first().locator('xpath=..').locator('textarea').first();
+    return scope
+      .getByText(labelRegex)
+      .first()
+      .locator("xpath=..")
+      .locator("textarea")
+      .first();
   }
 
   // ---------- Toggle fields (same non-associated-label structural pattern as LPM's checkboxes) ----------
   toggleByLabel(labelText) {
     return this.page
       .getByText(labelText, { exact: true })
-      .locator('xpath=..')
-      .getByRole('checkbox')
+      .locator("xpath=..")
+      .getByRole("checkbox")
       .first();
   }
 
@@ -167,9 +201,9 @@ class LoanConfigurationPage extends BasePage {
   // reached via the fixed "Status" section heading two DOM levels up instead.
   statusToggle() {
     return this.page
-      .getByText('Status', { exact: true })
-      .locator('xpath=../..')
-      .getByRole('checkbox')
+      .getByText("Status", { exact: true })
+      .locator("xpath=../..")
+      .getByRole("checkbox")
       .first();
   }
 
@@ -183,7 +217,7 @@ class LoanConfigurationPage extends BasePage {
 
   // ---------- Loan Limits radios ----------
   async selectMaxLoanAmountType(type) {
-    if (type === 'fixed') {
+    if (type === "fixed") {
       await this.maxLoanAmountFixedRadio.check();
     } else {
       await this.maxLoanAmountPercentageRadio.check();
@@ -191,7 +225,7 @@ class LoanConfigurationPage extends BasePage {
   }
 
   async selectLatePenaltyType(type) {
-    if (type === 'flat') {
+    if (type === "flat") {
       await this.latePenaltyFlatRadio.check();
     } else {
       await this.latePenaltyPercentageRadio.check();
@@ -204,42 +238,65 @@ class LoanConfigurationPage extends BasePage {
   // (unlike single-select), so this closes it explicitly via Escape rather than relying on
   // BasePage.selectOptionFromListbox's single-select-oriented auto-close wait. ----------
   async selectFirstMultiSelectOption(labelText) {
-    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, 'i');
+    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, "i");
     const combobox = this.page
-      .getByRole('main')
+      .getByRole("main")
       .getByText(labelRegex)
       .first()
-      .locator('xpath=..')
-      .getByRole('combobox')
+      .locator("xpath=..")
+      .getByRole("combobox")
       .first();
-    // Called back-to-back for Eligible Departments then Eligible Grades - the first call's own
-    // closing popover can still be mid-transition when the second call's combobox.click() fires,
-    // intercepting it the same way BasePage.dismissLingeringDialog() documents for MuiDialogs
-    // (confirmed live: Eligible Grades' own combobox locator can time out with no other symptom
-    // right after Eligible Departments was selected) - retry the click rather than firing once.
-    await this.clickWithDialogRetry(() => combobox, { attempts: 4, timeout: 5000 });
-    const firstOption = this.page
-      .getByRole('listbox')
-      .getByRole('option')
+    await combobox.click();
+    const listbox = this.page.getByRole("listbox");
+    const firstOption = listbox
+      .getByRole("option")
       .filter({ hasNotText: /Select|No data available/ })
       .first();
-    await firstOption.waitFor({ state: 'visible', timeout: 7000 });
+    await firstOption.waitFor({ state: "visible", timeout: 7000 });
     await firstOption.click();
-    await this.page.keyboard.press('Escape');
+    await this.page.keyboard.press("Escape");
     await this.page.waitForTimeout(500);
+    // Escape doesn't reliably close this MUI multi-select popover on the first press (confirmed
+    // live: TC-LOAN-ELIG-12 left "Eligible Departments" expanded, whose overlay then blocked the
+    // click on "Eligible Grades"' combobox until the 15s action timeout) - fall back to clicking a
+    // neutral area of the page, same dismiss pattern BasePage.searchList() already relies on.
+    const stillOpen = await listbox
+      .first()
+      .isVisible()
+      .catch(() => false);
+    if (stillOpen) {
+      await this.page
+        .locator("body")
+        .click({ position: { x: 300, y: 10 }, force: true })
+        .catch(() => {});
+      await listbox
+        .first()
+        .waitFor({ state: "hidden", timeout: 3000 })
+        .catch(() => {});
+    }
   }
 
   // ---------- Fill helpers ----------
-  async fillBasicDetails({ company, loanName, category, active, description } = {}) {
+  async fillBasicDetails({
+    company,
+    loanName,
+    category,
+    active,
+    description,
+  } = {}) {
     if (company) {
-      await this.selectFieldByLabel(this.companyField, company, { exact: false });
+      await this.selectFieldByLabel(this.companyField, company, {
+        exact: false,
+      });
     }
     if (loanName !== undefined) {
       await this.loanNameInput.fill(loanName);
     }
     if (category) {
-      await this.selectFieldByLabel(this.categoryField, category, { exact: false });
+      await this.selectFieldByLabel(this.categoryField, category, {
+        exact: false,
+      });
     }
     if (active !== undefined) {
       await this.setStatus(active);
@@ -267,13 +324,17 @@ class LoanConfigurationPage extends BasePage {
       await this.maxLoanAmountValueInput.fill(String(maxLoanAmountValue));
     }
     if (maxLoanAmountPercentage !== undefined) {
-      await this.maxLoanAmountPercentageInput.fill(String(maxLoanAmountPercentage));
+      await this.maxLoanAmountPercentageInput.fill(
+        String(maxLoanAmountPercentage),
+      );
     }
     if (maxTenureMonths !== undefined) {
       await this.maxTenureInput.fill(String(maxTenureMonths));
     }
     if (interestType) {
-      await this.selectFieldByLabel(this.interestTypeField, interestType, { exact: false });
+      await this.selectFieldByLabel(this.interestTypeField, interestType, {
+        exact: false,
+      });
     }
     if (interestRate !== undefined) {
       await this.interestRateInput.fill(String(interestRate));
@@ -333,25 +394,42 @@ class LoanConfigurationPage extends BasePage {
   // ---------- Classification (Location) - DynamicDependentField, filtered by company_id, same
   // mechanism confirmed for Leave Policy Master/Salary Structure Master's Location field. ----------
   async isLocationEnabled() {
-    return !(await this.dependentFieldCombobox(this.locationField).isDisabled());
+    return !(await this.dependentFieldCombobox(
+      this.locationField,
+    ).isDisabled());
   }
 
   dependentFieldCombobox(labelText) {
-    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, 'i');
+    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, "i");
     return this.page
-      .locator('main')
+      .locator("main")
       .getByText(labelRegex)
       .first()
-      .locator('xpath=..')
-      .getByRole('combobox')
+      .locator("xpath=..")
+      .getByRole("combobox")
       .first();
   }
 
   async getSelectedValue(labelText) {
     const combobox = this.dependentFieldCombobox(labelText);
-    const text = ((await combobox.textContent()) || '').replace(/[​﻿]/g, '').trim();
-    return text || (await combobox.inputValue().catch(() => ''));
+    // The combobox briefly shows its own "Search {Label}" placeholder right after navigating to
+    // Edit, while the preloaded value resolves asynchronously - reading immediately can race that
+    // and capture the placeholder instead (confirmed live: TC-LOAN-EDIT-01 intermittently read
+    // back "Search Company" instead of the saved Company). Same race BasePage.getEditComboboxValue
+    // already guards against for other modules' fields.
+    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const placeholderRegex = new RegExp(
+      `^(Loading\\.\\.\\.|Search ${escapedLabel})$`,
+      "i",
+    );
+    await expect(combobox)
+      .not.toHaveText(placeholderRegex, { timeout: 8000 })
+      .catch(() => {});
+    const text = ((await combobox.textContent()) || "")
+      .replace(/[​﻿]/g, "")
+      .trim();
+    return text || (await combobox.inputValue().catch(() => ""));
   }
 
   // ---------- Save actions ----------
@@ -361,19 +439,22 @@ class LoanConfigurationPage extends BasePage {
   // NOT `loan_configuration` (the frontend route name) - and the network URL itself contains
   // "loan-master", not "loan-configuration" (actionCreator.tsx's getV1LoanMaster/etc.).
   async saveAndCaptureId(buttonLocator) {
-    const listResponsePromise = this.page.waitForResponse((r) =>
-      r.url().includes('loan-master') && r.request().method() === 'GET',
+    const listResponsePromise = this.page.waitForResponse(
+      (r) => r.url().includes("loan-master") && r.request().method() === "GET",
     );
     await buttonLocator.click();
     const listResponse = await listResponsePromise;
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState("networkidle");
     const body = await listResponse.json().catch(() => null);
     const record = body?.data?.loan_master?.[0];
 
     const id = record?.id !== undefined ? String(record.id) : undefined;
     let seriesNumber = record?.series_number;
     if (!seriesNumber) {
-      seriesNumber = await this.page.locator('table tbody tr').first().innerText();
+      seriesNumber = await this.page
+        .locator("table tbody tr")
+        .first()
+        .innerText();
     }
     return { id, seriesNumber };
   }
@@ -393,9 +474,11 @@ class LoanConfigurationPage extends BasePage {
 
   async openEditFromList(seriesNumber) {
     await this.openRowActionMenu(seriesNumber);
-    await this.page.getByRole('menuitem', { name: 'Edit', exact: true }).click();
-    await this.page.waitForURL('**/edit-loan-configuration');
-    await this.page.waitForLoadState('networkidle');
+    await this.page
+      .getByRole("menuitem", { name: "Edit", exact: true })
+      .click();
+    await this.page.waitForURL("**/edit-loan-configuration");
+    await this.page.waitForLoadState("networkidle");
     // Same shared DynamicSelect "stuck on Loading..." bug BasePage documents for RFQ's Edit page
     // (TC-RFQ-09) - confirmed live here too: Company preloaded as the literal string "Loading..."
     // instead of resolving, with no interaction needed to trigger it.
@@ -408,16 +491,21 @@ class LoanConfigurationPage extends BasePage {
   async openViewFromList(seriesNumber) {
     // Row click (not a menu item - View has no dedicated row-menu entry; the whole row/status
     // chip links to View, confirmed via loan-configuration.tsx's `redirectionLink`/Chip Link).
-    await this.rowBySeriesNumber(seriesNumber).getByText(/Draft|Active|Inactive/).first().click();
-    await this.page.waitForURL('**/view-loan-configuration');
-    await this.page.waitForLoadState('networkidle');
+    await this.rowBySeriesNumber(seriesNumber)
+      .getByText(/Draft|Active|Inactive/)
+      .first()
+      .click();
+    await this.page.waitForURL("**/view-loan-configuration");
+    await this.page.waitForLoadState("networkidle");
   }
 
   async openEditFromView() {
     await this.viewActionsButton.click();
-    await this.page.getByRole('menuitem', { name: 'Edit', exact: true }).click();
-    await this.page.waitForURL('**/edit-loan-configuration');
-    await this.page.waitForLoadState('networkidle');
+    await this.page
+      .getByRole("menuitem", { name: "Edit", exact: true })
+      .click();
+    await this.page.waitForURL("**/edit-loan-configuration");
+    await this.page.waitForLoadState("networkidle");
   }
 }
 
