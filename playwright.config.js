@@ -5,25 +5,32 @@ require('dotenv').config();
 // .../chromium-XXXX/chrome-linux64/chrome", just run `npx playwright install chromium` again.
 const { defineConfig, devices } = require("@playwright/test");
 
+// See .env.sample - copy it to .env to override these for your machine.
+const BASE_URL = process.env.BASE_URL || 'https://dev.erpforce.co';
+const WORKERS = process.env.WORKERS ? Number(process.env.WORKERS) : 1;
+
 module.exports = defineConfig({
   testDir: "./tests",
 
-  // fullyParallel stays false: tests within a single spec file share module-level state
-  // (e.g. a record created in one test is edited/deleted by a later test in the same file) and
-  // must keep running in their written order on one worker. workers > 1 still parallelizes
-  // across different spec FILES, which don't depend on each other's state.
+  // Run tests sequentially to avoid race conditions on shared data - only
+  // override WORKERS in .env if you know the specs you're running don't
+  // share state (see CLAUDE.md's "Sequential execution" note).
   fullyParallel: false,
-  workers: 4,
+  workers: WORKERS,
 
-  retries: process.env.CI ? 2 : 0,
+  retries: process.env.CI || 0,
 
-  reporter: [["html", { open: "never" }], ["list"]],
+  reporter: [
+    ['html', { open: 'never' }],
+    ['list'],
+    ['./reporters/excel-reporter.js', { outputFile: 'Inventory_Test_Cases.xlsx' }],
+  ],
 
   // Login once globally, reuse session for all tests
   globalSetup: require.resolve("./global-setup"),
 
   use: {
-    baseURL: process.env.BASE_URL || "http://localhost:7172",
+    baseURL: BASE_URL || "http://localhost:7172",
     storageState: "auth.json",
     headless: false,
     slowMo: 500,

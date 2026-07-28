@@ -6,14 +6,8 @@ auth.json
 *.log
 .DS_Store
 Thumbs.db
-
-# Playwright
-/playwright-report/
-/blob-report/
-/playwright/.cache/
-/playwright/.auth/
-package-lock.json
-
+Inventory_Test_Cases.xlsx
+Inventory_Test_Cases.new.xlsx
 .env.example
 .pw-browsers/
 *.xlsx

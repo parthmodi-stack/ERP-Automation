@@ -1,7 +1,7 @@
 require('dotenv').config();
 const ts = Date.now();
 const factory = require("./testDataFactory");
-
+const tsDigits = String(ts).slice(-8);
 const testData = {
   baseUrl: process.env.BASE_URL || "http://localhost:7173",
 
@@ -1746,6 +1746,109 @@ const testData = {
       overMaxInterestRate: "100.01",
       negativeMinCtc: "-1",
       negativeMaxActiveLoans: "-2",
+    },
+  },
+
+  lead: {
+    valid: {
+      companyName: `Automation_Lead_${ts}`,
+      phone: `5${tsDigits}`,
+      email: `automation.lead.${ts}@acmeglobal.com`,
+      vatNumber: `1002345${tsDigits}`,
+      crnNumber: `12${tsDigits}`,
+      responsiblePerson: 'Ahmed Khan',
+      leadStatus: 'Cold Call',
+      priority: 'Medium',
+      source: 'Test',
+      industry: 'IT and Digital Services',
+      followUpType: 'Call',
+      remindMe: '1 Hour',
+      location: 'Almeda',
+      department: 'parth', // confirmed valid dept - see DEPARTMENT in tests/procurement/01-procurement-request-flow.spec.js
+      address1: 'Office 12, Business Tower',
+      address2: 'Sheikh Zayed Road',
+      zipCode: '00000',
+      country: 'United Arab Emirates',
+      state: 'Dubai',
+      city: 'Dubai',
+      updatedCompanyName: `Automation_Lead_UPDATED_${ts}`,
+      updatedPhone: `4${tsDigits}`,
+      updatedEmail: `automation.lead.updated.${ts}@acmeglobal.com`,
+      duplicatedCompanyName: `Automation_Lead_COPY_${ts}`,
+      updatedLeadStatus: 'Follow Up',
+      updatedPriority: 'High',
+      updatedAddress1: '456 Updated Avenue',
+      updatedCity: 'Abu Dhabi',
+      updatedZipCode: '500001',
+    },
+
+    // Minimal required-fields-only fixture (no Follow Up, no VAT/CRN, no Address 2)
+    minimal: {
+      companyName: `Automation_Lead_Minimal_${ts}`,
+      phone: `6${tsDigits}`,
+      email: `automation.lead.minimal.${ts}@acmeglobal.com`,
+      responsiblePerson: 'Ahmed Khan',
+      leadStatus: 'Cold Call',
+      priority: 'Medium',
+      source: 'Test',
+      industry: 'IT and Digital Services',
+      location: 'Almeda',
+      department: 'parth', // confirmed valid dept - see DEPARTMENT in tests/procurement/01-procurement-request-flow.spec.js
+      address1: 'Office 12, Business Tower',
+      zipCode: '00000',
+      country: 'United Arab Emirates',
+      state: 'Dubai',
+      city: 'Dubai',
+    },
+
+    // Negative fixtures - each overrides only the field under test on top of
+    // otherwise-valid data (including responsiblePerson, itself required),
+    // so the invalid value under test is isolated as the only failing field.
+    missingCompanyName: {
+      companyName: '',
+      phone: '501234567',
+      email: `automation.lead.negative.${ts}@acmeglobal.com`,
+      responsiblePerson: 'Ahmed Khan',
+    },
+    invalidEmail: {
+      companyName: `Automation_Lead_InvalidEmail_${ts}`,
+      phone: '501234567',
+      email: 'not-an-email',
+      responsiblePerson: 'Ahmed Khan',
+    },
+    // The Phone input strips non-numeric characters as they're typed, so
+    // letters resolve to an empty value and surface the same required-field
+    // error as leaving it blank - there's no separate "invalid format" state.
+    invalidPhone: {
+      companyName: `Automation_Lead_InvalidPhone_${ts}`,
+      phone: 'abcd',
+      email: `automation.lead.invalidphone.${ts}@acmeglobal.com`,
+      responsiblePerson: 'Ahmed Khan',
+    },
+    invalidVat: {
+      companyName: `Automation_Lead_InvalidVat_${ts}`,
+      phone: `7${tsDigits}`,
+      email: `automation.lead.invalidvat.${ts}@acmeglobal.com`,
+      responsiblePerson: 'Ahmed Khan',
+      // Deliberately short (not 15 digits) but still unique per run - a static
+      // literal here previously got flagged "already exists" from a prior run
+      // before the length validation could even fire.
+      vatNumber: tsDigits.slice(0, 3),
+    },
+  },
+
+  // stockTransfer.destinationLocation references the same name that location
+  // tests create/rename to in TC-LOC-02 (see 02-location.spec.js). Stock
+  // Transfer records have no user-entered name field (they're identified by
+  // an auto-generated numeric ID), so this location name is what the spec
+  // uses to find "its" row in the list instead of a name fixture.
+  stockTransfer: {
+    valid: {
+      operationType: 'Receipt',
+      destinationLocation: `Test_Location_Playwright_UPDATED_${ts}`,
+      requestQuantity: '10',
+      rate: '100',
+      transferQuantity: '10',
     },
   },
 };

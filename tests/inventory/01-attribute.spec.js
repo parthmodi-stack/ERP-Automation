@@ -1,6 +1,7 @@
 const { test, expect, chromium } = require('@playwright/test');
 const AttributePage = require('../../pages/AttributePage');
 const testData      = require('../../config/testData');
+const { videoContextOptions, finalizeSharedVideo } = require('../../helpers/sharedContextVideo');
 
 test.describe('Attribute Management', () => {
 
@@ -9,13 +10,13 @@ test.describe('Attribute Management', () => {
   const data = testData.attribute.valid;
 
   test.beforeAll(async ({ browser }) => {
-    const context = await browser.newContext({ storageState: 'auth.json' });
+    const context = await browser.newContext({ storageState: 'auth.json', ...videoContextOptions() });
     page      = await context.newPage();
     attribute = new AttributePage(page);
   });
 
   test.afterAll(async () => {
-    await page.context().close();
+    await finalizeSharedVideo(page, __filename);
   });
 
   // ── TC-ATT-01: Create Attribute ──────────────────────────────────────────
