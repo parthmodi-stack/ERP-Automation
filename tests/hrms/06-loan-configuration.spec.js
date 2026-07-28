@@ -27,6 +27,14 @@ const testDataFactory = require('../../config/testDataFactory');
 //   (validator.tsx:38 vs form.tsx:313), so leaving the Flat Amount penalty blank never blocks
 //   Save - confirmed from source, not a guess.
 test.describe('Loan Configuration Module', () => {
+  // Same reasoning as Organization Structure/Salary Structure Master's suites: this is a single
+  // scrolling form with 5 accordions, and the default 30s test timeout is too tight once a test
+  // actually fills Basic Details + Loan Limits + Save (or more). Confirmed live - TC-LOAN-VIEW-01
+  // hit the 30s default mid-searchList and got its browser force-closed even though nothing was
+  // actually broken, which crashed the worker and reset `created`/`draftRecord` to {} for every
+  // subsequent test in this file (cascading failures with no real bug behind them).
+  test.describe.configure({ timeout: 90000 });
+
   let created = {};
   let draftRecord = {};
 

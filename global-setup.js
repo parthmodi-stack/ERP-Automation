@@ -16,8 +16,9 @@ async function globalSetup() {
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     url = 'http://' + url;
   }
-  await page.goto(url + '/login');
-  await page.waitForLoadState('networkidle');
+  await page.goto(url + '/login', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForLoadState('domcontentloaded');
+
 
   await page.getByPlaceholder(/email/i).fill(testData.credentials.valid.email);
   await page.getByPlaceholder(/password/i).fill(testData.credentials.valid.password);

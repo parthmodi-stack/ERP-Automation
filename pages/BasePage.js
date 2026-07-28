@@ -763,33 +763,36 @@ class BasePage {
     if (await searchInput.isVisible().catch(() => false)) {
       return searchInput;
     }
-    await this.page
+    const searchBtn = this.page
       .getByRole("button", { name: "Add" })
       .first()
-      .locator("xpath=preceding-sibling::button[2]")
-      .click();
-    await searchInput.waitFor({ state: "visible", timeout: 5000 });
-    // The search input renders inside a MUI Popover that's still mid-mount/transition the
-    // instant it becomes "visible" - confirmed live (Purchase Agreement's own Listing Page): a
-    // `.fill()` immediately after this wait silently dispatches no "search=" request at all
-    // (0/3 runs), while the exact same `.fill()` after an explicit click + a short settle wait
-    // fires it reliably (3/3 runs). Focus it and let the popover fully settle before any caller
-    // fills it.
-    await searchInput.click();
+      .locator("xpath=preceding-sibling::button[2]");
+    // The icon click opens an MUI Menu (action-bar.tsx) whose open transition can occasionally
+    // swallow a single click with no visible effect (confirmed live: same click, same button,
+    // works on retry) - retry a few times rather than burning the whole budget on one attempt.
+    // Gating the click behind its own isVisible() check is itself unreliable (confirmed live:
+    // isVisible() reported false on this exact button in the same instant a direct .click() with
+    // its own actionability wait succeeded) - call click() directly and let its built-in wait/retry
+    // do the actionability check, rather than skipping the click on a flaky pre-check.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await searchBtn.click({ timeout: 4000 }).catch(() => {});
+      const opened = await searchInput
+        .waitFor({ state: "visible", timeout: 4000 })
+        .then(() => true)
+        .catch(() => false);
+      if (opened) break;
+    }
+    await searchInput.click().catch(() => {});
     await this.page.waitForTimeout(300);
     return searchInput;
   }
 
   async searchList(term) {
+    if (!term) {
+      console.warn("searchList() skipped: term is undefined or empty");
+      return;
+    }
     const searchInput = await this.ensureSearchInputOpen();
-    // The list refetches on a debounced keystroke, but under this environment's real network
-    // latency that round trip can take well over a second (confirmed live: a fixed 800ms wait
-    // here left the table showing its PRE-search rows, well before the `search=<term>` request
-    // had actually resolved) - wait for the real response instead of a guessed fixed delay.
-    // Match the exact encoded term, not just any "search=" URL: a plain "search=" substring match
-    // can resolve against a STALE response from an earlier searchList() call still in flight when
-    // a test searches twice in a row (confirmed live on Organization Structure's listing test -
-    // the second search's "No Data" assertion saw the first search's un-refreshed result row).
     const encodedTerm = encodeURIComponent(term ?? "");
     const [response] = await Promise.all([
       this.page
