@@ -196,14 +196,29 @@ class LoanConfigurationPage extends BasePage {
       .getByRole('combobox')
       .first();
     await combobox.click();
-    const firstOption = this.page
-      .getByRole('listbox')
+    const listbox = this.page.getByRole('listbox');
+    const firstOption = listbox
       .getByRole('option')
       .filter({ hasNotText: /Select|No data available/ })
       .first();
     await firstOption.waitFor({ state: 'visible', timeout: 7000 });
     await firstOption.click();
     await this.page.keyboard.press('Escape');
+    // Escape doesn't reliably close this MUI multi-select popover on the first press (confirmed
+    // live: TC-LOAN-ELIG-12 left "Eligible Departments" expanded, whose overlay then blocked the
+    // click on "Eligible Grades"' combobox until the 15s action timeout) - fall back to clicking a
+    // neutral area of the page, same dismiss pattern BasePage.searchList() already relies on.
+    const stillOpen = await listbox.first().isVisible().catch(() => false);
+    if (stillOpen) {
+      await this.page
+        .locator('body')
+        .click({ position: { x: 300, y: 10 }, force: true })
+        .catch(() => {});
+      await listbox
+        .first()
+        .waitFor({ state: 'hidden', timeout: 3000 })
+        .catch(() => {});
+    }
   }
 
   // ---------- Fill helpers ----------
@@ -326,6 +341,16 @@ class LoanConfigurationPage extends BasePage {
 
   async getSelectedValue(labelText) {
     const combobox = this.dependentFieldCombobox(labelText);
+    // The combobox briefly shows its own "Search {Label}" placeholder right after navigating to
+    // Edit, while the preloaded value resolves asynchronously - reading immediately can race that
+    // and capture the placeholder instead (confirmed live: TC-LOAN-EDIT-01 intermittently read
+    // back "Search Company" instead of the saved Company). Same race BasePage.getEditComboboxValue
+    // already guards against for other modules' fields.
+    const escapedLabel = labelText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const placeholderRegex = new RegExp(`^(Loading\\.\\.\\.|Search ${escapedLabel})$`, 'i');
+    await expect(combobox)
+      .not.toHaveText(placeholderRegex, { timeout: 8000 })
+      .catch(() => {});
     const text = ((await combobox.textContent()) || '').replace(/[​﻿]/g, '').trim();
     return text || (await combobox.inputValue().catch(() => ''));
   }

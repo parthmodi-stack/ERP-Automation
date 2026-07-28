@@ -957,6 +957,20 @@ const testData = {
       capLimitBelowValue: "100",
     },
   },
+
+  // Time Sheet (erpforce-hrms-fe: src/views/time-tracking/time-sheet/) - route
+  // `/time-tracking/time-sheet`. Company is the same live-verified "erp-force" value used
+  // throughout this suite. No Location/Department/Employee values are pinned here on purpose -
+  // the Add page's Generate flow is scoped by the LOGGED-IN user's own company by default, and
+  // this suite's tests reuse whatever employees/attendance already exist for that company/date
+  // range rather than requiring a specific pinned department or employee name (none was
+  // confirmed live as stably present under a given date range - attendance data changes over
+  // time, unlike a Location/Grade master record).
+  timeSheet: {
+    valid: {
+      company: "erp-force",
+    },
+  },
 };
 
 module.exports = testData;

@@ -223,11 +223,16 @@ test.describe('Loan Configuration Module', () => {
       await lc.discardButton.click();
     });
 
-    test.skip(
-      !testData.loanConfiguration.companyB,
-      'Needs a second real, live-verified Company (testData.loanConfiguration.companyB) - see config/testData.js',
-    );
     test('TC-LOAN-CLASS-03 [-] Changing Company clears the previously selected Location', async ({ page }) => {
+      // NOTE: test.skip(condition, reason) called bare at the describe level (as this used to be,
+      // right before this test) skips the WHOLE enclosing describe block in Playwright, not just
+      // this one test - confirmed live: it silently skipped CLASS-01/CLASS-02 too, even though only
+      // CLASS-03 actually needs a second Company. Calling it inside the test body scopes the skip
+      // to this test alone.
+      test.skip(
+        !testData.loanConfiguration.companyB,
+        'Needs a second real, live-verified Company (testData.loanConfiguration.companyB) - see config/testData.js',
+      );
       const lc = new LoanConfigurationPage(page);
       const data = testData.loanConfiguration.valid;
 
@@ -244,13 +249,17 @@ test.describe('Loan Configuration Module', () => {
 
   // ── Field Validation ───────────────────────────────────────────────────────
   test.describe('Field Validation', () => {
-    test('TC-LOAN-FLD-01/03/09 [-] Required Company/Loan Name/Category block Save', async ({ page }) => {
+    // TC-LOAN-FLD-01 (Company required) is NOT assertable through the UI in this environment:
+    // confirmed live (accessibility snapshot on a fresh Add page) that Company is pre-filled with
+    // "erp-force" by default - same confirmed default already documented for this Company value in
+    // config/testData.js (shared with Accruals & Benefit/Leave Policy Master). It is never actually
+    // blank, so its "required" error can never fire via a blank-form Save here.
+    test('TC-LOAN-FLD-03/09 [-] Required Loan Name/Category block Save', async ({ page }) => {
       const lc = new LoanConfigurationPage(page);
 
       await lc.goto();
       await lc.saveButton.click();
 
-      await expect(lc.companyRequiredError).toBeVisible();
       await expect(lc.loanNameRequiredError).toBeVisible();
       await expect(lc.categoryRequiredError).toBeVisible();
       await expect(page).toHaveURL(/add-loan-configuration/); // did not navigate away

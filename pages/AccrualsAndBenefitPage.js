@@ -203,6 +203,16 @@ class AccrualsAndBenefitPage extends BasePage {
   // textbox with accessible name `Search {label}` (confirmed: "Search Department"/"Search
   // Methods") - type into that first so the (debounced, server-side) filter narrows the list down
   // to just the target option before scanning for it.
+  //
+  // CONFIRMED LIVE (second defect): this popover's own search-textbox is ALSO exposed as an
+  // "option" row whose accessible name mirrors whatever text was just typed into it - an
+  // exact-text filter alone can match that row instead of the real option. Real multi-select
+  // options render a MUI checkbox, i.e. a nested `<input type="checkbox">` (role="checkbox") -
+  // BasePage.selectOptionFromListbox's generic `hasNot: input` filter (designed to skip the
+  // search row) does NOT distinguish role="checkbox" from role="textbox", so it incorrectly
+  // excludes every real checkbox-based option too, leaving nothing to match ("never appeared").
+  // This method therefore does its own listbox lookup instead of delegating to that helper,
+  // excluding only options containing a role="textbox" element.
   async selectMultiSelectOptionByText(labelText, optionText) {
     const combobox = this.dependentFieldCombobox(labelText);
     await combobox.click();
@@ -210,13 +220,22 @@ class AccrualsAndBenefitPage extends BasePage {
     const searchInput = this.page.getByPlaceholder(`Search ${labelText}`, { exact: true });
     if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
       await searchInput.fill(optionText);
-      await this.page.waitForTimeout(700); // debounced filter request
+      await this.page.waitForTimeout(1200); // debounced filter request - extra margin under load
     }
 
-    const found = await this.selectOptionFromListbox(optionText, { timeout: 8000 });
+    const escaped = optionText.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const option = this.page
+      .getByRole('listbox')
+      .getByRole('option')
+      .filter({ hasNot: this.page.getByRole('textbox') })
+      .filter({ hasText: new RegExp(`^\\s*${escaped}\\s*$`) })
+      .first();
+
+    const found = await option.isVisible({ timeout: 12000 }).catch(() => false);
     if (!found) {
       throw new Error(`selectMultiSelectOptionByText("${labelText}"): option "${optionText}" never appeared`);
     }
+    await option.click();
     await this.page.keyboard.press('Escape');
   }
 
@@ -366,8 +385,9 @@ class AccrualsAndBenefitPage extends BasePage {
   // `{ data: { accrual_master: [...] } }` - keyed `accrual_master` (the BACKEND resource name), and
   // the network URL itself contains "accrual-master", not "accruals-and-benefit" (the FE route slug).
   async saveAndCaptureId(buttonLocator) {
-    const listResponsePromise = this.page.waitForResponse((r) =>
-      r.url().includes('accrual-master') && r.request().method() === 'GET',
+    const listResponsePromise = this.page.waitForResponse(
+      (r) => r.url().includes('accrual-master') && r.request().method() === 'GET',
+      { timeout: 20000 },
     );
     await buttonLocator.click();
     const listResponse = await listResponsePromise;
