@@ -81,8 +81,10 @@ test.describe('Loan Configuration Module', () => {
 
     await expect(page.getByText(data.loanName, { exact: false }).first()).toBeVisible();
 
-    // TC-LOAN-VIEW-09: no field on View accepts focus/typing.
-    const editableInputs = page.locator('input:not([disabled]):not([readonly])');
+    // TC-LOAN-VIEW-09: no field on View accepts focus/typing. Scoped to `main` - the app shell's
+    // own header search box ("Search employees, vendors...") is a real enabled <input> on every
+    // page, unrelated to this form, and an unscoped locator always matches it (confirmed live).
+    const editableInputs = page.getByRole('main').locator('input:not([disabled]):not([readonly])');
     await expect(editableInputs).toHaveCount(0);
   });
 
@@ -248,6 +250,18 @@ test.describe('Loan Configuration Module', () => {
       const lc = new LoanConfigurationPage(page);
 
       await lc.goto();
+      // Company can render pre-selected with the account's last-used company instead of blank
+      // (confirmed live) - clear it first so this "blank blocks Save" case is actually exercised.
+      // isVisible() alone is a point-in-time snapshot and can run before the clear button finishes
+      // mounting (it only appears once Company's async default-value fetch resolves) - wait for it
+      // rather than treating "not visible yet" as "will never exist".
+      const companyPreselected = await lc.companyClearButton
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false);
+      if (companyPreselected) {
+        await lc.companyClearButton.click();
+      }
       await lc.saveButton.click();
 
       await expect(lc.companyRequiredError).toBeVisible();

@@ -924,6 +924,22 @@ const testData = {
       negativeMaxActiveLoans: "-2",
     },
   },
+
+  // Employee Contracts (erpforce-hrms-fe: src/views/employee-contracts/) - route
+  // `/dashboard/hrms/employee-management/employee-contracts`. Manages contract VERSIONS for an
+  // already-existing employee (Edit In Same Version / Update In New Version), NOT plain create -
+  // confirmed from source that the Add form has no Employee-selection field at all, so this suite
+  // reads whatever the first row of the real/shared dataset already is (EmployeeContractsPage
+  // .getFirstRow()) rather than pinning one specific ID here. The dropdown option strings below ARE
+  // safe to hardcode - they're a static frontend enum on the DynamicSelect fields (form.tsx), not
+  // fetched master data.
+  employeeContract: {
+    noticePeriodOptions: ["30 Days", "60 Days", "90 Days", "120 Days"],
+    probationPeriodOptions: ["30 Days", "60 Days", "90 Days", "120 Days"],
+    workingDaysOptions: ["5 Days", "6 Days"],
+    workingHoursOptions: ["08 Hours", "10 Hours"],
+    employmentTypeOptions: ["Limited", "Unlimited"],
+  },
 };
 
 module.exports = testData;

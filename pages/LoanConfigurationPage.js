@@ -65,6 +65,14 @@ class LoanConfigurationPage extends BasePage {
     this.loanNameInput = this.fieldInputByLabel('Loan Name');
     this.categoryField = 'Category'; // list column header is "Loan Type" for this SAME field - form label is "Category"
     this.descriptionInput = this.fieldTextareaByLabel('Description');
+    // A generic label-text lookup for "Company" is ambiguous on this page: the Listing page's own
+    // "Company" column header (confirmed live via DOM dump - Mui-TableHeadCell-Content classes)
+    // can still be present/matched by a bare getByText("Company") even on the Add form, so this
+    // targets the field's own stable `data-name` attribute (set by the shared FormParser) instead.
+    this.companyClearButton = page
+      .locator('[data-name="loanConfiguration.company_id"]')
+      .locator('xpath=following-sibling::*[1]')
+      .getByRole('button', { name: 'clear selection' });
 
     // ---------- Loan Limits ----------
     this.maxLoanAmountFixedRadio = page.getByRole('radio', { name: 'Fixed Amount', exact: true });
@@ -116,9 +124,19 @@ class LoanConfigurationPage extends BasePage {
 
   async goto() {
     await this.gotoList();
-    await this.listAddButton.click();
+    // This click itself triggers the SPA navigation to the Add form, so clickWithDialogRetry's
+    // blind "any error -> retry" is actively harmful here: once attempt 1 has already navigated
+    // away, "Add" no longer exists on the new page, so every further attempt fails fast on a
+    // locator that will never appear again - confirmed live, this regressed several tests that
+    // used to pass with a bare click(). Only retry if we're demonstrably still stuck on the list.
+    try {
+      await this.listAddButton.click();
+    } catch (e) {
+      if (!this.page.url().includes('add-loan-configuration')) throw e;
+    }
     await this.page.waitForURL('**/add-loan-configuration');
     await this.page.waitForLoadState('networkidle');
+    await this.recoverFromStuckLoadingFields();
   }
 
   // ---------- Textarea fields (is_multiline DynamicInput renders a <textarea>, not <input>) ----------
@@ -195,7 +213,12 @@ class LoanConfigurationPage extends BasePage {
       .locator('xpath=..')
       .getByRole('combobox')
       .first();
-    await combobox.click();
+    // Called back-to-back for Eligible Departments then Eligible Grades - the first call's own
+    // closing popover can still be mid-transition when the second call's combobox.click() fires,
+    // intercepting it the same way BasePage.dismissLingeringDialog() documents for MuiDialogs
+    // (confirmed live: Eligible Grades' own combobox locator can time out with no other symptom
+    // right after Eligible Departments was selected) - retry the click rather than firing once.
+    await this.clickWithDialogRetry(() => combobox, { attempts: 4, timeout: 5000 });
     const firstOption = this.page
       .getByRole('listbox')
       .getByRole('option')
@@ -204,6 +227,7 @@ class LoanConfigurationPage extends BasePage {
     await firstOption.waitFor({ state: 'visible', timeout: 7000 });
     await firstOption.click();
     await this.page.keyboard.press('Escape');
+    await this.page.waitForTimeout(500);
   }
 
   // ---------- Fill helpers ----------
@@ -372,6 +396,10 @@ class LoanConfigurationPage extends BasePage {
     await this.page.getByRole('menuitem', { name: 'Edit', exact: true }).click();
     await this.page.waitForURL('**/edit-loan-configuration');
     await this.page.waitForLoadState('networkidle');
+    // Same shared DynamicSelect "stuck on Loading..." bug BasePage documents for RFQ's Edit page
+    // (TC-RFQ-09) - confirmed live here too: Company preloaded as the literal string "Loading..."
+    // instead of resolving, with no interaction needed to trigger it.
+    await this.recoverFromStuckLoadingFields();
   }
 
   // The row menu's "Duplicate" action is commented out in source (loan-configuration.tsx) -
