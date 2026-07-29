@@ -1,3 +1,5 @@
+const { expect } = require('@playwright/test');
+
 class StockTransferPage {
   constructor(page) {
     this.page = page;
@@ -40,6 +42,77 @@ class StockTransferPage {
     this.markAsToDoButton = page.getByRole('button', { name: 'Mark as to do' });
     this.validateButton   = page.getByRole('button', { name: 'Validate' });
     this.confirmDialog    = page.getByRole('dialog');
+  }
+
+  // Any Operational Detail row's "Track Detail" cell has its own AddCircleIcon button that opens
+  // a "Track Detail" dialog - Validate is blocked ("Please complete the traceibility process
+  // before validate") until every row has a Lot/Serial Number entry covering its full quantity
+  // (confirmed live). This is a SEPARATE traceability gate from the item modal's own fields -
+  // adding stock via Receipt is not enough on its own to make that stock Available downstream
+  // (e.g. to a Work Order's Release check) without completing this too.
+  rowByItemName(itemName) {
+    return this.page.locator('table tbody tr', { hasText: itemName }).first();
+  }
+
+  async openTrackDetail(itemName) {
+    await this.rowByItemName(itemName).locator('button').first().click();
+    await this.page.getByRole('dialog', { name: 'Track Detail' }).waitFor({ state: 'visible' });
+  }
+
+  // Creates a brand-new Lot Number (the "+ Create New Lot/Serial number" option is always present
+  // - no existing lot is assumed) and assigns the given quantity to it, then saves the Track
+  // Detail dialog itself. `[role="combobox"]` is scoped with `.last()` rather than an id/name
+  // selector because this nested "Add Lot Number" popup doesn't carry a stable `mui-component-
+  // select-*` id of its own (confirmed live) - `.last()` reliably targets it since it's always the
+  // most-recently-opened combobox once its own dialog is showing.
+  async addTrackDetail({ itemName, quantity }) {
+    await this.openTrackDetail(itemName);
+    const trackDialog = this.page.getByRole('dialog', { name: 'Track Detail' });
+    await trackDialog.getByRole('button', { name: 'Add', exact: true }).click();
+    await this.page.waitForTimeout(500);
+
+    const lotTrigger = this.page.locator('[id="mui-component-select-add_stock_transfer.lot_number"]');
+    await lotTrigger.click();
+    await this.page.waitForTimeout(800);
+    const lotControlsId = await lotTrigger.getAttribute('aria-controls');
+    const lotMenu = this.page.locator(`[id="${lotControlsId}"]`);
+    await lotMenu.getByText('Create New Lot/Serial number').click();
+    await this.page.waitForTimeout(1500);
+
+    const typeTrigger = this.page.locator('[role="combobox"]').last();
+    await typeTrigger.click();
+    await this.page.waitForTimeout(500);
+    const typeControlsId = await typeTrigger.getAttribute('aria-controls');
+    const typeMenu = this.page.locator(`[id="${typeControlsId}"]`);
+    await typeMenu.getByText('Lot Number', { exact: true }).click();
+    await this.page.waitForTimeout(300);
+
+    const lotName = `Automation_Lot_${Date.now()}`;
+    await this.page.getByPlaceholder('Enter Lot Number').fill(lotName);
+    await this.page.waitForTimeout(300);
+    await this.page.getByRole('button', { name: 'Save', exact: true }).last().click();
+    await this.page.waitForTimeout(1500);
+
+    // The Lot/Serial number dropdown reopens automatically with the new lot as a selectable
+    // option (confirmed live) - select it, then fill this entry's own Quantity field.
+    await lotMenu.getByText(lotName, { exact: true }).click();
+    await this.page.waitForTimeout(500);
+    await this.page.locator('input[name="add_stock_transfer.quantity"]').fill(String(quantity));
+    await this.page.waitForTimeout(300);
+    await this.page.getByRole('button', { name: 'Save', exact: true }).last().click();
+    await this.page.waitForTimeout(1500);
+
+    await trackDialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await trackDialog.waitFor({ state: 'hidden', timeout: 8000 });
+  }
+
+  // Ready -> Done. Confirm dialog text is "Are you sure you want to mark Stock Transfer as Done ?"
+  // - same Submit-confirmation pattern as markAsToDo/confirmDialogAction elsewhere in this class.
+  async validate() {
+    await this.validateButton.click();
+    await this.confirmDialog.waitFor({ state: 'visible' });
+    await this.confirmDialogAction('Submit');
+    await this.page.waitForTimeout(1500);
   }
 
   async gotoList() {
@@ -90,9 +163,24 @@ class StockTransferPage {
     await menu.waitFor({ state: 'visible', timeout: 8000 });
     await this.page.waitForTimeout(500);
     if (searchText) {
-      await menu.locator('input').fill(searchText);
-      await this.page.waitForTimeout(600);
-      await menu.locator(`li:has-text("${searchText}")`).first().click();
+      // Real keystrokes, not .fill() - confirmed live that .fill()'s single programmatic value
+      // change doesn't reliably trigger this component's debounced filter (the option list can
+      // stay stuck on its full unfiltered set well past several seconds).
+      await menu.locator('input').pressSequentially(searchText, { delay: 80 });
+      // Prefer an exact match over `:has-text`'s substring match - confirmed live (via screenshot)
+      // that a generic name like "Mumbai" can rank AFTER longer, unrelated options that merely
+      // contain the search text (e.g. "Mumbai_<timestamp>" automation-created locations sort
+      // first). Poll for the exact option directly rather than trying to detect "the filtered
+      // list has settled" some other way (e.g. by list length) - the filtered list's own size
+      // isn't a reliable settle signal here (confirmed live: it can plateau at the FULL unfiltered
+      // count for multiple consecutive reads before actually shrinking).
+      const exact = menu.locator('li').filter({ hasText: new RegExp(`^${searchText}$`) });
+      const hasExactMatch = await expect(exact.first()).toBeVisible({ timeout: 8000 }).then(() => true).catch(() => false);
+      if (hasExactMatch) {
+        await exact.first().click();
+      } else {
+        await menu.locator(`li:has-text("${searchText}")`).first().click();
+      }
     } else {
       await menu.locator('li').nth(1).click();
     }

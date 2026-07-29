@@ -63,7 +63,22 @@ class BasePage {
   // account's master data (see selectFirstOptionByLabel) - picking whatever renders first is a
   // real test decision there, not error recovery, so it stays a distinct, separately-called API.
   async selectFirstAvailableOption(combobox) {
+    // A combobox's aria-controls attribute names exactly which listbox popover belongs to it -
+    // read it BEFORE clicking (it's assigned at mount time and stays fixed) so this can target
+    // that specific listbox by id afterward. CONFIRMED LIVE this matters: opening a "+ Create
+    // New ..." dialog from a field's own footer link (e.g. BasePage.createLocationFromFooter, or
+    // any selectModalDropdown(modal, label, true) call) does NOT close the ORIGINATING dropdown's
+    // own listbox underneath the dialog - a page-wide `getByRole('listbox')` query then resolves
+    // ambiguously across both, and can silently click into the stale, wrong one while the real,
+    // intended dropdown never receives a selection - leaving it permanently open and blocking
+    // every later click on the page. Falls back to the old page-wide query if a combobox
+    // implementation doesn't set aria-controls.
+    const controlsId = await combobox.getAttribute("aria-controls").catch(() => null);
     await combobox.click().catch(() => {});
+    // aria-controls names the listbox element's OWN id directly (confirmed live), so this locator
+    // already IS the listbox - no further .getByRole("listbox") needed on it. Only the fallback
+    // (this.page, when a combobox doesn't set aria-controls) still needs that role query.
+    const listbox = controlsId ? this.page.locator(`[id="${controlsId}"]`) : this.page.getByRole("listbox");
     // CONFIRMED LIVE (TC-PREQ-27, Payment Terms on a Create-PO-from-Request page): the "+
     // Create New ..." footer action is a static option that's already in the DOM the instant the
     // popover opens, while the field's REAL (fetched) options can attach a beat later - `.first()`
@@ -71,8 +86,7 @@ class BasePage {
     // visible, so it can resolve to the footer link before the real options ever render and end up
     // opening its own "Add ..." modal instead of selecting a value. Exclude it so this only ever
     // waits for/clicks a genuine option.
-    const firstOption = this.page
-      .getByRole("listbox")
+    const firstOption = listbox
       .getByRole("option")
       .filter({ hasNot: this.page.locator("input") })
       .filter({ hasNotText: /Select|No data available|Create New/ })
@@ -304,31 +318,51 @@ class BasePage {
     const code = "LOC-" + Math.random().toString(36).substr(2, 9).toUpperCase();
     await dialog.getByPlaceholder("Enter Short Code").fill(code);
 
-    // 6. Select Entity (Company) inside the dialog - try first available option, fall back to
-    // "erp-force" if that fails or remains unselected
+    // 6. Select Entity (Company) inside the dialog - MUST match the outer form's own currently
+    // selected company (the `companyName` argument, usually resolved by the caller via
+    // getSelectedCompany()), not just "whatever's first available": the outer form's own
+    // Location field is itself scoped to its currently-selected company
+    // (filterFields="company_id") - confirmed live that a location created under a DIFFERENT
+    // entity than the outer form's selection never appears in that field's option list
+    // afterward, no matter how long you wait or how many times you reopen it (a real permanent
+    // cross-entity scoping mismatch, not a timing/indexing issue). Try companyName itself first;
+    // only fall back to "first available" (then this account's own single real entity,
+    // "Trootech") if companyName isn't a real option here - e.g. "erp-force" is this suite's
+    // pinned entity name for its other, remote environment, not this local one.
     try {
-      await this.selectFirstOptionByLabel("Entity", { scope: dialog });
-      // Verify it was actually selected (not just opening the dropdown)
-      const selectedValue = await dialog
-        .getByText(/^Entity\s*\*?$/, { exact: false })
-        .first()
-        .locator("xpath=..")
-        .getByRole("combobox")
-        .first()
-        .inputValue()
-        .catch(() => "");
-      if (!selectedValue) {
-        throw new Error(
-          "Entity field still empty after selectFirstOptionByLabel",
-        );
-      }
-    } catch (e) {
-      // Fallback: try to select "erp-force" specifically
-      await this.selectFieldByLabel("Entity", "erp-force", {
+      await this.selectFieldByLabel("Entity", companyName, {
         exact: false,
         scope: dialog,
         timeout: 5000,
       });
+    } catch (e) {
+      try {
+        await this.selectFirstOptionByLabel("Entity", { scope: dialog });
+        // Verify it was actually selected (not just opening the dropdown) - this field is a MUI
+        // div-based combobox, not a real <input>/<textarea>/<select>, so `.inputValue()` (used
+        // here previously) THROWS unconditionally regardless of whether selection succeeded
+        // (confirmed live: "Node is not an <input>, <textarea> or <select> element" fires even
+        // immediately after a real, correct selection) - read the combobox's displayed text
+        // instead and check it's no longer the placeholder.
+        const entityCombobox = dialog
+          .getByText(/^Entity\s*\*?$/, { exact: false })
+          .first()
+          .locator("xpath=..")
+          .getByRole("combobox")
+          .first();
+        const selectedText = ((await entityCombobox.textContent().catch(() => "")) || "").trim();
+        if (!selectedText || /^(Select|Search)\s/i.test(selectedText)) {
+          throw new Error(
+            "Entity field still shows its placeholder after selectFirstOptionByLabel",
+          );
+        }
+      } catch (e2) {
+        await this.selectFieldByLabel("Entity", "Trootech", {
+          exact: false,
+          scope: dialog,
+          timeout: 5000,
+        });
+      }
     }
 
     // 7. Save the new location

@@ -1851,6 +1851,132 @@ const testData = {
       transferQuantity: '10',
     },
   },
+
+  // Manufacturing module - tests/manufacturing/ was empty before this suite; Demand Planning is
+  // the first screen automated here. It's a read-only reporting view (filter -> shortfall list),
+  // not a CRUD screen, so its fixtures look different from every other module's: most values here
+  // feed a live-verified UI flow (Inventory Item + Reordering Rule creation), and one field
+  // (apiBaseUrl) exists only because Demand Planning's precondition data has NO complete UI path -
+  // see tests/manufacturing/01-demand-planning.spec.js's header comment for the full reasoning.
+  manufacturing: {
+    // The backend host the frontend itself calls directly for every API request (confirmed live
+    // via network capture - distinct from `baseUrl` above, the frontend's own origin). Needed
+    // because there is no UI path that reliably creates stock from zero: Inventory Adjustment's
+    // "Available Quantity" field is read-only (confirmed live - it corrects Reserve/Back Order
+    // against EXISTING stock, not new stock), and there's no dedicated Reordering Rules endpoint
+    // either (nested inside the Inventory Item payload only) - so the one gap (raw stock creation)
+    // is seeded directly against this API, authenticated with the running session's own token (see
+    // helpers/apiSeed.js). Override via MANUFACTURING_API_BASE_URL if this ever targets a
+    // non-local environment where the API isn't at this fixed local port.
+    apiBaseUrl: process.env.MANUFACTURING_API_BASE_URL || 'http://127.0.0.1:4011',
+
+    demandPlanning: {
+      // Add Inventory Item wizard fixtures below are live-verified against THIS environment's
+      // actual dropdown option lists, confirmed via a dropdown-options dump - 07-inventory-item
+      // .spec.ts's CATEGORY='Electronics'/DEPARTMENT='Test Operations' do NOT exist here and would
+      // hang that spec's selectFromDropdown() on an empty filtered list forever. Category/UOM/
+      // Costing Method/Department are free choices among many real options; Location is NOT -
+      // see below.
+      category: 'Laptop',
+      uom: 'Unit',
+      costingMethod: 'FIFO',
+      department: 'Procurement',
+      salesPrice: '750',
+      leadTime: '7',
+      weight: '3.5',
+      hsnCode: 'HSN998877',
+      averageCost: '350',
+
+      // Location MUST be a location this repo already treats as pinned/stable elsewhere (see the
+      // `location.duplicate.location_id: 'Mumbai'` comment earlier in this file) - Demand
+      // Planning's reorder-point join silently drops any item whose stock row's location_id
+      // doesn't exactly match its reordering_rules.location_id
+      // (`LEFT JOIN reordering_rules rr ON wl.id = rr.location_id AND rr.item_id = sd.item_id`,
+      // then `if (item.reorder_point === null) return;`) - confirmed live: this is the single
+      // most likely cause of "why is my new item not showing up" if a future edit changes one
+      // occurrence of this name but not the other. TC-DP-02 deliberately uses a SECOND, different
+      // real location to prove this join behavior rather than just asserting it from the backend
+      // summary's prose.
+      location: 'Mumbai',
+      mismatchLocation: 'Baroda', // also confirmed live in this environment's Location dropdown
+
+      minimumQuantity: 50,
+      maximumQuantity: 200,
+      availableQuantity: 10, // below minimumQuantity - required_quantity should resolve to 40
+
+      // Demand Planning's own "Type" filter - other confirmed live option is 'Production'.
+      type: 'Procurement',
+
+      // TC-DP-03's netting case reaches the Add Request page via Demand Planning's own Detail
+      // view (openDetailView -> selectDetailRow -> createPurchaseRequestFromSelection), which
+      // pre-fills Entity/Currency/Item/Quantity/Rate directly from the selected row - only
+      // Location is left to fill, so this is the one remaining fixture value needed. 'Mumbai' is
+      // a live-confirmed real, EXISTING option in Procurement Request's own Location dropdown in
+      // THIS environment, directly selectable with no search typed at all (confirmed live) - the
+      // spec selects it directly rather than via ProcurementRequestPage.selectLocation(), which
+      // always creates a brand-new location instead of reusing one that already exists.
+      pr: {
+        location: 'Mumbai',
+      },
+
+      // TC-DP-06 (Type='Production', "Show Below Reorder Point" unchecked) needs an item with
+      // real Production-type demand (demand_quantity sourced from something other than a
+      // Reordering Rule shortfall) - there is no confirmed UI or API path to generate that
+      // ourselves yet (Manufacturing's Work Order screen reached by DIRECT navigation is an empty
+      // stub, confirmed live - it only does anything when reached via Demand Planning's own
+      // Detail view, see TC-DP-06), so this reuses an existing, live-verified shared item instead
+      // of creating one, the same way FK-reference values elsewhere in this file do.
+      production: {
+        itemName: 'New Product1', // item_id 123, confirmed live in the Production+unchecked list
+      },
+    },
+
+    // Bill of Material (dashboard/manufacturing/bill-of-material) - unlike Work Order/BOM reached
+    // by direct navigation elsewhere (empty stubs, see demandPlanning.production's comment above),
+    // THIS route is a real, fully-built document module (Add/View/Edit/Delete/Duplicate,
+    // Draft/Pending/Approved statuses) - confirmed live. Item/UOM/Material-row-Item fixtures are
+    // deliberately left to "first available option" (see pages/BillOfMaterialPage.js) rather than
+    // pinned literals - this environment's Item list is dominated by short-lived automation
+    // records from other suites (Demand Planning's own Automation_DemandPlanning_* items), so any
+    // literal name pinned here would need constant re-verification as those churn.
+    billOfMaterial: {
+      location: 'Mumbai',
+      quantity: 10,
+      materialQuantity: 1,
+    },
+
+    // Work Order (dashboard/manufacturing/orders/work-order) - real document module, requires an
+    // Approved Bill of Material for whichever Item is selected (pages/WorkOrderPage.js's own
+    // ensureBomForItem() creates one on the fly when missing, matching this repo's established
+    // self-healing-dependency pattern - see 03-bin.spec.js for the precedent). Location has no
+    // visible required-field asterisk but IS required (confirmed live - saving without it surfaces
+    // "Loacation is required", a real app typo).
+    //
+    // releaseMaterial pins "RM1" as the Materials row for any auto-created BOM (see
+    // ensureBomForItem) - Release checks whether that material actually has Available stock, and
+    // RM1's stock is often fully reserved/committed by other automation runs. Seeding stock
+    // directly via the backend API (POST inventory/v1/stock, apiSeed.js's seedStock - the same
+    // helper Demand Planning's own suite uses for ITS zero-stock gap) does NOT satisfy this check
+    // (confirmed live: it writes a real stock row but Release still blocks with the same 400).
+    // Only a real Stock Transfer "Receipt" taken all the way through its own Track Detail
+    // (Lot/Serial Number traceability) step and Validate actually clears it - see
+    // 03-work-order.spec.js's TC-WO-04 for that flow, built on pages/StockTransferPage.js.
+    // updatedQuantity is what TC-WO-03's Edit test changes Quantity to - a distinct fixture value
+    // instead of deriving it via arithmetic on `quantity` (e.g. "+5"), so it stays a single source
+    // of truth: TC-WO-06's own Build Order has to fully account for whatever the Work Order's
+    // ACTUAL quantity is at that point (which is this value, since TC-WO-03 already changed it),
+    // or the Work Order only partially builds and stays "In progress" instead of "Completed"
+    // (confirmed live).
+    workOrder: {
+      location: 'Mumbai',
+      quantity: 5,
+      updatedQuantity: 10,
+      releaseMaterial: {
+        itemName: 'RM1',
+        availableQuantity: 500,
+      },
+    },
+  },
 };
 
 // The "full access" RBAC role reuses the one admin login this suite already has - it's a real,
