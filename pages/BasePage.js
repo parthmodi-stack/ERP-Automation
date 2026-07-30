@@ -118,7 +118,31 @@ class BasePage {
           timeout: Math.max(timeout - 3000, 1000),
         });
       } catch (e2) {
-        return false;
+        // CONFIRMED LIVE (Asset Category Needed field): some of these listboxes are VIRTUALIZED -
+        // only options currently scrolled into view exist in the DOM at all (a 49-option list only
+        // ever exposed its first ~26 to a plain scan; "Computer Hardware and Software" only
+        // appeared after actively scrolling the listbox). A longer `expect(...).toBeVisible`
+        // timeout alone never surfaces these, since nothing will render them without a real scroll
+        // action. Scroll the listbox in small steps, re-checking for the option after each one,
+        // before giving up.
+        const listbox = this.page.getByRole("listbox");
+        let scrolledFound = false;
+        for (let i = 0; i < 20; i++) {
+          if (await exactOption.count()) {
+            option = exactOption;
+            scrolledFound = true;
+            break;
+          }
+          if (await substringOption.count()) {
+            option = substringOption;
+            scrolledFound = true;
+            break;
+          }
+          await listbox.hover().catch(() => {});
+          await this.page.mouse.wheel(0, 300).catch(() => {});
+          await this.page.waitForTimeout(250);
+        }
+        if (!scrolledFound) return false;
       }
     }
     await option.scrollIntoViewIfNeeded().catch(() => {});

@@ -42,22 +42,30 @@ async function freshSession(browser) {
 // CONFIRMED LIVE (tests/tmp/inspect-category-pool.spec.js, tests/tmp/inspect-row-click.spec.js):
 // this cumulative shared environment's asset categories get exhausted/depleted by this suite's
 // own repeated runs over time (each real claim created permanently disables that asset's
-// `can_raise_damage_claim`) - category index 0 ("Customer Contracts", the default
-// `selectFirstOptionByLabel` would pick) is fully depleted, and index 1 ("Customer Relationships")
-// is now low/depleted too after earlier runs. Index 2 ("Customer Lists") has its own unrelated bug
-// - CONFIRMED LIVE its Requested-Assets list rows don't navigate on click at all (no console error,
-// just a silent no-op) - avoid it regardless of stock. Index 3 ("Employee Stock Options") is
-// CONFIRMED LIVE to navigate correctly and had 2 available units at last check. Callers pick an
-// index based on which pool they need and how much they need from it - rather than assume Kashyap
-// already holds an eligible asset, each block below provisions its own fresh one(s) via this same
-// Request -> Approve -> Assign -> Receive chain TC-DL-00 uses.
-async function provisionFreshAsset({ loginPage, assetRequestPage, assetAllocationPage, assetTransferPage, categoryOptionIndex = 3 }) {
+// `can_raise_damage_claim`) - index-based category selection (0 "Customer Contracts", 1 "Customer
+// Relationships", 3 "Employee Stock Options") all got drained down to 0 available within a run or
+// two. Switched to selecting a specific category BY NAME instead - "Computer Hardware and
+// Software" - a category confirmed by the user to hold healthy stock, rather than continuing to
+// hunt through indices. Each block below provisions its own fresh asset(s) via this same
+// Request -> Approve -> Assign -> Receive chain TC-DL-00 uses, rather than assuming Kashyap
+// already holds an eligible one.
+const DAMAGE_LOSS_ASSET_CATEGORY = 'Computer Hardware and Software';
+
+async function provisionFreshAsset({ loginPage, assetRequestPage, assetAllocationPage, assetTransferPage, categoryName = DAMAGE_LOSS_ASSET_CATEGORY }) {
   const requestData = {
     assetName: testDataFactory.uniqueName('Automation_Asset_DamageLoss'),
     quantity: '1',
     reason: testDataFactory.narration('Automated E2E damage-loss provisioning'),
-    categoryOptionIndex,
+    categoryName,
   };
+
+  // CONFIRMED LIVE: calling this function twice in a row (TC-DL-02 provisions two assets back to
+  // back) left the requester STILL logged in from the first call's own final `acceptTransfer`
+  // step (intentionally no logout there - see below) - the second call's `loginPage.goto()` then
+  // just redirects straight to the dashboard (already authenticated), so the login form's email
+  // input never appears and `loginAndWaitForDashboard` times out waiting for it. Force a clean
+  // logged-out state at the start of every call regardless of what the previous caller left behind.
+  await loginPage.logout().catch(() => {});
 
   await loginPage.goto();
   await loginPage.loginAndWaitForDashboard(requester.email, requester.password);
@@ -79,15 +87,12 @@ async function provisionFreshAsset({ loginPage, assetRequestPage, assetAllocatio
 
 // Test Suite 7+8 (Task.md) - Damage/Loss request + approval. This first block does the FULL
 // fresh chain (Request -> Approve -> Assign -> Receive -> Report Damage/Loss), giving Kashyap a
-// genuinely fresh asset. CONFIRMED LIVE (tests/tmp/inspect-category-pool.spec.js): the DEFAULT
-// "first" category option ("Customer Contracts", index 0) has its available-asset pool fully
-// depleted in this cumulative shared environment (see project_hrms_asset_management_suite
-// memory) - category option index 1 ("Customer Relationships") still has available stock
-// (availableCount=4 confirmed live), so this setup opts into that specific category via
-// `categoryOptionIndex: 1` instead of fighting the depleted default with a Transfer workaround.
-// Plain Assign is simpler and more reliable than Transfer+Handover+Receive (no dependency on any
-// specific OTHER employee's current holdings/credentials). The Validation and Approval blocks
-// below don't re-run this setup - they operate directly on whatever Kashyap already holds.
+// genuinely fresh asset from the "Computer Hardware and Software" category (see
+// DAMAGE_LOSS_ASSET_CATEGORY's own comment above for why - every previously-tried category index
+// got drained down to 0 available). Plain Assign is simpler and more reliable than
+// Transfer+Handover+Receive (no dependency on any specific OTHER employee's current holdings/
+// credentials). The Validation and Approval blocks below don't re-run this setup - they operate
+// directly on whatever Kashyap already holds.
 test.describe.serial('Asset Management - Damage/Loss Claim', () => {
   test.describe.configure({ timeout: 240000 });
 
@@ -99,7 +104,7 @@ test.describe.serial('Asset Management - Damage/Loss Claim', () => {
     assetName: testDataFactory.uniqueName('Automation_Asset_DamageLoss'),
     quantity: '1',
     reason: testDataFactory.narration('Automated E2E damage-loss setup request'),
-    categoryOptionIndex: 3,
+    categoryName: DAMAGE_LOSS_ASSET_CATEGORY,
   };
 
   test.beforeAll(async ({ browser }) => {
@@ -179,6 +184,12 @@ test.describe.serial('Damage/Loss Claim - Validation', () => {
   let page, loginPage, assetRequestPage, assetAllocationPage, assetTransferPage, myAssetsPage, damageLossClaimPage;
 
   test.beforeAll(async ({ browser }) => {
+    // CONFIRMED LIVE: Playwright's `beforeAll` hook has its OWN default 30s timeout, separate from
+    // `test.describe.configure({ timeout })` (which only extends each TEST's timeout, not hooks) -
+    // provisionFreshAsset's multi-login Request->Approve->Assign->Receive chain reliably takes
+    // 45-50s end-to-end, so the hook needs its own explicit extension or it gets force-torn-down
+    // mid-navigation ("Target page, context or browser has been closed").
+    test.setTimeout(120000);
     ({ page, loginPage, assetRequestPage, assetAllocationPage, assetTransferPage, myAssetsPage, damageLossClaimPage } = await freshSession(browser));
     expect(requester.password, 'REQUESTER_PASSWORD must be configured - see .env.example').toBeTruthy();
     await provisionFreshAsset({ loginPage, assetRequestPage, assetAllocationPage, assetTransferPage });
@@ -307,11 +318,9 @@ test.describe.serial('Damage/Loss Claim - Approval', () => {
     expect(requester.password, 'REQUESTER_PASSWORD must be configured - see .env.example').toBeTruthy();
 
     // Provision two fresh assets so each reportDamageLoss() below has its own eligible asset to
-    // claim against, rather than assuming Kashyap already holds two unclaimed ones. Uses category
-    // index 1 rather than the default (index 3) - TC-DL-00 and the Validation block already draw
-    // 2 units from index 3's own small remaining pool, so this block needs a separate category.
-    await provisionFreshAsset({ loginPage, assetRequestPage, assetAllocationPage, assetTransferPage, categoryOptionIndex: 1 });
-    await provisionFreshAsset({ loginPage, assetRequestPage, assetAllocationPage, assetTransferPage, categoryOptionIndex: 1 });
+    // claim against, rather than assuming Kashyap already holds two unclaimed ones.
+    await provisionFreshAsset({ loginPage, assetRequestPage, assetAllocationPage, assetTransferPage });
+    await provisionFreshAsset({ loginPage, assetRequestPage, assetAllocationPage, assetTransferPage });
     // provisionFreshAsset's last step already leaves the session logged in as the requester.
 
     claimId = await reportDamageLoss('Medium');
@@ -336,7 +345,9 @@ test.describe.serial('Damage/Loss Claim - Approval', () => {
       recoveryAmount: '50',
     });
 
-    expect(response?.data?.status ?? response?.status).toBe('Approved');
+    // CONFIRMED LIVE: nests under `data.damage_loss_claim.status`, same as the create response's
+    // own `data.damage_loss_claim.id` nesting - not `data.status` directly.
+    expect(response?.data?.damage_loss_claim?.status ?? response?.damage_loss_claim?.status).toBe('Approved');
 
     await loginPage.logout();
   });
@@ -371,7 +382,7 @@ test.describe.serial('Damage/Loss Claim - Approval', () => {
     await loginPage.loginAndWaitForDashboard(approver.email, approver.password);
 
     const response = await damageLossClaimPage.rejectClaim(rejectClaimId);
-    expect(response?.data?.status ?? response?.status).toBe('Rejected');
+    expect(response?.data?.damage_loss_claim?.status ?? response?.damage_loss_claim?.status).toBe('Rejected');
 
     await loginPage.logout();
   });

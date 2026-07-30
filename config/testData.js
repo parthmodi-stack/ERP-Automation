@@ -1096,6 +1096,59 @@ const testData = {
       },
     },
   },
+
+  // Leave Management (erpforce-hrms-fe: src/views/leaves/leave-management/) - route
+  // `/dashboard/hrms/leaves/leave-management` - and Leave Request (approver review side,
+  // `/dashboard/hrms/leaves/leave-request`). Same two real accounts as assetManagement.users
+  // (kashyap.jivani@trootech.com holds an Employee record and can self-service leave;
+  // dipen.modi@trootech.com is the fixed admin login that receives/approves everything else in
+  // this suite) - duplicated here rather than cross-referenced so this module's test data block
+  // stays self-contained like every sibling block in this file.
+  leaveManagement: {
+    users: {
+      employee: {
+        email: "kashyap.jivani@trootech.com",
+        password: "Admin@123",
+        displayName: "Kashyap Jivani",
+      },
+      approver: {
+        email: "dipen.modi@trootech.com",
+        password: "Admin@123",
+        displayName: "Dipen Modi",
+      },
+    },
+    // Leave Type is pinned to "Sick Leave", NOT whatever renders first - CONFIRMED LIVE
+    // (tests/tmp/inspect-leave-edit-save.spec.js) that "Casual Leave" (the option that renders
+    // first for kashyap.jivani@trootech.com) is rejected server-side with a 400 on any real
+    // Save/Update: "Employee is no longer eligible for this leave type: No eligibility rules
+    // passed - employee_contracts.probation_period does not meet criteria." Save-as-Draft bypasses
+    // this eligibility check entirely (it's only enforced by the create/update endpoints), so a
+    // Casual Leave Draft silently "works" right up until any full Save is attempted. "Sick Leave"
+    // is confirmed eligible for this account (real Pending/Approved Sick Leave records already
+    // exist for it live) - use it for any test that needs a real (non-draft) status transition.
+    // Duration is a static 2-option ('Full Day'/'Half Day') DynamicSelect, see leave-management/
+    // form/form.tsx - safe to hardcode, unlike Leave Type.
+    valid: {
+      leaveType: "Sick Leave",
+      leaveReason: factory.narration("Automation leave request"),
+      updatedLeaveReason: factory.narration("Automation leave request EDITED"),
+    },
+    // Leave Request (approver) module has NO Yup resolver wired up at all on its own Add/Edit
+    // form (confirmed live in source: useForm() with no `resolver` prop) - Leave Type here is a
+    // hardcoded static list ('Casual'/'Emergency'), unlike Leave Management's category lookup.
+    request: {
+      leaveType: "Casual",
+      comment: {
+        approve: factory.narration("Automation approval comment"),
+        reject: factory.narration("Automation rejection comment"),
+      },
+    },
+    negative: {
+      onlySpacesReason: "   ",
+      xssReason: `XSS_${factory.uniqueName("Leave")}_<script>alert(1)</script>`,
+      sqlInjectionReason: `SQLI_${factory.uniqueName("Leave")}_' OR 1=1 --`,
+    },
+  },
 };
 
 module.exports = testData;

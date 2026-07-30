@@ -41,9 +41,15 @@ class AssetRequestPage extends BasePage {
   // `categoryOptionIndex` is an explicit opt-out of that default for callers that have already hit
   // the FIRST category's depleted available/in-use pool (see the Damage/Loss suite's own setup) -
   // it selects the nth option instead, still without guessing any real category name.
-  async fillRequestForm({ assetName, quantity, reason, requiredFromDate, categoryOptionIndex = 0 }) {
+  // `categoryName` is a further opt-in for callers who DO know a specific category exists in this
+  // account's master data (e.g. "Computer Hardware and Software" - confirmed by the user to have
+  // healthy stock, unlike every category index this suite tried and exhausted/hit bugs on) -
+  // takes priority over categoryOptionIndex when provided.
+  async fillRequestForm({ assetName, quantity, reason, requiredFromDate, categoryOptionIndex = 0, categoryName }) {
     await this.page.getByPlaceholder('Enter Name').fill(assetName);
-    if (categoryOptionIndex === 0) {
+    if (categoryName) {
+      await this.selectFieldByLabel('Asset Category Needed', categoryName, { exact: false });
+    } else if (categoryOptionIndex === 0) {
       await this.selectFirstOptionByLabel('Asset Category Needed');
     } else {
       const labelRegex = /^Asset Category Needed\s*\*?$/i;
@@ -185,14 +191,19 @@ class AssetRequestPage extends BasePage {
     await this.gotoView(id);
     await this.page.getByRole('button', { name: 'Approve', exact: true }).click();
     await this.confirmIfPrompted('Approve');
-    await expect(this.page.getByText(/Approved/i).first()).toBeVisible({ timeout: 10000 });
+    // Wait for the post-approve refetch to settle before checking status text - under sustained
+    // load this session's own heavy repeated test runs put on the dev server, the page can take
+    // longer than a bare DOM-text-scan's default timeout to actually re-render.
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    await expect(this.page.getByText(/Approved/i).first()).toBeVisible({ timeout: 20000 });
   }
 
   async reject(id) {
     await this.gotoView(id);
     await this.page.getByRole('button', { name: 'Reject', exact: true }).click();
     await this.confirmIfPrompted('Reject');
-    await expect(this.page.getByText(/Rejected/i).first()).toBeVisible({ timeout: 10000 });
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    await expect(this.page.getByText(/Rejected/i).first()).toBeVisible({ timeout: 20000 });
   }
 
   // Approve/Reject may or may not open a confirmation dialog depending on whether this view

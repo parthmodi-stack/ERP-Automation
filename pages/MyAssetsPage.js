@@ -113,51 +113,82 @@ class MyAssetsPage extends BasePage {
     await this.changePageSize(50).catch(() => {});
     await waitForSkeletonClear();
 
-    // CONFIRMED LIVE: `[role="row"]` alone also matches the table's HEADER row (MRT gives both
-    // thead and tbody rows this role) - a bare `table tbody tr, [role="row"]` selector can
-    // therefore resolve to the header's own "select all"/sort-control row instead of a real data
-    // row. Scope the role-based alternative under `tbody` too.
-    for (let index = 0; index < maxAssetsToTry; index++) {
-      const row = this.page.locator('table tbody tr, table tbody [role="row"]').nth(index);
-      if ((await row.count()) === 0) break;
+    // CONFIRMED LIVE: this suite's own cumulative runs keep ADDING newly-assigned (unclaimed)
+    // assets to Kashyap's held-asset list without ever returning older ones - by now his list can
+    // hold more than one page's worth of rows even at the max page size (50). An earlier attempt
+    // to sort by "Assigned On" descending (so the freshest holds get checked first) was reverted -
+    // this table's sort control CYCLES (unsorted -> ascending -> descending -> unsorted) and
+    // persists across calls within the same session, so clicking a FIXED number of times per call
+    // doesn't reliably land on the same state twice - a second call within the same test walked
+    // straight into ascending (oldest-first) order instead, exactly the opposite of what was
+    // wanted. Walking every page in whatever order the list already uses is slower but doesn't
+    // depend on sort state at all.
+    let pageIndex = 0;
+    let totalChecked = 0;
+    while (totalChecked < maxAssetsToTry) {
+      // CONFIRMED LIVE: `[role="row"]` alone also matches the table's HEADER row (MRT gives both
+      // thead and tbody rows this role) - a bare `table tbody tr, [role="row"]` selector can
+      // therefore resolve to the header's own "select all"/sort-control row instead of a real
+      // data row. Scope the role-based alternative under `tbody` too.
+      const rowsOnPage = await this.page.locator('table tbody tr, table tbody [role="row"]').count();
+      if (rowsOnPage === 0) break;
 
-      await row.getByRole('link').first().click().catch(() => row.click());
-      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      for (let index = 0; index < rowsOnPage && totalChecked < maxAssetsToTry; index++, totalChecked++) {
+        const row = this.page.locator('table tbody tr, table tbody [role="row"]').nth(index);
 
-      const detailCheckbox = this.page
-        .locator('table tbody tr, table tbody [role="row"]')
-        .first()
-        .locator('input[type="checkbox"], [role="checkbox"]')
-        .first();
-      // CONFIRMED LIVE: this view can briefly render the checkbox as enabled from stale/cached
-      // state, then flip it to disabled a moment later once the real `can_raise_damage_claim`
-      // value resolves (a subsequent claim-check refetch) - checking `isDisabled()` once and
-      // immediately clicking can race that flip and throw "element is not enabled" mid-click.
-      // Re-check after a short settle wait, right before clicking, to avoid acting on stale state.
-      let isDisabled = await detailCheckbox.isDisabled().catch(() => true);
-      if (!isDisabled) {
-        await this.page.waitForTimeout(500);
-        isDisabled = await detailCheckbox.isDisabled().catch(() => true);
-      }
-      if (!isDisabled) {
-        try {
-          await detailCheckbox.click({ timeout: 5000 });
-          const reportButton = this.page.getByRole('button', { name: /Report Damage\/Loss/i });
-          await expect(reportButton).toBeEnabled({ timeout: 10000 });
-          await reportButton.click();
-          await this.page.waitForURL(/add-damage-loss-claim/, { timeout: 15000 });
-          await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
-          return;
-        } catch (e) {
-          // Flipped to disabled mid-click (or some other transient issue) - treat this asset as
-          // ineligible and move on to the next row instead of failing the whole search.
+        await row.getByRole('link').first().click().catch(() => row.click());
+        await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+
+        const detailCheckbox = this.page
+          .locator('table tbody tr, table tbody [role="row"]')
+          .first()
+          .locator('input[type="checkbox"], [role="checkbox"]')
+          .first();
+        // CONFIRMED LIVE: this view can briefly render the checkbox as enabled from stale/cached
+        // state, then flip it to disabled a moment later once the real `can_raise_damage_claim`
+        // value resolves (a subsequent claim-check refetch) - checking `isDisabled()` once and
+        // immediately clicking can race that flip and throw "element is not enabled" mid-click.
+        // Re-check after a short settle wait, right before clicking, to avoid acting on stale state.
+        let isDisabled = await detailCheckbox.isDisabled().catch(() => true);
+        if (!isDisabled) {
+          await this.page.waitForTimeout(500);
+          isDisabled = await detailCheckbox.isDisabled().catch(() => true);
         }
+        if (!isDisabled) {
+          try {
+            await detailCheckbox.click({ timeout: 5000 });
+            const reportButton = this.page.getByRole('button', { name: /Report Damage\/Loss/i });
+            await expect(reportButton).toBeEnabled({ timeout: 10000 });
+            await reportButton.click();
+            await this.page.waitForURL(/add-damage-loss-claim/, { timeout: 15000 });
+            await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+            return;
+          } catch (e) {
+            // Flipped to disabled mid-click (or some other transient issue) - treat this asset as
+            // ineligible and move on to the next row instead of failing the whole search.
+          }
+        }
+
+        // Go BACK to the same list page instead of a full goto() reset - preserves the page-size/
+        // pagination position (goto() would silently reset back to page 1 every time, making it
+        // impossible to ever reach page 2+).
+        await this.page.goBack();
+        await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+        await waitForSkeletonClear();
       }
 
-      await this.goto();
+      // Current page's rows are all ineligible - advance to the next page rather than re-checking
+      // the same ones. Stop if there isn't one.
+      const nextButton = this.nextPageButton();
+      const isNextDisabled = await nextButton.isDisabled().catch(() => true);
+      if (isNextDisabled) break;
+      await nextButton.click();
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      await waitForSkeletonClear();
+      pageIndex++;
     }
 
-    throw new Error(`reportDamageLoss(): checked the first ${maxAssetsToTry} held assets and none had an enabled "raise damage claim" checkbox - every asset already has a claim against it.`);
+    throw new Error(`reportDamageLoss(): checked ${totalChecked} held assets across ${pageIndex + 1} page(s) and none had an enabled "raise damage claim" checkbox - every asset already has a claim against it.`);
   }
 }
 

@@ -203,11 +203,16 @@ class DamageLossClaimPage extends BasePage {
   }
 
   async fillApproveClaimForm(dialog, { estimatedRepairCost, replacementCost, liableTo = 'Employee', deductionSource, recoveryAmount }) {
+    // CONFIRMED LIVE: "Estimated Repair Cost"/"Replacement Cost"/"Recovery Amount" render as plain
+    // text above their inputs with no `for`/`aria-labelledby` association - `getByLabel()` never
+    // matches these (same pattern BasePage.fieldInputByLabel's own comment documents for Leave
+    // Policy Master), even though the field is clearly visible on screen. Use the structural
+    // lookup instead.
     if (estimatedRepairCost !== undefined) {
-      await dialog.getByLabel(/Estimated Repair Cost/i).fill(String(estimatedRepairCost));
+      await this.fieldInputByLabel('Estimated Repair Cost', { scope: dialog }).fill(String(estimatedRepairCost));
     }
     if (replacementCost !== undefined) {
-      await dialog.getByLabel(/Replacement Cost/i).fill(String(replacementCost));
+      await this.fieldInputByLabel('Replacement Cost', { scope: dialog }).fill(String(replacementCost));
     }
 
     if (liableTo === 'Organisation' || liableTo === 'Organization') {
@@ -221,7 +226,7 @@ class DamageLossClaimPage extends BasePage {
         await this.selectFirstOptionByLabel('Deduction Source', { scope: dialog });
       }
       if (recoveryAmount !== undefined) {
-        await dialog.getByLabel(/Recovery Amount/i).fill(String(recoveryAmount));
+        await this.fieldInputByLabel('Recovery Amount', { scope: dialog }).fill(String(recoveryAmount));
       }
     }
   }
