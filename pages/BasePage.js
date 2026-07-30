@@ -371,6 +371,86 @@ class BasePage {
     }
   }
 
+  // Same "open combobox -> footer 'Create New X' link -> fill quick-create dialog -> Save -> the
+  // dropdown does NOT auto-select the new value -> manually reselect" pattern as
+  // createLocationFromFooter above, generalized for Department (erpforce-common-hub-fe's
+  // department-add-modal.tsx, addType='department'). CONFIRMED LIVE (Employee Master's Add form):
+  // the dialog's only required fields are Company, Department Code, and Department Name - Parent
+  // Department/Department Head/Cost Code/Description are all optional and left blank. CONFIRMED
+  // SOURCE BUG (searchable-select.tsx's own `handleModalSave`, same one documented on
+  // AccrualsAndBenefitPage.createDepartmentFromFooter): after a successful create it never calls
+  // `onChange`/`setValue` with the new option, so every caller must manually re-select the
+  // just-created option by name afterward, same as Location.
+  async createDepartmentFromFooter(
+    departmentName,
+    departmentCode,
+    companyName,
+    { scope = this.page.getByRole("main"), combobox } = {},
+  ) {
+    if (!combobox) {
+      const escapedLabel = "Department".replace(
+        /[-\/\\^$*+?.()|[\]{}]/g,
+        "\\$&",
+      );
+      const labelRegex = new RegExp(`^${escapedLabel}\\s*\\*?$`, "i");
+      const container = scope.getByText(labelRegex).first().locator("xpath=..");
+      combobox = container.getByRole("combobox").first();
+    }
+
+    // CONFIRMED LIVE: if the caller already has this combobox's popover open (e.g. it just
+    // scanned the option list for an exact match before deciding to create a new one), pressing
+    // Escape here does NOT reliably close it when a "Search Department" text input inside the
+    // popover currently has focus - re-clicking the same (now Escape-obscured) combobox then hangs
+    // until Playwright's actionability timeout. Skip the close/reopen cycle entirely when the
+    // listbox is already visible and go straight to the footer link.
+    const alreadyOpen = await this.page
+      .getByRole("listbox")
+      .isVisible()
+      .catch(() => false);
+    if (!alreadyOpen) {
+      await this.page.keyboard.press("Escape").catch(() => {});
+      await combobox.click();
+    }
+    await this.page.getByText("Create New Department", { exact: false }).click();
+
+    const dialog = this.page.getByRole("dialog");
+    await dialog.waitFor({ state: "visible" });
+
+    await this.selectFieldByLabel("Company", companyName, {
+      exact: false,
+      scope: dialog,
+    });
+    await dialog.getByPlaceholder("Enter Department Code").fill(departmentCode);
+    await dialog.getByPlaceholder("Enter Department Name").fill(departmentName);
+
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await dialog.waitFor({ state: "hidden" });
+
+    // Force the leftover popover/backdrop fully closed before reopening fresh (same recovery as
+    // createLocationFromFooter/AccrualsAndBenefitPage.createDepartmentFromFooter - the popover that
+    // was open before the modal appeared is left in an indeterminate state once the dialog closes).
+    await this.page
+      .locator("body")
+      .click({ position: { x: 300, y: 10 }, force: true })
+      .catch(() => {});
+    await this.page
+      .locator(".MuiPopover-root, .MuiMenu-root")
+      .first()
+      .waitFor({ state: "hidden", timeout: 3000 })
+      .catch(() => {});
+
+    await this.page.keyboard.press("Escape").catch(() => {});
+    await combobox.click();
+    const found = await this.selectOptionFromListbox(departmentName, {
+      timeout: 7000,
+    });
+    if (!found) {
+      throw new Error(
+        `createDepartmentFromFooter("${departmentName}"): created but never appeared selectable in the dropdown.`,
+      );
+    }
+  }
+
   // Shared helper for modal DynamicSearchSelect fields (PO item/expense modals, GRN traceability
   // Bin dropdown), whose label renders as a Typography (data-name), NOT a real <label>, and whose
   // <input> carries no name - so resolve the combobox structurally off the label text within the
@@ -978,6 +1058,29 @@ class BasePage {
       .click();
   }
 
+  // CONFIRMED LIVE: clicking an option that is ALREADY the select's currently-chosen value (e.g.
+  // switching Field to "Status" auto-defaults its Operator to "In", then explicitly selecting "In"
+  // again) does not fire a change event and this particular MUI Select does not close its own
+  // popover in that case either - selectOptionFromListbox's own close-wait silently swallows the
+  // failure (by design, so it doesn't throw for the normal case), leaving the popover open in the
+  // DOM and intercepting the NEXT field's click, which then times out with a confusing "element
+  // not found"/"timeout" error far from the real cause. Call this after every filter-row select
+  // interaction to force it closed if that happened.
+  async closeStuckListboxIfOpen() {
+    const listbox = this.page.getByRole("listbox");
+    const stillOpen = await listbox.first().isVisible().catch(() => false);
+    if (!stillOpen) return;
+    await this.page.keyboard.press("Escape").catch(() => {});
+    const closed = await listbox
+      .first()
+      .waitFor({ state: "hidden", timeout: 1500 })
+      .then(() => true)
+      .catch(() => false);
+    if (closed) return;
+    await this.page.locator("body").click({ position: { x: 10, y: 10 }, force: true }).catch(() => {});
+    await listbox.first().waitFor({ state: "hidden", timeout: 3000 }).catch(() => {});
+  }
+
   // Field/Operator are both plain MUI Selects (field-select.tsx/operator-select.tsx) sharing the
   // same "select-drps" class with no distinguishing accessible name - `rowIndex` picks which rule
   // row's pair of selects to act on (each row renders exactly one Field select then one Operator
@@ -986,12 +1089,14 @@ class BasePage {
     const row = this.filterDialog().locator(".rule").nth(rowIndex);
     await row.locator(".select-drps").first().click();
     await this.selectOptionFromListbox(fieldLabel);
+    await this.closeStuckListboxIfOpen();
   }
 
   async selectFilterOperator(operatorLabel, rowIndex = 0) {
     const row = this.filterDialog().locator(".rule").nth(rowIndex);
     await row.locator(".select-drps").nth(1).click();
     await this.selectOptionFromListbox(operatorLabel);
+    await this.closeStuckListboxIfOpen();
   }
 
   // value-editor.tsx picks a TextField/DatePicker/SearchableSelect based on the field's own
@@ -1003,10 +1108,34 @@ class BasePage {
     await row.locator(".select-drps input, .select-drps").last().fill(value);
   }
 
+  // CONFIRMED LIVE (DOM dump): for a "select"-type value editor (enum/FK fields like Status), the
+  // rendered element carries class `filter-select`, NOT `select-drps` - only the Field/Operator
+  // selects use `select-drps`. `.select-drps.last()` therefore incorrectly re-resolves to the
+  // Operator select for these fields (there are only 2 `.select-drps` elements in that row, not 3),
+  // silently reopening ITS OWN listbox instead of the real Value editor and leaving the rule
+  // permanently incomplete (Apply stays disabled). This value editor also renders as a real MUI
+  // multi-select with an embedded checkbox per option (`MuiSelect-multiple`, consistent with
+  // operator "In"/"Not In" taking an array) - it will not auto-close after a single option click
+  // (closeStuckListboxIfOpen() below handles that), AND a checkbox is itself an `<input>`, so the
+  // generic selectOptionFromListbox's `hasNot: input` filter (meant to skip a search-box-as-option
+  // row) excludes every real option here too and always returns false without clicking anything -
+  // same root cause already fixed for EmployeeMasterPage's Leave Policy/Accrual multiselects.
+  // Resolve and click the option directly instead of delegating to that single-select-oriented
+  // helper.
   async selectFilterValueOption(optionText, rowIndex = 0) {
     const row = this.filterDialog().locator(".rule").nth(rowIndex);
-    await row.locator(".select-drps").last().click();
-    await this.selectOptionFromListbox(optionText);
+    await row.locator(".filter-select").last().click();
+
+    const escaped = optionText.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const option = this.page
+      .getByRole("listbox")
+      .getByRole("option")
+      .filter({ hasText: new RegExp(`^\\s*${escaped}\\s*$`) })
+      .first();
+    await option.waitFor({ state: "visible", timeout: 7000 });
+    await option.click();
+
+    await this.closeStuckListboxIfOpen();
   }
 
   async applyFilters() {
@@ -1058,6 +1187,32 @@ class BasePage {
     const ariaDisabled = await item.getAttribute("aria-disabled");
     await this.page.keyboard.press("Escape");
     return ariaDisabled === "true";
+  }
+
+  // ---------- MaterialEditableTable row commit (shared HRMS module pattern) ----------
+  // erpforce-common-hub-fe's material-editable-table.tsx (used across every HRMS editable-table
+  // screen - Receive-Handover, Damage/Loss Claim, etc.) only actually commits an editing/creating
+  // row's field values via a document-level "click outside the table" listener - selecting a
+  // dropdown option or typing into a cell alone does NOT persist it. CONFIRMED LIVE this listener
+  // is UNRELIABLE as a general-purpose commit strategy: it debounces the real save via
+  // `setTimeout(..., 200)` AND is suppressed for 300ms after any click on a
+  // MuiFormControl/MuiInputBase/MuiButtonBase element (i.e. almost any interaction with the row
+  // itself) - a plain click-outside can still lose the race against a Submit button's own
+  // synchronous click handler even with a 600ms wait afterward (reproduced on Damage/Loss Claim's
+  // row: looked filled on screen, reverted to blank by Submit time). The ONLY reliable commit path
+  // found so far is pressing Enter while focus is left in a plain TEXT field (not a Select/combobox
+  // - Enter there just re-opens whichever dropdown last had focus instead of committing, confirmed
+  // live on both Receive-Handover's status select and Damage/Loss Claim's Condition/Severity).
+  // Escape is never safe either - it bubbles to the row's own handler and exits edit mode entirely,
+  // discarding the values just entered. PREFER pressing Enter on the last plain-text field filled
+  // (see DamageLossClaimPage.fillClaimDetails()) over this helper wherever the row has one; only
+  // fall back to this click-outside approach when no such field exists to focus (e.g. a
+  // deliberately-incomplete row in a validation test, where a clean commit isn't actually needed).
+  async saveEditableTableRow({ waitMs = 600 } = {}) {
+    await this.page
+      .locator("body")
+      .click({ position: { x: 300, y: 10 }, force: true });
+    await this.page.waitForTimeout(waitMs);
   }
 }
 

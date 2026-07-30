@@ -162,6 +162,20 @@ class EmployeeContractsPage extends BasePage {
     return searchInput;
   }
 
+  // Overrides BasePage's version, which locates the Filter button by accessible name
+  // (`getByRole('button', {name:'Filter', exact:true})`) - CONFIRMED LIVE (screenshot) this
+  // listing's Filter button is icon-only with no accessible name at all, same as the search
+  // toggle above. It's the second unlabeled icon button after "+ View" in DOM order (search is
+  // the first).
+  async openFilters() {
+    const filterBtn = this.page.getByRole('button', { name: 'View', exact: true }).locator('xpath=following::button[2]');
+    await filterBtn.click();
+    await this.page
+      .getByRole('dialog')
+      .filter({ hasText: 'Filters' })
+      .waitFor({ state: 'visible', timeout: 10000 });
+  }
+
   async getRowStatus(id) {
     return this.getRowStatusMatching(id, /Active|Draft|Upcoming Contract|Inactive|Expired/i);
   }

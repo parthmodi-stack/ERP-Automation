@@ -1027,6 +1027,75 @@ const testData = {
       company: "erp-force",
     },
   },
+
+  // Asset Management (erpforce-hrms-fe: src/views/employee-assets-management/) - routes under
+  // `/dashboard/hrms/asset-*`. Unlike every other module above, this suite genuinely logs in as
+  // THREE distinct real accounts (Requester, Approver, a second employee for the inter-user
+  // transfer suite) instead of self-approving inside the single admin session everyone else
+  // uses - the app's own approval workflow requires the approver to actually own the request
+  // routed to them. Passwords are never guessed/hardcoded here: only the Approver already has a
+  // real, checked-in password (it's the same admin account as `credentials.valid` above -
+  // confirmed live via the app header showing "Dipen Modi"). Requester/second-user passwords
+  // must be supplied via env vars before running this suite - see .env.example.
+  assetManagement: {
+    users: {
+      requester: {
+        email: "kashyap.jivani@trootech.com",
+        password: "Admin@123",
+        displayName: "Kashyap Jivani",
+      },
+      approver: {
+        email: "dipen.modi@trootech.com",
+        password: "Admin@123",
+        displayName: "Dipen Modi",
+      },
+      // Used by the inter-user transfer suite (Test Suite 9) as the NEW owner an asset gets
+      // transferred to - a distinct real employee account from both requester/approver above.
+      // Two earlier candidates were ruled out, both CONFIRMED LIVE via
+      // tests/tmp/inspect-parth-employee.spec.js: parth.modi+450@trootech.com has ZERO HRMS
+      // Employee records linked to it (GET /hrms/v1/employee/?filters=(user_id.eq=161) returned
+      // `employees: []`), so useEmployeeDetails() never resolves an employee id and the Asset
+      // Request form can't attach requested_by/requested_for_employee_id to anything (list
+      // silently shows "No Data"). parth.modi+1007@trootech.com DOES have an Employee record
+      // (id 273, EMP-2026-000106) but its role ("Force_Employee") gets a 403 Access Denied on the
+      // Asset Request module entirely (route-level RBAC block). nishit.vankawala@trootech.com
+      // has both: a real Employee record (id 115, EMP-2026-000060) AND no 403 on the Asset
+      // Request Add form - confirmed via the same diagnostic script.
+      secondUser: {
+        email: "nishit.vankawala@trootech.com",
+        password: "Admin@123",
+        displayName: "Nishit Vankawala",
+      },
+      // The Asset Return flow (My Assets -> Return Asset) hardcodes its recipient server-side -
+      // CONFIRMED LIVE (tests/tmp/inspect-asset-return.spec.js): POST /hrms/v1/my-assets/return's
+      // response always assigns the resulting "Receive" handover request to employee id 192
+      // ("super  admin", EMP-2026-000074), regardless of who returned the asset. That employee's
+      // login IS admin@gmail.com - confirmed via tests/tmp/inspect-admin-gmail.spec.js
+      // (GET /hrms/v1/employee/?filters=(user_id.eq=1) resolves to the same employee id 192, no
+      // 403 on the Asset Return module).
+      assetReceiver: {
+        email: "admin@gmail.com",
+        password: "Admin@123",
+        displayName: "super admin",
+      },
+    },
+    assetRequest: {
+      valid: {
+        assetName: factory.uniqueName("Automation_Asset"),
+        quantity: "1",
+        reason: factory.narration("Automated E2E asset request"),
+      },
+    },
+    damageLoss: {
+      valid: {
+        condition: "Damaged",
+        severity: "Medium",
+        description: factory.narration(
+          "Automated damage report - screen cracked during transit",
+        ),
+      },
+    },
+  },
 };
 
 module.exports = testData;

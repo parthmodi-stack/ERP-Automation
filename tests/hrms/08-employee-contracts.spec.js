@@ -34,6 +34,21 @@ async function waitForComboboxFilled(getValueFn, { timeoutMs = 8000, intervalMs 
   return value;
 }
 
+// CONFIRMED LIVE: BasePage.getPaginationLabel() already waits for skeleton/spinner elements to
+// detach before reading - but a "Go To" page jump or Prev/Next click can still leave the table on
+// its PREVIOUS page's label for a beat afterward (a second, later loading phase, distinct from the
+// skeleton one) - poll the label itself until it matches the expected page, rather than trusting a
+// single read right after the navigating action.
+async function waitForPaginationLabel(contractsPageInstance, pattern, { timeoutMs = 10000, intervalMs = 300 } = {}) {
+  const start = Date.now();
+  let label = await contractsPageInstance.getPaginationLabel();
+  while (Date.now() - start < timeoutMs && !pattern.test(label)) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    label = await contractsPageInstance.getPaginationLabel();
+  }
+  return label;
+}
+
 test.describe.serial('Employee Contracts Module Suite', () => {
   test.describe.configure({ timeout: 120000 });
 
@@ -93,6 +108,88 @@ test.describe.serial('Employee Contracts Module Suite', () => {
     const status = await contractsPage.getRowStatus(sourceRecord.id);
     expect(status).toMatch(/Active|Draft|Upcoming Contract|Inactive|Expired/i);
     sourceRecord.status = status.trim();
+  });
+
+  test('TC-EMPC-L04 [+] Pagination controls navigate correctly', async () => {
+    await contractsPage.gotoList();
+
+    const initialLabel = await contractsPage.getPaginationLabel();
+    const initialMatch = initialLabel.match(/Page\s*(\d+)\s*of\s*(\d+)/i);
+    expect(initialMatch).toBeTruthy();
+    const totalPages = Number(initialMatch[2]);
+
+    // Page size selector - fixed options [10, 20, 50] (pagination.tsx) - changing size resets to
+    // page 1 and recomputes total pages against the same underlying (real, shared) dataset.
+    await contractsPage.changePageSize(20);
+    let label = await waitForPaginationLabel(contractsPage, /Page\s*1\s*of/i);
+    expect(label).toMatch(/Page\s*1\s*of/i);
+
+    await contractsPage.changePageSize(10);
+    label = await waitForPaginationLabel(contractsPage, /Page\s*1\s*of/i);
+    expect(label).toMatch(/Page\s*1\s*of/i);
+
+    // Prev is disabled on page 1 regardless of how many total pages exist.
+    await expect(contractsPage.prevPageButton()).toBeDisabled();
+
+    if (totalPages > 1) {
+      await contractsPage.nextPageButton().click();
+      label = await waitForPaginationLabel(contractsPage, /Page\s*2\s*of/i);
+      expect(label).toMatch(/Page\s*2\s*of/i);
+      await expect(contractsPage.prevPageButton()).toBeEnabled();
+
+      await contractsPage.prevPageButton().click();
+      label = await waitForPaginationLabel(contractsPage, /Page\s*1\s*of/i);
+      expect(label).toMatch(/Page\s*1\s*of/i);
+
+      // "Go To" jump straight to the last page, then confirm Next becomes disabled there.
+      await contractsPage.goToPage(totalPages);
+      const lastPagePattern = new RegExp(`Page\\s*${totalPages}\\s*of\\s*${totalPages}`, 'i');
+      label = await waitForPaginationLabel(contractsPage, lastPagePattern);
+      expect(label).toMatch(lastPagePattern);
+      await expect(contractsPage.nextPageButton()).toBeDisabled();
+
+      // Leave the list back on page 1 for later tests that search for sourceRecord.
+      await contractsPage.goToPage(1);
+      await waitForPaginationLabel(contractsPage, /Page\s*1\s*of/i);
+    } else {
+      // Only one page of data exists in this account right now - Next should already be disabled.
+      await expect(contractsPage.nextPageButton()).toBeDisabled();
+    }
+  });
+
+  // Source-level suspicion: employee-contracts.hrms.tsx passes `applyFilter={false}` to its
+  // ActionBar, unlike every other module's listing page in this suite - written to assert the
+  // NORMAL working-filter behavior first; if that's wrong, the failure itself is the live proof
+  // and should be converted to a documented test.fail() with the real observed behavior.
+  test('TC-EMPC-L05 [+] Filter button opens a working Filters dialog', async () => {
+    await contractsPage.gotoList();
+
+    // CONFIRMED LIVE: unlike modules with an "Add" button, this listing's Filter button is
+    // icon-only with no accessible name (same as its search toggle) - openFilters() is overridden
+    // on EmployeeContractsPage to locate it structurally instead of by role name.
+    await contractsPage.openFilters();
+    await expect(contractsPage.filterDialog()).toBeVisible();
+
+    await contractsPage.addFilterRule();
+    await contractsPage.selectFilterField('Status');
+    // CONFIRMED LIVE (screenshot): the Operator select for a Status/enum field offers exactly
+    // "In / Not In / Is Null / Is Not Null" - there is no "=" operator, unlike a plain text field.
+    await contractsPage.selectFilterOperator('In');
+    await contractsPage.selectFilterValueOption(sourceRecord.status || 'Active');
+    await contractsPage.applyFilters();
+
+    // A working filter narrows the list to only rows matching the selected Status.
+    const rows = contractsPage.page.locator('table tbody tr');
+    await expect(rows.first()).toBeVisible();
+    const statusCells = await rows.locator('td', { hasText: /Active|Draft|Upcoming Contract|Inactive|Expired/i }).allTextContents();
+    for (const cell of statusCells) {
+      expect(cell.toLowerCase()).toContain((sourceRecord.status || 'Active').toLowerCase());
+    }
+
+    // No explicit cleanup needed - clearAllFilters() raced a detach on this dialog's own "Clear all
+    // filters" reset (a real UI stability quirk, not a functional gap) and every later test in this
+    // file starts with its own fresh gotoList() navigation anyway, which resets this client-side
+    // filter state on its own.
   });
 
   // ── View Page ────────────────────────────────────────────────────────────────
