@@ -112,6 +112,37 @@ Purchase Order, Vendor Return Authorization, etc.):
   wording, field names) belongs in that module's own page object instead, to avoid reintroducing
   bugs that took multiple rounds of live debugging to isolate per-module.
 
+### SPA navigation & shared-dataset gotchas (any module)
+
+Found while building the HRMS Leave Management/Leave Request suite (`tests/hrms/15-*`,
+`tests/hrms/16-*`) - all six apply to any module, not just Leave:
+
+- **SPA route changes don't fire a real `load` event.** Clicking an in-app "View"/"Edit" menu item
+  is a client-side route change, not a real navigation - `page.waitForLoadState('load')` plus a
+  progressbar-hidden wait can resolve before the by-id GET actually completes, leaving the page
+  rendering an entirely empty record (every field shows "-") at the moment assertions run. Wait on
+  the real by-id GET response itself instead - match the URL path exactly (e.g.
+  `/\/v1\/<resource>\/\d+$/`) so it doesn't also match a `/status` PATCH or the list endpoint's own
+  query-string GET. See `LeaveManagementPage.waitForLeaveByIdFetch` for the pattern.
+- **Fixed date offsets collide against this shared, cumulative dataset.** A module with
+  duplicate/overlap-range validation will reject a real Save if ANY prior record (even a
+  Draft/Cancelled leftover from an earlier run, in this OR a different spec file) overlaps the
+  same date range. Generate a wide randomized day offset per test (e.g. 100-3000 days out) instead
+  of a fixed `+N days`.
+- **Re-navigating to the current URL right after an in-app action's own async refetch can throw
+  `net::ERR_ABORTED`.** Reproduced right after a Delete/Cancel confirm followed immediately by a
+  listing re-navigation. Retry the `page.goto()` once with a ~1s delay.
+- **A still-open popover leaves a backdrop that intercepts unrelated clicks.** E.g. opening an
+  Approval History dropdown and then immediately calling `logout()` (which clicks a header
+  element) fails because the popover's invisible backdrop intercepts the click - press `Escape`
+  before navigating away from a page with an open popover/menu.
+- **A field's Yup error can be captured in `formState.errors` but never actually rendered.** Don't
+  assert on inline error text without first confirming live that it's rendered - some forms only
+  gate submission via a disabled Save button and never show the error message at all.
+- **Multiline fields render as `<textarea>`, not `<input>`.** `BasePage.fieldInputByLabel()` only
+  matches `input` - a field with an `is_multiline`/multiline prop needs its own structural lookup
+  targeting `textarea`.
+
 ### Test naming
 
 Tests are named `TC-<MODULE>-<NN> [+|+/-|-] <description>`, where `+` = happy path, `-` = negative/
