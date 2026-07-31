@@ -1977,13 +1977,45 @@ const testData = {
       },
     },
 
-    // Unbuild Order (dashboard/manufacturing/orders/unbuild-order) - only reachable via a
-    // COMPLETED Build Order's own "Unbuild" action (see pages/UnbuildOrderPage.js's own header
-    // comment for the two confirmed bugs blocking direct creation and the initial Add form's own
-    // Save button). quantityToUnbuild matches workOrder.quantity above since this suite creates
-    // its own dedicated Work Order -> Build Order chain at that same quantity.
+    // Unbuild Order (dashboard/manufacturing/orders/unbuild-order) - reachable either via a
+    // COMPLETED Build Order's own "Unbuild" action, or via direct navigation (see
+    // pages/UnbuildOrderPage.js's own header comment for the confirmed bugs still open: the
+    // initial Add form's own "Save" button, and the direct-creation path's Materials array never
+    // persisting). quantityToUnbuild matches workOrder.quantity above since this suite creates its
+    // own dedicated Work Order -> Build Order chain at that same quantity.
     unbuildOrder: {
       quantityToUnbuild: 5,
+    },
+
+    // Work Center Categories (dashboard/manufacturing/settings/work-center-categories) - a plain
+    // master-data CRUD screen (no approval workflow, unlike the document modules above), used to
+    // group Work Centers by Type. "Save" creates it directly (no visible status chip on View);
+    // "Save To Draft" creates it with a "Draft" status chip instead (confirmed live:
+    // `is_draft: true` in the create response) - Edit's own Save works for both and clears the
+    // Draft chip if present, same "Edit -> Save transitions out of Draft" shape as Unbuild Order.
+    // Item is left to "first available" (see pages/WorkCenterCategoryPage.js) rather than a
+    // pinned literal, matching Bill of Material's own reasoning - this environment's Item list
+    // churns too often from other suites' automation records to pin one safely.
+    workCenterCategory: {
+      type: 'Machine',
+    },
+
+    // Work Center (dashboard/manufacturing/settings/work-centers) - same plain master-data CRUD
+    // shape as Work Center Category (see pages/WorkCenterPage.js's own header comment) - only
+    // Name and Location are actually required (confirmed live via empty-Save validation errors).
+    // Location is pinned to "Mumbai" (the same real, live-verified location used throughout this
+    // module) rather than "first available", since Work Center's own Location field has no
+    // per-item scoping concern the way Item pickers elsewhere in this module do.
+    workCenter: {
+      location: 'Mumbai',
+    },
+
+    // Equipment (dashboard/manufacturing/settings/equipments) - third step of the Work Center
+    // Categories -> Work Center -> Operation and Equipments -> Routing sequence. Category is a
+    // fixed enum (see pages/EquipmentPage.js's own header comment for the full option list) - not
+    // a pinned literal for any live-data reason, just picked from that fixed set.
+    equipment: {
+      category: 'Tools',
     },
   },
 };
