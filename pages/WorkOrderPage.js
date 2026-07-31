@@ -205,11 +205,23 @@ class WorkOrderPage {
   // Planned -> Released. Clicking Release opens a confirmation dialog ("Release Work order: Are
   // you sure you want to Release Work order: <id> ?") whose own button is also labeled "Submit"
   // (same pattern as Bill of Material's Approve confirmation) - scope to the dialog.
+  //
+  // Returns 'released' or 'insufficient_material' rather than hard-asserting success, so callers
+  // can seed real stock (via helpers/manufacturingStock.js's seedMaterialStockViaReceipt) ONLY
+  // when Release actually needs it - per explicit instruction, don't run that (slow) Stock
+  // Transfer Receipt setup unconditionally on every run when the material already has enough
+  // Available stock left over from a previous run.
   async release() {
     await this.releaseButton.click();
     await this.releaseConfirmDialog.waitFor({ state: 'visible' });
     await this.releaseConfirmDialog.getByRole('button', { name: 'Submit', exact: true }).click();
-    await expect(this.page.getByText('Released', { exact: true })).toBeVisible({ timeout: 15000 });
+
+    const releasedText = this.page.getByText('Released', { exact: true });
+    const insufficientMaterialError = this.page.getByText(/Required materials are not available in sufficient quantity/i);
+    return Promise.race([
+      releasedText.waitFor({ state: 'visible', timeout: 15000 }).then(() => 'released'),
+      insufficientMaterialError.waitFor({ state: 'visible', timeout: 15000 }).then(() => 'insufficient_material'),
+    ]);
   }
 
   // Released -> Material Issued. "Issue Material" opens a SEPARATE document ("Add Material

@@ -26,6 +26,7 @@ class BuildOrderPage {
     this.finishedGoodCostInput = page.locator('input[placeholder="Enter Finished Good Cost"]');
     this.saveButton = page.getByRole('button', { name: 'Save', exact: true });
 
+    this.actionsButton = page.getByRole('button', { name: 'Actions' });
     this.markCompletedButton = page.getByRole('button', { name: 'Mark Completed' });
     this.validationErrorDialog = page.getByRole('dialog', { name: 'Validation Error' });
     this.trackDetailDialog = page.getByRole('dialog', { name: 'Track Detail' });
@@ -72,6 +73,17 @@ class BuildOrderPage {
     await this.trackDetailDialog.waitFor({ state: 'visible' });
     await this.trackDetailDialog.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(this.page.getByText('Completed', { exact: true })).toBeVisible({ timeout: 15000 });
+  }
+
+  // "Unbuild" only appears in the Actions menu once this Build Order is Completed (confirmed
+  // live - call markCompleted() first). Opens Unbuild Order's own "Add Unbuild Order" form,
+  // reachable ONLY from here (not by direct navigation - see pages/UnbuildOrderPage.js's own
+  // header comment for why direct creation is blocked entirely by a backend bug).
+  async openUnbuildForm() {
+    await this.actionsButton.click();
+    await this.page.getByRole('menuitem', { name: 'Unbuild' }).click();
+    await this.page.waitForURL('**/add-unbuild-order');
+    await this.page.waitForLoadState('networkidle');
   }
 }
 

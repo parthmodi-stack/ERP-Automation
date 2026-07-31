@@ -30,6 +30,7 @@ const WorkOrderPage = require('../../pages/WorkOrderPage');
 const BillOfMaterialPage = require('../../pages/BillOfMaterialPage');
 const StockTransferPage = require('../../pages/StockTransferPage');
 const BuildOrderPage = require('../../pages/BuildOrderPage');
+const { seedMaterialStockViaReceipt } = require('../../helpers/manufacturingStock');
 
 const woData = testData.manufacturing.workOrder;
 
@@ -128,49 +129,26 @@ test.describe.serial('Manufacturing - Work Order', () => {
 
     // Release checks whether the BOM's material (RM1 - ensureBomForItem's auto-created BOM
     // always uses it) actually has Available stock - confirmed live via direct network capture
-    // (PATCH .../status returned 400 "Cannot release work order. Required materials are not
-    // available in sufficient quantity.") the first time this suite ran, because RM1's stock was
-    // fully reserved/committed elsewhere. Seeding via the backend API directly (POST
-    // inventory/v1/stock, the same helper Demand Planning's own suite uses for ITS zero-stock
-    // gap) does NOT fix this - confirmed live it writes a real stock row but Release still
-    // blocked. Only going through the real Stock Transfer "Receipt" flow (Add -> Track Detail's
-    // own per-row Lot/Serial Number traceability step -> Mark as to do -> Validate) actually
-    // clears it - so that's what this test does before attempting Release, using RM1's own
-    // BOM-required Materials-row item and this Work Order's own Location.
-    const releaseMaterial = woData.releaseMaterial;
-    const stockTransfer = new StockTransferPage(page);
-    await stockTransfer.openAdd();
-    await stockTransfer.selectEmployee();
-    await stockTransfer.selectOperationType('Receipt');
-    await stockTransfer.selectDestinationLocation(woData.location);
-    await stockTransfer.goToOperationalDetailTab();
-    await stockTransfer.addOperationItem({
-      item: releaseMaterial.itemName,
-      requestQuantity: String(releaseMaterial.availableQuantity),
-      rate: '10',
-      transferQuantity: String(releaseMaterial.availableQuantity),
-    });
-    await stockTransfer.save();
-    await page.waitForURL('**/operations/stock-transfer', { timeout: 15000 });
-    await page.waitForLoadState('networkidle');
-    await stockTransfer.waitForListLoaded();
-    const receiptId = await stockTransfer.getIdForRow(woData.location);
-
-    await stockTransfer.gotoView(receiptId);
-    await stockTransfer.markAsToDoButton.click();
-    await stockTransfer.confirmDialog.waitFor({ state: 'visible' });
-    await stockTransfer.confirmDialogAction('Submit');
-    await page.waitForTimeout(1500);
-
-    await stockTransfer.selectTab('Operational Detail');
-    await stockTransfer.addTrackDetail({
-      itemName: releaseMaterial.itemName,
-      quantity: releaseMaterial.availableQuantity,
-    });
-    await stockTransfer.validate();
-
+    // that it can fail with a 400 ("Cannot release work order. Required materials are not
+    // available in sufficient quantity.") when RM1's stock is fully reserved/committed by prior
+    // runs' consumption. Try Release FIRST and only seed stock (via the real Stock Transfer
+    // "Receipt" flow - seeding directly via the backend API does NOT satisfy this check,
+    // confirmed live) if it actually reports insufficient material - per explicit instruction,
+    // don't run that slower setup unconditionally when RM1 already has enough left over.
     await woPage.openView(seriesNumber);
-    await woPage.release();
+    const outcome = await woPage.release();
+    if (outcome === 'insufficient_material') {
+      const releaseMaterial = woData.releaseMaterial;
+      await seedMaterialStockViaReceipt(new StockTransferPage(page), {
+        itemName: releaseMaterial.itemName,
+        availableQuantity: releaseMaterial.availableQuantity,
+        location: woData.location,
+      });
+      await woPage.openView(seriesNumber);
+      expect(await woPage.release()).toBe('released');
+    } else {
+      expect(outcome).toBe('released');
+    }
 
     await expect(page.getByText('Released', { exact: true })).toBeVisible();
     // Release's own button is gone once Released - the record instead offers Cancel/Issue

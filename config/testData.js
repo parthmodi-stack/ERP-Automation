@@ -1976,6 +1976,15 @@ const testData = {
         availableQuantity: 500,
       },
     },
+
+    // Unbuild Order (dashboard/manufacturing/orders/unbuild-order) - only reachable via a
+    // COMPLETED Build Order's own "Unbuild" action (see pages/UnbuildOrderPage.js's own header
+    // comment for the two confirmed bugs blocking direct creation and the initial Add form's own
+    // Save button). quantityToUnbuild matches workOrder.quantity above since this suite creates
+    // its own dedicated Work Order -> Build Order chain at that same quantity.
+    unbuildOrder: {
+      quantityToUnbuild: 5,
+    },
   },
 };
 
