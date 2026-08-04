@@ -77,17 +77,49 @@ class RoutingPage {
   // work_centre/duration_computation) - pass the full id (with or without the `routing.` prefix)
   // as `fieldId`. Force-clicks a stale backdrop after selection (see class header comment).
   async selectDropdown(fieldId, optionText) {
-    await this.page.locator(`[id="mui-component-select-${fieldId}"]`).click();
+    const trigger = this.page.locator(`[id="mui-component-select-${fieldId}"]`);
+    await trigger.click();
     const menu = this.page.locator(`[id="menu-${fieldId}"]`);
     await menu.waitFor({ state: 'visible', timeout: 5000 });
     await expect(async () => {
       expect(await menu.locator('li').count()).toBeGreaterThan(0);
     }).toPass({ timeout: 8000, intervals: [300] });
     if (optionText) {
-      await menu.locator('input').pressSequentially(optionText, { delay: 60 });
-      const exact = menu.locator('li').filter({ hasText: new RegExp(`^${optionText}$`) });
-      await expect(exact.first()).toBeVisible({ timeout: 8000 });
-      await exact.first().click();
+      // Confirmed live: the unconditional Escape + force-click-the-backdrop below can, on its own,
+      // cause the WRONG option to end up selected (e.g. selecting "Mumbai" here has actually saved
+      // as an unrelated "Automation_Location_..." record instead) - re-verify the field's own
+      // displayed text actually landed on optionText afterward and retry the whole selection from
+      // a known-clean (menu open) state if not, rather than trusting a clean click() alone.
+      await expect(async () => {
+        if (!(await menu.isVisible())) {
+          await trigger.click();
+          await menu.waitFor({ state: 'visible', timeout: 5000 });
+        }
+        // Settle before typing - confirmed live that typing immediately after the menu reports
+        // itself visible (no pause) can race with this field's own async default/last-used-value
+        // hydration, ending in an unrelated option (e.g. Location silently landing on some
+        // "Automation_Location_..." record instead of "Mumbai") even though the typed search and
+        // click both otherwise behave correctly.
+        await this.page.waitForTimeout(500);
+        await menu.locator('input').pressSequentially(optionText, { delay: 60 });
+        await this.page.waitForTimeout(1000);
+        const exact = menu.locator('li').filter({ hasText: new RegExp(`^${optionText}$`) });
+        await expect(exact.first()).toBeVisible({ timeout: 8000 });
+        await exact.first().click();
+        await this.page.waitForTimeout(500);
+        await this.page.keyboard.press('Escape').catch(() => {});
+        await this.page.waitForTimeout(300);
+        const staleBackdrop = this.page.locator('.MuiBackdrop-root.MuiModal-backdrop').first();
+        if (await staleBackdrop.count()) {
+          await staleBackdrop.click({ force: true }).catch(() => {});
+        }
+        await this.page.waitForTimeout(500);
+        if ((await trigger.textContent()).trim() !== optionText) {
+          await trigger.click();
+          await menu.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+        }
+        expect((await trigger.textContent()).trim()).toBe(optionText);
+      }).toPass({ timeout: 20000, intervals: [500] });
     } else {
       // Raw Materials can have NO placeholder option (confirmed live: a single real item with no
       // "Select..." entry above it) - use whichever is first rather than assuming index 1 always
@@ -95,13 +127,13 @@ class RoutingPage {
       const options = await menu.locator('li').allTextContents();
       const index = /^Select /.test(options[0] || '') ? 1 : 0;
       await menu.locator('li').nth(index).click();
+      await this.page.keyboard.press('Escape').catch(() => {});
+      const staleBackdrop = this.page.locator('.MuiBackdrop-root.MuiModal-backdrop').first();
+      if (await staleBackdrop.count()) {
+        await staleBackdrop.click({ force: true }).catch(() => {});
+      }
+      await this.page.waitForTimeout(300);
     }
-    await this.page.keyboard.press('Escape').catch(() => {});
-    const staleBackdrop = this.page.locator('.MuiBackdrop-root.MuiModal-backdrop').first();
-    if (await staleBackdrop.count()) {
-      await staleBackdrop.click({ force: true }).catch(() => {});
-    }
-    await this.page.waitForTimeout(300);
   }
 
   async selectBOM(bomName) {

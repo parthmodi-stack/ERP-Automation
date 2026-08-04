@@ -124,15 +124,33 @@ class BillOfMaterialPage {
       expect(await menu.locator('li').count()).toBeGreaterThan(1);
     }).toPass({ timeout: 8000, intervals: [300] });
     if (itemName) {
-      await menu.locator('input').fill(itemName);
-      await this.page.waitForTimeout(600);
-      await menu.locator('li[aria-disabled="false"], li:not([aria-disabled])')
-        .filter({ hasText: new RegExp(`^${itemName}$`) })
-        .first()
-        .click();
+      // pressSequentially, not fill - confirmed live that .fill()'s single synthetic input event
+      // only sometimes reaches this debounced server-side filter, silently leaving the list on its
+      // default unfiltered/most-recent-first page. Even with pressSequentially, this field can
+      // still occasionally sit on an unfiltered/empty result for several seconds under load
+      // (confirmed live, cause not fully isolated - possibly colliding with another in-flight
+      // dropdown fetch on this same form) - the retry below re-clears and retypes rather than
+      // assuming one attempt is enough.
+      const filtered = menu.locator('li[aria-disabled="false"], li:not([aria-disabled])')
+        .filter({ hasText: itemName });
+      await expect(async () => {
+        await menu.locator('input').fill('');
+        await menu.locator('input').pressSequentially(itemName, { delay: 80 });
+        await this.page.waitForTimeout(800);
+        expect(await filtered.count()).toBeGreaterThan(0);
+      }).toPass({ timeout: 20000, intervals: [1000] });
+      // Substring match, not exact - the option's own display text is "<SKU> - <Name>" (e.g.
+      // "RM1 - RM1"), never just the plain search term a caller passes in (confirmed live: an
+      // anchored `^itemName$` regex here never matches, hanging until this locator's own click
+      // timeout, since the search input itself already narrowed the list down to just this item).
+      await filtered.first().click();
     } else {
       await menu.locator('li').nth(1).click();
     }
+    // Capture the resolved item's own display text BEFORE the row-level save collapses this
+    // dropdown into plain text - the only reliable way for a caller to know which item "first
+    // available" (no itemName passed) actually picked.
+    const selectedItemText = (await this.page.locator('[id="mui-component-select-item"]').textContent()).trim();
     await menu.waitFor({ state: 'hidden' }).catch(() => {});
     await this.page.waitForTimeout(500);
 
@@ -149,6 +167,7 @@ class BillOfMaterialPage {
       .last();
     await materialRow.locator('button').nth(1).click();
     await this.page.waitForTimeout(500);
+    return selectedItemText;
   }
 
   // Submits directly to Pending status (confirmed live) - Edit is NOT available afterward from

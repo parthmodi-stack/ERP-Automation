@@ -2017,6 +2017,19 @@ const testData = {
     equipment: {
       category: 'Tools',
     },
+
+    // Job Card (dashboard/manufacturing/job-cards) - reachable ONLY from a Completed Work Order's
+    // own Actions menu ("Create Job Cards" - see pages/WorkOrderPage.js's own
+    // openCreateJobCardsForm()/pages/JobCardPage.js header comment), so this suite builds its own
+    // dedicated Work Center Category -> Work Center -> Operation -> Bill of Material -> Routing
+    // chain rather than reusing any other module's. reason is one of a fixed enum on the Block
+    // dialog's own "Reason" dropdown (other confirmed live options: "Material Availability",
+    // "Setup and Adjustment", "Process Defect").
+    jobCard: {
+      location: 'Mumbai',
+      quantity: 5,
+      reason: 'Equipment Failure',
+    },
   },
 };
 

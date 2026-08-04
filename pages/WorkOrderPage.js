@@ -95,6 +95,19 @@ class WorkOrderPage {
     await this.selectDropdown('location_id', locationName);
   }
 
+  // "Category" (visible label) is a whole different field name under the hood, `work_order.type`
+  // (confirmed live) - and only renders as a REQUIRED field for certain items (confirmed live:
+  // raw-material "Coil"-style items like "RWM-HR-00113 - HR Coil 2.80mm x 1325mm" trigger it,
+  // alongside two other conditional text fields, Material Width/Material Thickness, that stay
+  // optional even then). Since "first available" item selection can land on either kind between
+  // runs, call this right after selectItem() on every Work Order - it silently no-ops when the
+  // field isn't present rather than making callers detect the item type themselves.
+  async selectCategoryIfPresent(categoryName) {
+    const trigger = this.page.locator('[id="mui-component-select-work_order.type"]');
+    if ((await trigger.count()) === 0) return;
+    await this.selectDropdown('type', categoryName);
+  }
+
   // Returns the raw list of BOM option texts for whichever Item is currently selected - callers
   // check for "No data available" (see ensureBomForItem below) rather than this method deciding
   // that itself, so a caller that wants the full list for some other reason still can.
@@ -119,6 +132,25 @@ class WorkOrderPage {
 
   async selectBOM(bomName) {
     await this.selectDropdown('bom_id', bomName);
+  }
+
+  // Routing is scoped by BOTH the header's own selected BOM AND Location together (confirmed
+  // live) - a Routing record whose own BOM matches but whose own Location doesn't (or vice versa)
+  // never appears here. Call AFTER both selectBOM() and selectLocation(), not before either.
+  //
+  // Filters the already-open, already-short option list client-side rather than going through
+  // selectDropdown()'s own typed-search path - this scoping already narrows it down to only a
+  // handful of options, and typing into its search box hits the same debounced-filter flakiness
+  // documented on BillOfMaterialPage.js's addMaterialRow() (a fixed wait after .fill() can resolve
+  // in ~1s or still be unfiltered several seconds later depending on load).
+  async selectRouting(routingName) {
+    await this.page.locator('[id="mui-component-select-work_order.routing_id"]').click();
+    const menu = this.page.locator('[id="menu-work_order.routing_id"]');
+    await menu.waitFor({ state: 'visible', timeout: 5000 });
+    await this.page.waitForTimeout(800);
+    const option = menu.locator('li').filter({ hasText: routingName });
+    await option.first().click();
+    await menu.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
   }
 
   // Self-healing dependency, matching this repo's own established pattern (e.g. 03-bin.spec.js's
@@ -258,6 +290,17 @@ class WorkOrderPage {
     await this.openActions();
     await this.page.getByRole('menuitem', { name: 'Build' }).click();
     await this.page.waitForURL('**/add-build-order');
+    await this.page.waitForLoadState('networkidle');
+  }
+
+  // Reachable from a Completed Work Order's own Actions menu ONLY (confirmed live: navigating
+  // directly to /dashboard/manufacturing/job-cards/add-job-cards loses all pre-fill context and
+  // renders a completely empty form, unlike this path which pre-fills Entity/Location/Item/UOM/
+  // BOM/Quantity/Routing from this Work Order). Call JobCardPage's own fillAndSave() next.
+  async openCreateJobCardsForm() {
+    await this.openActions();
+    await this.page.getByRole('menuitem', { name: 'Create Job Cards' }).click();
+    await this.page.waitForURL('**/add-job-cards');
     await this.page.waitForLoadState('networkidle');
   }
 }
