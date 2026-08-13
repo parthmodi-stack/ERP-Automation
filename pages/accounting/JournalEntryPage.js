@@ -21,6 +21,10 @@ class JournalEntryPage extends AccountingDocumentPage {
       listPath: '/dashboard/accounting/journal-entry',
       addPath: '/dashboard/accounting/journal-entry/add-journal-entry',
       statusCssSlug: 'journalEntry',
+      // Confirmed live: the create POST hits .../accounting/v1/journal-entries/ - PLURAL,
+      // unlike listPath's own singular "journal-entry" - saveAndCaptureId()'s default guess
+      // (derived from listPath) never matches this and times out without this override.
+      createUrlFragment: 'journal-entries',
     });
 
     // Confirmed against the running app: the button is labeled just "Add" (class

@@ -58,8 +58,39 @@ class AccountingDocumentPage extends SettingsEntityPage {
     return this.page.locator(`[class*="${this.statusCssSlug}--StatusChip"]`);
   }
 
+  /**
+   * Clicks the given action and, if a matching PATCH/PUT/POST mutation response shows up within
+   * the timeout, throws immediately with the backend's own error message on failure - instead of
+   * leaving callers to infer success only from a status-chip text match, which can pass or fail
+   * for reasons unrelated to whether the action actually succeeded server-side. Each entity's own
+   * status-transition endpoint URL differs (this is a shared base class across ~10 document
+   * modules), so this matches by method only rather than a specific URL fragment; if no matching
+   * response shows up in time (a wrong guess for some entity's own endpoint shape, or a genuinely
+   * slower one), falls back to the old UI-only behavior rather than hanging or failing spuriously.
+   */
+  async _clickAndCaptureMutation(clickFn, actionName) {
+    let response;
+    try {
+      [response] = await Promise.all([
+        this.page.waitForResponse(
+          (res) => ['PATCH', 'PUT', 'POST'].includes(res.request().method()),
+          { timeout: 10000 }
+        ),
+        clickFn(),
+      ]);
+    } catch {
+      return null;
+    }
+    if (!response.ok()) {
+      const body = await response.json().catch(() => ({}));
+      const message = body?.message || body?.error || `HTTP ${response.status()}`;
+      throw new Error(`${actionName}: action failed - ${message}`);
+    }
+    return response;
+  }
+
   async submitForApproval() {
-    await this.submitButton.click();
+    return this._clickAndCaptureMutation(() => this.submitButton.click(), 'submitForApproval');
   }
 
   // ---------- Approval flow (split-button caret + menu, same pattern as pages/BasePage.js's own
@@ -121,18 +152,24 @@ class AccountingDocumentPage extends SettingsEntityPage {
     await this.clickSubmitMenuItem('Accept');
     const dialog = this.page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 10000 });
-    await dialog.getByRole('button', { name: confirmButtonName }).click();
+    return this._clickAndCaptureMutation(
+      () => dialog.getByRole('button', { name: confirmButtonName }).click(),
+      'acceptApproval'
+    );
   }
 
   async rejectApproval({ confirmButtonName = /Submit/i } = {}) {
     await this.clickSubmitMenuItem('Reject');
     const dialog = this.page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 10000 });
-    await dialog.getByRole('button', { name: confirmButtonName }).click();
+    return this._clickAndCaptureMutation(
+      () => dialog.getByRole('button', { name: confirmButtonName }).click(),
+      'rejectApproval'
+    );
   }
 
   async markAsVoid() {
-    await this.markAsVoidButton.click();
+    return this._clickAndCaptureMutation(() => this.markAsVoidButton.click(), 'markAsVoid');
   }
 
   async attachFile(filePath, fieldName = 'attachment_url') {

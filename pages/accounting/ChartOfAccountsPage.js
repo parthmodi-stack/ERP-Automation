@@ -26,6 +26,10 @@ class ChartOfAccountsPage extends SettingsEntityPage {
       listPath: '/dashboard/accounting/settings/chart-of-accounts',
       addPath: '/dashboard/accounting/settings/chart-of-accounts/add-chart-of-accounts',
       displayNameField: 'account_name',
+      // Confirmed live: the create POST hits .../accounting/v1/chart-of-account/ - SINGULAR,
+      // unlike listPath's own plural "chart-of-accounts" - saveAndCaptureId()'s default guess
+      // (derived from listPath) never matches this and times out without this override.
+      createUrlFragment: 'chart-of-account',
     });
 
     this.statusCheckbox = page.locator('input[name="is_active"]');

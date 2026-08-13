@@ -44,8 +44,18 @@ class SettingsEntityPage {
    *   displayNameField - the real backend field that holds the row's display name
    *     (e.g. 'account_name', 'currency_name'). Defaults to 'name'. Lets test data / shared test
    *     contracts always use the generic key `name` without needing to know each entity's schema.
+   *   viewSlug/viewUrlPrefix - override the "view-<slug>"/"edit-<slug>" URL segment and its own
+   *     path prefix used by openViewById()/openEditById() below - only needed if the derivation
+   *     from addPath (see below) turns out wrong for some entity; a wrong guess fails loudly
+   *     (real page not found) rather than silently, so it's safe to leave unset by default.
+   *   createUrlFragment - override the URL substring saveAndCaptureId() waits for for a POST
+   *     response - defaults to listPath's own last segment, but that's not always the real API
+   *     endpoint's own name (confirmed live: Chart of Accounts' create POST hits
+   *     .../chart-of-account/ - SINGULAR - while its own listPath ends in the PLURAL
+   *     "chart-of-accounts", so the default guess never matches and saveAndCaptureId() times out).
+   *     A wrong guess here also fails loudly (a clear 15s timeout, not a silent wrong id).
    */
-  constructor(page, { entityKey, listPath, addPath, displayNameField = 'name' }) {
+  constructor(page, { entityKey, listPath, addPath, displayNameField = 'name', viewSlug, viewUrlPrefix, createUrlFragment }) {
     this.page = page;
     this.entityKey = entityKey;
     // Confirmed against the running app: the Edit form uses a separate FormParser
@@ -56,6 +66,18 @@ class SettingsEntityPage {
     this.listPath = listPath;
     this.addPath = addPath;
     this.displayNameField = displayNameField;
+    // View/Edit URLs are NOT reliably nested under listPath (confirmed live: Bank Account's is
+    // '.../settings/<id>/view-bank-account', not '.../settings/bank-account/<id>/...', mirroring
+    // its own addPath sitting at '.../settings/add-bank-account' rather than nested under
+    // listPath) - derive both the prefix and the slug from addPath's own shape instead, which
+    // already encodes exactly where the id/view segment goes for every entity confirmed so far
+    // (Chart of Accounts, Bank, Bank Account all match this pattern: strip addPath's own trailing
+    // "add-<slug>" segment for the prefix, and that segment minus "add-" is the slug).
+    const addPathSegments = addPath.split('/');
+    const addSlug = addPathSegments.pop().replace(/^add-/, '');
+    this.viewSlug = viewSlug || addSlug;
+    this.viewUrlPrefix = viewUrlPrefix || addPathSegments.join('/');
+    this.createUrlFragment = createUrlFragment || listPath.split('/').filter(Boolean).pop();
 
     // ActionBar. The search field is hidden behind a plain icon button (MUI auto-generates
     // data-testid="SearchIcon" on its own <SearchIcon> component - confirmed via live DOM
@@ -236,6 +258,24 @@ class SettingsEntityPage {
     await this.page.waitForLoadState('networkidle');
   }
 
+  /**
+   * Navigates straight to a record's View page by id, bypassing search/list-row lookup entirely -
+   * use this whenever the id is already known (e.g. from saveAndCaptureId()) instead of
+   * openRow(name), which depends on the list's own search/pagination having caught up with a
+   * just-created or just-renamed record (confirmed live: a race between create and an immediate
+   * search-by-name is a real, recurring source of "row not found" flakiness in this suite).
+   */
+  async openViewById(id) {
+    await this.page.goto(`${this.viewUrlPrefix}/${id}/view-${this.viewSlug}`);
+    await this.page.waitForLoadState('networkidle');
+  }
+
+  async openEditById(id) {
+    await this.openViewById(id);
+    await this.editButton.click();
+    await this.page.waitForLoadState('networkidle');
+  }
+
   async deleteRow(rowText) {
     await this.gotoList();
     await this.search(rowText);
@@ -245,8 +285,30 @@ class SettingsEntityPage {
     await row.locator('button').first().click();
     await this.page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
     await this.confirmDeleteButton.waitFor({ state: 'visible' });
-    await this.confirmDeleteButton.click();
+    await this.confirmDelete();
     await this.page.waitForLoadState('networkidle');
+  }
+
+  /**
+   * Clicks the already-visible delete confirmation button and captures the actual DELETE
+   * response, throwing immediately with the backend's own error message if it failed - instead
+   * of letting callers infer success/failure from a toast that can auto-dismiss before a check
+   * runs, or from the row's own later absence/presence (confirmed live: this suite's shared,
+   * cumulative environment can genuinely reject a delete, e.g. "already in use" for a record
+   * referenced elsewhere - a caller that wants to treat a SPECIFIC error as an accepted, skippable
+   * outcome rather than a failure should catch this and inspect its own `.message`).
+   */
+  async confirmDelete() {
+    const [deleteResponse] = await Promise.all([
+      this.page.waitForResponse((res) => res.request().method() === 'DELETE'),
+      this.confirmDeleteButton.click(),
+    ]);
+    if (!deleteResponse.ok()) {
+      const body = await deleteResponse.json().catch(() => ({}));
+      const message = body?.message || body?.error || `HTTP ${deleteResponse.status()}`;
+      throw new Error(`confirmDelete: Delete failed - ${message}`);
+    }
+    return deleteResponse;
   }
 
   /** Status chip for a given row, e.g. `.coa--StatusChip--Enabled` (pass the entity's CSS slug). */
@@ -285,6 +347,11 @@ class SettingsEntityPage {
     await this.page.waitForLoadState('networkidle');
   }
 
+  // Only opens the confirm dialog - callers click confirmDeleteButton themselves afterward.
+  // Prefer this.confirmDelete() over a bare `confirmDeleteButton.click()` for that step: it
+  // captures the actual DELETE response and throws with the backend's own error message on
+  // failure, rather than leaving the caller to infer success from a toast or the row's own
+  // later absence (see confirmDelete()'s own doc comment).
   async deleteViaMenu(identifier) {
     await this.clickRowMenuItem(identifier, 'Delete');
     await this.confirmDeleteButton.waitFor({ state: 'visible' });
@@ -317,10 +384,11 @@ class SettingsEntityPage {
    * @param {import('@playwright/test').Locator} button
    * @param {string[]} distinguishingKeys - fields (besides `id`) that identify this module's own
    *   record shape - needed because the response node also contains `id` on unrelated nested rows.
-   * @param {string} [urlFragment] - defaults to the entity's own listPath segment.
+   * @param {string} [urlFragment] - defaults to this.createUrlFragment (itself defaulting to the
+   *   entity's own listPath segment, overridable per-entity when the real API endpoint differs).
    */
   async saveAndCaptureId(button, distinguishingKeys, urlFragment) {
-    const fragment = urlFragment || this.listPath.split('/').filter(Boolean).pop();
+    const fragment = urlFragment || this.createUrlFragment;
     const [response] = await Promise.all([
       this.page.waitForResponse(
         (r) => r.request().method() === 'POST' && r.url().includes(fragment),
