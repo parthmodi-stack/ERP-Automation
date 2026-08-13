@@ -1,4 +1,4 @@
-const { expect } = require('@playwright/test');
+const SettingsEntityPage = require('./base/SettingsEntityPage');
 
 // Work Center Categories (dashboard/manufacturing/settings/work-center-categories) - a plain
 // master-data CRUD screen used to group Work Centers by Type (Labour/Machine/Overhead), reused
@@ -16,9 +16,13 @@ const { expect } = require('@playwright/test');
 // The page's own breadcrumb/title has a real app typo ("Work Centre Categoreis") and the View
 // page's own ID heading renders with a stray leading "$" (e.g. "$WCC-0034") - both confirmed live,
 // not mistakes introduced here.
-class WorkCenterCategoryPage {
+class WorkCenterCategoryPage extends SettingsEntityPage {
   constructor(page) {
-    this.page = page;
+    super(page, {
+      entityKey: 'add_work_center_category',
+      listPath: '/dashboard/manufacturing/settings/work-center-categories',
+      addPath: '/dashboard/manufacturing/settings/work-center-categories/add-work-center-categories',
+    });
 
     this.addButton = page.getByRole('button', { name: 'Add', exact: true });
     // Suffix-matched, not a hardcoded prefix - the Add form uses `add_work_center_category.*`
@@ -48,27 +52,16 @@ class WorkCenterCategoryPage {
     await this.page.waitForLoadState('networkidle');
   }
 
-  // Same `mui-component-select-<prefix>.<field>` pattern as every other Manufacturing form this
-  // session - suffix-matched (see constructor's own comment) since Add/Edit use different
-  // prefixes (`add_work_center_category` / `edit_work_center_category`).
-  async selectDropdown(fieldName, optionText) {
-    const trigger = this.page.locator(`[id^="mui-component-select-"][id$=".${fieldName}"]`);
-    await trigger.click();
-    const controlsId = await trigger.getAttribute('aria-controls');
-    const menu = this.page.locator(`[id="${controlsId}"]`);
-    await menu.waitFor({ state: 'visible', timeout: 5000 });
-    await expect(async () => {
-      expect(await menu.locator('li').count()).toBeGreaterThan(1);
-    }).toPass({ timeout: 8000, intervals: [300] });
-    if (optionText) {
-      await menu.locator('input').pressSequentially(optionText, { delay: 60 });
-      const exact = menu.locator('li').filter({ hasText: new RegExp(`^${optionText}$`) });
-      await expect(exact.first()).toBeVisible({ timeout: 8000 });
-      await exact.first().click();
-    } else {
-      await menu.locator('li').nth(1).click();
-    }
-    await menu.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+  // Delegates to the inherited selectField() (pages/base/SettingsEntityPage.js -> helpers/
+  // dropdown.js) for the full search -> exact-match -> first-available-fallback -> create-new/
+  // throw chain, instead of this file's own exact-match-or-throw reimplementation. Passing '' for
+  // both searchText/optionText when the caller omits a name reliably finds no real match, which
+  // sends the shared helper straight into its first-available branch - same "no name -> pick
+  // something available" behavior this class's callers already depend on, but verified rather
+  // than a blind `li.nth(1)` click.
+  async selectDropdown(fieldName, optionText, opts = {}) {
+    const value = optionText || '';
+    await this.selectField(fieldName, value, value, { optional: false, ...opts });
   }
 
   async selectType(type) {

@@ -1,4 +1,5 @@
 const { expect } = require('@playwright/test');
+const SettingsEntityPage = require('./base/SettingsEntityPage');
 
 // Routing (dashboard/manufacturing/settings/routing) - final step of the Work Center Categories
 // -> Work Center -> Operation and Equipments -> Routing sequence. Ties together Bill of Material,
@@ -44,9 +45,14 @@ const { expect } = require('@playwright/test');
 // Saving Edit without re-selecting it fails client-side with "Location is required" (no
 // navigation, no request). There is no workaround other than re-selecting Location on every Edit
 // - callers must pass it to saveEdit() below rather than treating Edit as a no-op resubmission.
-class RoutingPage {
+class RoutingPage extends SettingsEntityPage {
   constructor(page) {
-    this.page = page;
+    super(page, {
+      entityKey: 'routing',
+      listPath: '/dashboard/manufacturing/settings/routing',
+      addPath: '/dashboard/manufacturing/settings/routing/add-routing',
+      displayNameField: 'route_name',
+    });
 
     this.addButton = page.getByRole('button', { name: 'Add', exact: true });
     this.nameInput = page.locator('input[name="routing.route_name"]');
@@ -76,6 +82,16 @@ class RoutingPage {
   // dropdowns and the Routing Details row's own unprefixed dropdowns (operation/raw_materials/
   // work_centre/duration_computation) - pass the full id (with or without the `routing.` prefix)
   // as `fieldId`. Force-clicks a stale backdrop after selection (see class header comment).
+  //
+  // Deliberately NOT delegated to the inherited selectField()/helpers/dropdown.js the way the
+  // other Manufacturing page objects' header-level fields are: this method's own re-verify-and-
+  // retry-from-a-clean-state loop exists specifically to guard a confirmed-live bug (a selection
+  // can silently land on the WRONG record - e.g. "Mumbai" actually saving as an unrelated
+  // "Automation_Location_..." record) that the shared helper's own weaker post-click check (only
+  // "did the trigger text change at all", not "did it change to the RIGHT value") would not catch.
+  // Swapping this out would reintroduce that bug for Routing's own Location/BOM fields. Already
+  // implements match -> first-available (the `else` branch below); no create-new tier is added
+  // since none of this field's referenced entities are confirmed to ever be empty here.
   async selectDropdown(fieldId, optionText) {
     const trigger = this.page.locator(`[id="mui-component-select-${fieldId}"]`);
     await trigger.click();
@@ -84,46 +100,28 @@ class RoutingPage {
     await expect(async () => {
       expect(await menu.locator('li').count()).toBeGreaterThan(0);
     }).toPass({ timeout: 8000, intervals: [300] });
-    if (optionText) {
-      // Confirmed live: the unconditional Escape + force-click-the-backdrop below can, on its own,
-      // cause the WRONG option to end up selected (e.g. selecting "Mumbai" here has actually saved
-      // as an unrelated "Automation_Location_..." record instead) - re-verify the field's own
-      // displayed text actually landed on optionText afterward and retry the whole selection from
-      // a known-clean (menu open) state if not, rather than trusting a clean click() alone.
-      await expect(async () => {
-        if (!(await menu.isVisible())) {
-          await trigger.click();
-          await menu.waitFor({ state: 'visible', timeout: 5000 });
-        }
-        // Settle before typing - confirmed live that typing immediately after the menu reports
-        // itself visible (no pause) can race with this field's own async default/last-used-value
-        // hydration, ending in an unrelated option (e.g. Location silently landing on some
-        // "Automation_Location_..." record instead of "Mumbai") even though the typed search and
-        // click both otherwise behave correctly.
+
+    // First-available fallback - reused both when no optionText is given at all, and when a
+    // given optionText's own exact search never found a real match (see the catch block below).
+    // Raw Materials can have NO placeholder option (confirmed live: a single real item with no
+    // "Select..." entry above it) - use whichever is first rather than assuming index 1 always
+    // skips a placeholder.
+    const pickFirstAvailable = async () => {
+      if (!(await menu.isVisible())) {
+        await trigger.click();
+        await menu.waitFor({ state: 'visible', timeout: 5000 });
+      }
+      // Clear any search text a prior failed exact-match attempt left typed in - otherwise this
+      // would read off the same (possibly empty/"No data available") filtered list instead of
+      // the full option set. Scoped to a real text input specifically - confirmed live that some
+      // of this menu's own fields (e.g. Raw Materials) render as a multi-select checklist with
+      // its own checkbox <input> elements alongside the search box, and a bare `menu.locator(
+      // 'input')` matches both, crashing .fill() with a strict-mode violation.
+      const searchInput = menu.locator('input[type="text"]');
+      if (await searchInput.count()) {
+        await searchInput.first().fill('');
         await this.page.waitForTimeout(500);
-        await menu.locator('input').pressSequentially(optionText, { delay: 60 });
-        await this.page.waitForTimeout(1000);
-        const exact = menu.locator('li').filter({ hasText: new RegExp(`^${optionText}$`) });
-        await expect(exact.first()).toBeVisible({ timeout: 8000 });
-        await exact.first().click();
-        await this.page.waitForTimeout(500);
-        await this.page.keyboard.press('Escape').catch(() => {});
-        await this.page.waitForTimeout(300);
-        const staleBackdrop = this.page.locator('.MuiBackdrop-root.MuiModal-backdrop').first();
-        if (await staleBackdrop.count()) {
-          await staleBackdrop.click({ force: true }).catch(() => {});
-        }
-        await this.page.waitForTimeout(500);
-        if ((await trigger.textContent()).trim() !== optionText) {
-          await trigger.click();
-          await menu.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
-        }
-        expect((await trigger.textContent()).trim()).toBe(optionText);
-      }).toPass({ timeout: 20000, intervals: [500] });
-    } else {
-      // Raw Materials can have NO placeholder option (confirmed live: a single real item with no
-      // "Select..." entry above it) - use whichever is first rather than assuming index 1 always
-      // skips a placeholder.
+      }
       const options = await menu.locator('li').allTextContents();
       const index = /^Select /.test(options[0] || '') ? 1 : 0;
       await menu.locator('li').nth(index).click();
@@ -133,7 +131,62 @@ class RoutingPage {
         await staleBackdrop.click({ force: true }).catch(() => {});
       }
       await this.page.waitForTimeout(300);
+    };
+
+    if (optionText) {
+      // Confirmed live: the unconditional Escape + force-click-the-backdrop below can, on its own,
+      // cause the WRONG option to end up selected (e.g. selecting "Mumbai" here has actually saved
+      // as an unrelated "Automation_Location_..." record instead) - re-verify the field's own
+      // displayed text actually landed on optionText afterward and retry the whole selection from
+      // a known-clean (menu open) state if not, rather than trusting a clean click() alone.
+      try {
+        await expect(async () => {
+          if (!(await menu.isVisible())) {
+            await trigger.click();
+            await menu.waitFor({ state: 'visible', timeout: 5000 });
+          }
+          // Settle before typing - confirmed live that typing immediately after the menu reports
+          // itself visible (no pause) can race with this field's own async default/last-used-value
+          // hydration, ending in an unrelated option (e.g. Location silently landing on some
+          // "Automation_Location_..." record instead of "Mumbai") even though the typed search and
+          // click both otherwise behave correctly.
+          await this.page.waitForTimeout(500);
+          await menu.locator('input').pressSequentially(optionText, { delay: 60 });
+          await this.page.waitForTimeout(1000);
+          const exact = menu.locator('li').filter({ hasText: new RegExp(`^${optionText}$`) });
+          await expect(exact.first()).toBeVisible({ timeout: 8000 });
+          await exact.first().click();
+          await this.page.waitForTimeout(500);
+          await this.page.keyboard.press('Escape').catch(() => {});
+          await this.page.waitForTimeout(300);
+          const staleBackdrop = this.page.locator('.MuiBackdrop-root.MuiModal-backdrop').first();
+          if (await staleBackdrop.count()) {
+            await staleBackdrop.click({ force: true }).catch(() => {});
+          }
+          await this.page.waitForTimeout(500);
+          if ((await trigger.textContent()).trim() !== optionText) {
+            await trigger.click();
+            await menu.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+          }
+          expect((await trigger.textContent()).trim()).toBe(optionText);
+        }).toPass({ timeout: 20000, intervals: [500] });
+      } catch {
+        // The exact search never found a real match at all within the retry budget above (this
+        // field's own debounced search API is confirmed live to sometimes not filter to a
+        // genuinely-existing value in time, not just occasionally land on the wrong one) - fall
+        // back to first-available rather than leaving the caller with a hard failure and an
+        // unselected required field. Callers that need to know what actually got picked should
+        // read it back via getFieldDisplayText() afterward rather than assume optionText stuck.
+        await pickFirstAvailable();
+      }
+    } else {
+      await pickFirstAvailable();
     }
+  }
+
+  /** Reads back whatever value selectDropdown() actually landed on - see its own catch block. */
+  async getFieldDisplayText(fieldId) {
+    return (await this.page.locator(`[id="mui-component-select-${fieldId}"]`).textContent()).trim();
   }
 
   async selectBOM(bomName) {

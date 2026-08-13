@@ -114,6 +114,22 @@ test.describe.serial('Manufacturing - Job Card', () => {
     const bomRow = page.locator('tr', { hasText: bomName });
     const bomSeriesNumber = (await bomRow.getByText(/^BOM-\d+$/).first().textContent()).trim();
     await bomPage.openView(bomSeriesNumber);
+
+    // Submit For Approval hangs indefinitely (no visible error) when the Materials row's own
+    // item has no real stock (confirmed live this session, see WorkOrderPage.js's own comment on
+    // ensureBomForItem) - stock it in via a real Stock Transfer Receipt before attempting Submit.
+    // Destination location is left to "first available" - Submit For Approval doesn't check
+    // location at all, that's only Release's own separate, Location-scoped concern.
+    // addMaterialRow() returns "<SKU> - <Name>", but Stock Transfer's own Operational Detail row
+    // shows only the plain Name (confirmed live) - strip the SKU prefix back off.
+    const materialPlainName = materialItemName.includes(' - ')
+      ? materialItemName.slice(materialItemName.indexOf(' - ') + 3)
+      : materialItemName;
+    await seedMaterialStockViaReceipt(new StockTransferPage(page), {
+      itemName: materialPlainName,
+      availableQuantity: 500,
+    });
+    await bomPage.openView(bomSeriesNumber);
     await bomPage.submitForApproval();
     await bomPage.approve();
 
@@ -206,8 +222,11 @@ test.describe.serial('Manufacturing - Job Card', () => {
   // Explicit hook timeout - describe.configure's own 200000 above only applies to tests
   // themselves, not to beforeAll/afterAll (confirmed live: this hook's own WCC -> WC -> Operation
   // -> Bill of Material -> Routing chain can exceed Playwright's separate 60000ms hook default).
+  // Bumped from 120000: the BOM step now also stocks its own material in via a real Stock
+  // Transfer Receipt (create + Lot creation + Validate) before Submit For Approval can succeed
+  // at all (see WorkOrderPage.js's own comment on ensureBomForItem) - real, added time, not slack.
   test.beforeAll(async ({ browser }, testInfo) => {
-    testInfo.setTimeout(120000);
+    testInfo.setTimeout(240000);
     page = await browser.newPage();
     wccPage = new WorkCenterCategoryPage(page);
     wcPage = new WorkCenterPage(page);

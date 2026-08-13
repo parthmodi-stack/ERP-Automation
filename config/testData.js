@@ -1940,7 +1940,7 @@ const testData = {
     // records from other suites (Demand Planning's own Automation_DemandPlanning_* items), so any
     // literal name pinned here would need constant re-verification as those churn.
     billOfMaterial: {
-      location: 'Mumbai',
+      location: 'Navi Mumbai',
       quantity: 10,
       materialQuantity: 1,
     },
@@ -1968,7 +1968,7 @@ const testData = {
     // or the Work Order only partially builds and stays "In progress" instead of "Completed"
     // (confirmed live).
     workOrder: {
-      location: 'Mumbai',
+      location: 'Navi Mumbai',
       quantity: 5,
       updatedQuantity: 10,
       releaseMaterial: {
@@ -2003,11 +2003,15 @@ const testData = {
     // Work Center (dashboard/manufacturing/settings/work-centers) - same plain master-data CRUD
     // shape as Work Center Category (see pages/WorkCenterPage.js's own header comment) - only
     // Name and Location are actually required (confirmed live via empty-Save validation errors).
-    // Location is pinned to "Mumbai" (the same real, live-verified location used throughout this
-    // module) rather than "first available", since Work Center's own Location field has no
-    // per-item scoping concern the way Item pickers elsewhere in this module do.
+    // Location is pinned to "Navi Mumbai" (the same real, live-verified location used throughout
+    // this module - confirmed live 2026-08-10 that the previously-pinned "Mumbai" no longer exists
+    // as a location in this environment at all, only "Navi Mumbai" does; a dropdown-options dump
+    // showed it's not even in the default/unfiltered list, dominated by short-lived
+    // Auto_Full_Location_* automation records, and searching "Mumbai" only surfaces "Navi Mumbai"
+    // as a substring match) rather than "first available", since Work Center's own Location field
+    // has no per-item scoping concern the way Item pickers elsewhere in this module do.
     workCenter: {
-      location: 'Mumbai',
+      location: 'Navi Mumbai',
     },
 
     // Equipment (dashboard/manufacturing/settings/equipments) - third step of the Work Center
@@ -2026,7 +2030,7 @@ const testData = {
     // dialog's own "Reason" dropdown (other confirmed live options: "Material Availability",
     // "Setup and Adjustment", "Process Defect").
     jobCard: {
-      location: 'Mumbai',
+      location: 'Navi Mumbai',
       quantity: 5,
       reason: 'Equipment Failure',
     },

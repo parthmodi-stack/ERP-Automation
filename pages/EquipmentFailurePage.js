@@ -1,3 +1,5 @@
+const SettingsEntityPage = require('./base/SettingsEntityPage');
+
 // Equipment Failure (dashboard/manufacturing/equipment-failure) - NOT a screen anyone navigates to
 // directly to create a record; confirmed live a ticket here is auto-created as a side effect of
 // blocking a Job Card's own Routing Details row (see pages/JobCardPage.js's own blockRow()) - one
@@ -14,9 +16,16 @@
 //
 // Maintenance Status lifecycle: In Maintenance (created alongside the block) -> Completed (via
 // "Maintanance Completed", a simple Yes/No confirm dialog with no extra fields to fill).
-class EquipmentFailurePage {
+//
+// Extends SettingsEntityPage purely for consistency with the rest of Manufacturing - this page
+// has no dropdowns and no add/edit form at all (see header comment above), so none of the base
+// class's dropdown/CRUD helpers actually get used here.
+class EquipmentFailurePage extends SettingsEntityPage {
   constructor(page) {
-    this.page = page;
+    super(page, {
+      entityKey: 'equipment_failure',
+      listPath: '/dashboard/manufacturing/equipment-failure',
+    });
 
     this.maintenanceCompletedButton = page.getByRole('button', { name: 'Maintanance Completed', exact: true });
     this.editButton = page.getByRole('button', { name: 'Edit', exact: true });

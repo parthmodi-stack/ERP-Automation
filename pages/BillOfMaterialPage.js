@@ -1,4 +1,5 @@
 const { expect } = require('@playwright/test');
+const SettingsEntityPage = require('./base/SettingsEntityPage');
 
 // Bill of Material (dashboard/manufacturing/bill-of-material) - a real, fully-built document
 // module (unlike Work Order/BOM screens reached by direct navigation elsewhere, which are empty
@@ -15,9 +16,13 @@ const { expect } = require('@playwright/test');
 //    save (disk) icon is clicked - just filling the row's fields and clicking the page's main
 //    Save produces "body/materials must NOT have fewer than 1 items" even though the row LOOKS
 //    filled in the DOM.
-class BillOfMaterialPage {
+class BillOfMaterialPage extends SettingsEntityPage {
   constructor(page) {
-    this.page = page;
+    super(page, {
+      entityKey: 'bom',
+      listPath: '/dashboard/manufacturing/bill-of-material',
+      addPath: '/dashboard/manufacturing/bill-of-material/add-bill-of-material',
+    });
 
     this.addButton = page.getByRole('button', { name: 'Add', exact: true });
     this.saveButton = page.locator('button[form="bom"]');
@@ -64,26 +69,12 @@ class BillOfMaterialPage {
     await this.page.waitForLoadState('networkidle');
   }
 
-  // Same `mui-component-select-bom.<field>` / `menu-bom.<field>` pattern as the Inventory Item
-  // wizard - reused here rather than duplicated per field.
-  async selectDropdown(fieldName, optionText) {
-    await this.page.locator(`[id="mui-component-select-bom.${fieldName}"]`).click();
-    const menu = this.page.locator(`[id="menu-bom.${fieldName}"]`);
-    await menu.waitFor({ state: 'visible', timeout: 5000 });
-    await expect(async () => {
-      expect(await menu.locator('li').count()).toBeGreaterThan(1);
-    }).toPass({ timeout: 8000, intervals: [300] });
-    if (optionText) {
-      await menu.locator('input').fill(optionText);
-      await this.page.waitForTimeout(600);
-      await menu.locator('li[aria-disabled="false"], li:not([aria-disabled])')
-        .filter({ hasText: new RegExp(`^${optionText}$`) })
-        .first()
-        .click();
-    } else {
-      await menu.locator('li').nth(1).click();
-    }
-    await menu.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+  // Delegates to the inherited selectField() (pages/base/SettingsEntityPage.js -> helpers/
+  // dropdown.js) for the full search -> exact-match -> first-available-fallback -> create-new/
+  // throw chain - see WorkCenterCategoryPage.js's own selectDropdown for the rationale.
+  async selectDropdown(fieldName, optionText, opts = {}) {
+    const value = optionText || '';
+    await this.selectField(fieldName, value, value, { optional: false, ...opts });
   }
 
   // Call BEFORE fillHeader's own `name` - see class header comment.
@@ -113,6 +104,17 @@ class BillOfMaterialPage {
 
   // Adds one Materials row - item selection here is a SEPARATE, unprefixed `item`/`uom` dropdown
   // pair, distinct from the header's `bom.item_id`/`bom.unit_of_measurement_id` (confirmed live).
+  //
+  // Deliberately NOT delegated to helpers/dropdown.js's selectDropdown() the way the header-level
+  // fields above are: that helper requires an EXACT accessible-name match, but this row's own
+  // option text is "<SKU> - <Name>" (e.g. "RM1 - RM1"), never equal to the plain name a caller
+  // passes in - an exact-match requirement would always miss and silently fall through to
+  // whichever option happens to render first, which would break WorkOrderPage.ensureBomForItem's
+  // own `addMaterialRow({ itemName: 'RM1', quantity: 1 })` call (RM1 is pinned deliberately - see
+  // that method's own comment on why "first available" isn't good enough there). The substring
+  // filter/retry logic below is already the correct fallback shape (match -> first-available via
+  // the `else` branch) for this field's real constraints; only the generic helper's create-new/
+  // throw-if-empty tail would add anything, and Item is never confirmed empty in this environment.
   async addMaterialRow({ itemName, quantity } = {}) {
     await this.page.getByRole('button', { name: 'Add', exact: true }).last().click();
     await this.page.waitForTimeout(500);

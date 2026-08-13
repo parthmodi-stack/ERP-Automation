@@ -1,4 +1,7 @@
 const { expect } = require('@playwright/test');
+const SettingsEntityPage = require('./base/SettingsEntityPage');
+const StockTransferPage = require('./StockTransferPage');
+const { seedMaterialStockViaReceipt } = require('../helpers/manufacturingStock');
 
 // Unbuild Order (dashboard/manufacturing/orders/unbuild-order) - consumes an Item's own built
 // stock and produces its BOM's raw materials back. Two creation paths exist:
@@ -37,9 +40,13 @@ const { expect } = require('@playwright/test');
 //    (distinct from the Materials row above) and opens a second Track Detail dialog, pre-
 //    populated the same way - saving it replaces "Adjust Inventory" with a "Mark Completed"
 //    button, which finally completes the record.
-class UnbuildOrderPage {
+class UnbuildOrderPage extends SettingsEntityPage {
   constructor(page) {
-    this.page = page;
+    super(page, {
+      entityKey: 'unbuild_order',
+      listPath: '/dashboard/manufacturing/orders/unbuild-order',
+      addPath: '/dashboard/manufacturing/orders/unbuild-order/add-unbuild-order',
+    });
 
     this.quantityToUnbuildInput = page.locator('input[name="unbuild_order.quantity_to_unbuild"]');
     this.saveToDraftButton = page.getByRole('button', { name: 'Save To Draft', exact: true });
@@ -66,26 +73,14 @@ class UnbuildOrderPage {
     await this.page.waitForLoadState('networkidle');
   }
 
-  // Same `mui-component-select-unbuild_order.<field>` / `menu-unbuild_order.<field>` pattern as
-  // Work Order/Bill of Material's own forms.
-  async selectDropdown(fieldName, optionText) {
-    await this.page.locator(`[id="mui-component-select-unbuild_order.${fieldName}"]`).click();
-    const menu = this.page.locator(`[id="menu-unbuild_order.${fieldName}"]`);
-    await menu.waitFor({ state: 'visible', timeout: 5000 });
-    await expect(async () => {
-      expect(await menu.locator('li').count()).toBeGreaterThan(1);
-    }).toPass({ timeout: 8000, intervals: [300] });
-    if (optionText) {
-      // Real keystrokes, not .fill() - confirmed live elsewhere in this repo (StockTransferPage's
-      // own selectMuiField) that .fill() doesn't reliably trigger a debounced filter.
-      await menu.locator('input').pressSequentially(optionText, { delay: 60 });
-      const exact = menu.locator('li').filter({ hasText: new RegExp(`^${optionText}$`) });
-      await expect(exact.first()).toBeVisible({ timeout: 8000 });
-      await exact.first().click();
-    } else {
-      await menu.locator('li').nth(1).click();
-    }
-    await menu.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+  // Delegates to the inherited selectField() (pages/base/SettingsEntityPage.js -> helpers/
+  // dropdown.js) for the full search -> exact-match -> first-available-fallback -> create-new/
+  // throw chain - see WorkCenterCategoryPage.js's own selectDropdown for the rationale. The
+  // `bom_id` field additionally gets a `createIfMissing` fallback wired in automatically - see
+  // ensureBomForItem() below.
+  async selectDropdown(fieldName, optionText, opts = {}) {
+    const value = optionText || '';
+    await this.selectField(fieldName, value, value, { optional: false, ...opts });
   }
 
   async selectItem(itemName) {
@@ -115,33 +110,25 @@ class UnbuildOrderPage {
     await expect(noDataRow).toHaveCount(0, { timeout: 8000 });
   }
 
-  // Returns the raw list of BOM option texts for whichever Item is currently selected - same
-  // "check for No data available" pattern as WorkOrderPage.getBomOptionsForSelectedItem().
-  async getBomOptionsForSelectedItem() {
-    await this.page.locator('[id="mui-component-select-unbuild_order.bom_id"]').click();
-    const menu = this.page.locator('[id="menu-unbuild_order.bom_id"]');
-    await menu.waitFor({ state: 'visible', timeout: 5000 });
-    await this.page.waitForTimeout(800);
-    const options = await menu.locator('li').allTextContents();
-    await this.page.keyboard.press('Escape').catch(() => {});
-    const staleBackdrop = this.page.locator('.MuiBackdrop-root.MuiModal-backdrop').first();
-    if (await staleBackdrop.count()) {
-      await staleBackdrop.click({ force: true }).catch(() => {});
-    }
-    await this.page.waitForTimeout(300);
-    return options;
-  }
-
-  // Self-healing dependency, matching WorkOrderPage.ensureBomForItem()'s own established pattern
-  // (call AFTER selectItem() on this Add form) - if the selected item's BOM list is empty,
-  // creates one for that EXACT item via the given BillOfMaterialPage (Approved, sane date range,
-  // RM1 as the material row), then returns to a fresh Add form with the same item re-selected so
-  // the caller can continue from a known-good state either way.
-  async ensureBomForItem(bomPage, itemDisplayText) {
-    const options = await this.getBomOptionsForSelectedItem();
-    const hasRealBom = options.some((o) => o !== 'Select Bills of Materials' && o !== 'No data available');
-    if (hasRealBom) return;
-
+  // Creates a fresh, Approved BOM for the exact given item (Approved, sane date range), then
+  // returns to a fresh Add form with the same item re-selected. Returns the Materials row's own
+  // actually-selected item text (via BillOfMaterialPage.addMaterialRow's own return value).
+  //
+  // The Materials row is left to "first available" rather than pinned to "RM1" - RM1 is no
+  // longer reliably reachable via this row's own item search (confirmed live: its debounced
+  // filter API never actually applies a name filter, always re-fetching the same fixed "most
+  // recent 25 items" page regardless of what's typed, and RM1 has aged out of that window - see
+  // WorkOrderPage._createApprovedBomForItem's own comment for the full finding).
+  //
+  // CONFIRMED LIVE this session: Submit For Approval hangs indefinitely (no visible error, no
+  // status change) when the Materials row's own item has no real stock - stock it in via a real
+  // Stock Transfer Receipt (same mechanism Release's own "insufficient material" fallback uses)
+  // BEFORE attempting Submit, rather than after - this BOM can't be Approved at all otherwise.
+  // The receipt's own destination location is left to "first available" (StockTransferPage's own
+  // fallback when no location is passed) rather than pinned to a specific one - Submit For
+  // Approval doesn't check location at all (the BOM's own header shows Location as blank/unset
+  // here), that's only Release's own separate, Location-scoped concern.
+  async _createApprovedBomForItem(bomPage, itemDisplayText) {
     await bomPage.goto();
     await bomPage.selectItem(itemDisplayText);
     const bomName = `Automation_BOM_ForUO_${Date.now()}`;
@@ -152,14 +139,40 @@ class UnbuildOrderPage {
       endDate: '31-12-2027', // must be AFTER startDate - see BillOfMaterialPage's own comment
     });
     await bomPage.selectUOM();
-    await bomPage.addMaterialRow({ itemName: 'RM1', quantity: 1 });
+    const materialItemText = await bomPage.addMaterialRow({ quantity: 1 });
     await bomPage.save();
-    await bomPage.openView((await bomPage.page.getByText(/^BOM-\d+$/).first().textContent()).trim());
+    const bomSeriesNumber = (await bomPage.page.getByText(/^BOM-\d+$/).first().textContent()).trim();
+    await bomPage.openView(bomSeriesNumber);
+
+    // addMaterialRow() returns "<SKU> - <Name>", but Stock Transfer's own Operational Detail row
+    // shows only the plain Name (confirmed live) - strip the SKU prefix back off, see
+    // WorkOrderPage._createApprovedBomForItem's own comment for the full finding.
+    const materialPlainName = materialItemText.includes(' - ')
+      ? materialItemText.slice(materialItemText.indexOf(' - ') + 3)
+      : materialItemText;
+    await seedMaterialStockViaReceipt(new StockTransferPage(this.page), {
+      itemName: materialPlainName,
+      availableQuantity: 500,
+    });
+
+    await bomPage.openView(bomSeriesNumber);
     await bomPage.submitForApproval();
     await bomPage.approve();
 
     await this.gotoAdd();
     await this.selectItem(itemDisplayText);
+    return materialItemText;
+  }
+
+  // Call AFTER selectItem() on this Add form. ALWAYS creates a fresh BOM rather than reusing
+  // whatever BOM the item might already have - matching WorkOrderPage.ensureBomForItem()'s own
+  // established pattern and reasoning. Also directly selects the newly-created BOM, so a
+  // separate selectDropdown('bom_id') call afterward is now a harmless re-selection rather than a
+  // required step. Returns the Materials row's own item text.
+  async ensureBomForItem(bomPage, itemDisplayText) {
+    const materialItemText = await this._createApprovedBomForItem(bomPage, itemDisplayText);
+    await this.selectField('bom_id', '', '', { optional: false });
+    return materialItemText;
   }
 
   // Fills Quantity To Unbuild and saves as Draft (the only usable Create action - see class

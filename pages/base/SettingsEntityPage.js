@@ -160,6 +160,17 @@ class SettingsEntityPage {
     await selectDropdown(this.page, this.selectTriggerLocator(fieldName), searchText, optionText, opts);
   }
 
+  /**
+   * Reads back whatever value a selectField() call actually landed on - needed because the
+   * fallback chain (exact match -> first-available -> create-new) means the selected value isn't
+   * always the literal `optionText` a caller asked for. Callers that need to assert on "what got
+   * selected" downstream (e.g. on a View page) should capture this right after selectField(),
+   * not assume their own requested value stuck.
+   */
+  async getFieldDisplayText(fieldName) {
+    return (await this.selectTriggerLocator(fieldName).textContent()).trim();
+  }
+
   async save() {
     await this.saveButton.click();
   }

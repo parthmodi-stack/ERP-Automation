@@ -1,4 +1,6 @@
 const { expect } = require('@playwright/test');
+const SettingsEntityPage = require('./base/SettingsEntityPage');
+const { selectDropdown } = require('../helpers/dropdown');
 
 // Job Card (dashboard/manufacturing/job-cards) - reached ONLY from a Completed Work Order's own
 // Actions menu ("Create Job Cards", see WorkOrderPage.openCreateJobCardsForm()) - confirmed live
@@ -52,9 +54,15 @@ const { expect } = require('@playwright/test');
 // dependency on any of this - it succeeds (200) and flips the whole Job Card to "Completed" even
 // with a row still sitting Blocked and its own Equipment Failure ticket never resolved, since Mark
 // Complete doesn't check Record Completion (or per-row status) having actually happened first.
-class JobCardPage {
+class JobCardPage extends SettingsEntityPage {
   constructor(page) {
-    this.page = page;
+    super(page, {
+      entityKey: 'job_card',
+      listPath: '/dashboard/manufacturing/job-cards',
+      // Reachable only via WorkOrderPage.openCreateJobCardsForm() - see class header comment -
+      // there is no direct-navigation Add path, so openAdd() is never actually used here.
+      addPath: '/dashboard/manufacturing/job-cards/add-job-cards',
+    });
 
     this.saveButton = page.getByRole('button', { name: 'Save', exact: true });
     this.saveToDraftButton = page.getByRole('button', { name: 'Save To Draft', exact: true });
@@ -76,23 +84,12 @@ class JobCardPage {
     await this.page.waitForLoadState('networkidle');
   }
 
-  // Same `mui-component-select-job_card.<field>` pattern as every other Manufacturing form.
-  async selectDropdown(fieldName, optionText) {
-    await this.page.locator(`[id="mui-component-select-job_card.${fieldName}"]`).click();
-    const menu = this.page.locator(`[id="menu-job_card.${fieldName}"]`);
-    await menu.waitFor({ state: 'visible', timeout: 5000 });
-    await expect(async () => {
-      expect(await menu.locator('li').count()).toBeGreaterThan(1);
-    }).toPass({ timeout: 8000, intervals: [300] });
-    if (optionText) {
-      await menu.locator('input').pressSequentially(optionText, { delay: 60 });
-      const exact = menu.locator('li').filter({ hasText: new RegExp(`^${optionText}$`) });
-      await expect(exact.first()).toBeVisible({ timeout: 8000 });
-      await exact.first().click();
-    } else {
-      await menu.locator('li').nth(1).click();
-    }
-    await menu.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+  // Delegates to the inherited selectField() (pages/base/SettingsEntityPage.js -> helpers/
+  // dropdown.js) for the full search -> exact-match -> first-available-fallback -> create-new/
+  // throw chain - see WorkCenterCategoryPage.js's own selectDropdown for the rationale.
+  async selectDropdown(fieldName, optionText, opts = {}) {
+    const value = optionText || '';
+    await this.selectField(fieldName, value, value, { optional: false, ...opts });
   }
 
   // Required (real asterisk, actually enforced - confirmed live: Save fires no request at all
@@ -190,18 +187,25 @@ class JobCardPage {
     await this.rowActionsCell().locator('button').nth(1).click();
     await this.page.waitForTimeout(600);
 
-    await this.page.locator('[id="mui-component-select-equipment.reason"]').click();
-    const reasonMenu = this.page.locator('[id="menu-equipment.reason"]');
-    await reasonMenu.waitFor({ state: 'visible', timeout: 5000 });
-    await this.page.waitForTimeout(400);
-    if (reason) {
-      const exact = reasonMenu.locator('li').filter({ hasText: new RegExp(`^${reason}$`) });
-      await exact.first().click();
-    } else {
-      await reasonMenu.locator('li').nth(1).click();
-    }
+    // This dialog's fields sit under the generic `equipment.*` prefix, NOT `job_card.*` (see class
+    // header comment) - the inherited selectField() can't reach them (it only builds
+    // `job_card.<field>`/`edit_job_card.<field>` locators), so this calls the shared
+    // helpers/dropdown.js engine directly with a manually built trigger locator instead, the same
+    // way DemandPlanningPage/PartyPage do for their own non-standard triggers.
+    const reasonValue = reason || '';
+    await selectDropdown(
+      this.page,
+      this.page.locator('[id="mui-component-select-equipment.reason"]'),
+      reasonValue,
+      reasonValue,
+      { optional: false }
+    );
     await this.page.waitForTimeout(400);
 
+    // Select Equipments is a multi-select checklist, not a single searchable value - it never
+    // takes a target name (see method header comment: "always selects at least one equipment
+    // rather than trusting the Yes/No answer"), so the search/exact-match/create-new engine above
+    // doesn't apply here; this just checks whichever equipment renders first, unchanged.
     await this.page.locator('[id="mui-component-select-equipment.equipments"]').click();
     const equipMenu = this.page.locator('[id="menu-equipment.equipments"]');
     await equipMenu.waitFor({ state: 'visible', timeout: 5000 });

@@ -1,4 +1,4 @@
-const { expect } = require('@playwright/test');
+const SettingsEntityPage = require('./base/SettingsEntityPage');
 
 // Work Center (dashboard/manufacturing/settings/work-centers) - a master-data CRUD screen (no
 // approval workflow) representing a physical/logical production resource. Standalone class, no
@@ -22,9 +22,13 @@ const { expect } = require('@playwright/test');
 // Efficiency" field renders as "This Efficiency" on the View page, and the location field's own
 // label is an untranslated locale key ("crm.salesOrder.fields.location_label"), same bug already
 // documented on Work Center Category/Unbuild Order's own Location fields.
-class WorkCenterPage {
+class WorkCenterPage extends SettingsEntityPage {
   constructor(page) {
-    this.page = page;
+    super(page, {
+      entityKey: 'work_centre',
+      listPath: '/dashboard/manufacturing/settings/work-centers',
+      addPath: '/dashboard/manufacturing/settings/work-centers/add-work-centers',
+    });
 
     this.addButton = page.getByRole('button', { name: 'Add', exact: true });
     this.nameInput = page.locator('input[name="work_centre.name"]');
@@ -51,23 +55,12 @@ class WorkCenterPage {
     await this.page.waitForLoadState('networkidle');
   }
 
-  // Same `mui-component-select-work_centre.<field>` pattern as every other Manufacturing form.
-  async selectDropdown(fieldName, optionText) {
-    await this.page.locator(`[id="mui-component-select-work_centre.${fieldName}"]`).click();
-    const menu = this.page.locator(`[id="menu-work_centre.${fieldName}"]`);
-    await menu.waitFor({ state: 'visible', timeout: 5000 });
-    await expect(async () => {
-      expect(await menu.locator('li').count()).toBeGreaterThan(1);
-    }).toPass({ timeout: 8000, intervals: [300] });
-    if (optionText) {
-      await menu.locator('input').pressSequentially(optionText, { delay: 60 });
-      const exact = menu.locator('li').filter({ hasText: new RegExp(`^${optionText}$`) });
-      await expect(exact.first()).toBeVisible({ timeout: 8000 });
-      await exact.first().click();
-    } else {
-      await menu.locator('li').nth(1).click();
-    }
-    await menu.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+  // Delegates to the inherited selectField() (pages/base/SettingsEntityPage.js -> helpers/
+  // dropdown.js) for the full search -> exact-match -> first-available-fallback -> create-new/
+  // throw chain - see WorkCenterCategoryPage.js's own selectDropdown for the rationale.
+  async selectDropdown(fieldName, optionText, opts = {}) {
+    const value = optionText || '';
+    await this.selectField(fieldName, value, value, { optional: false, ...opts });
   }
 
   async selectLocation(locationName) {

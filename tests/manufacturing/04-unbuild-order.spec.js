@@ -34,28 +34,32 @@ async function createCompletedBuildOrder(page, woPage, bomPage, buildOrderPage) 
   await woPage.selectItem(); // first available - same "not pinned" reasoning as 03-work-order.spec.js
   const itemText = await woPage.getSelectedItemText();
 
-  await woPage.ensureBomForItem(bomPage, itemText);
+  // ensureBomForItem() always creates a fresh BOM, stocks its own Materials row's item in
+  // (required before this BOM can be Submitted for Approval at all - see WorkOrderPage.js's own
+  // comment) and returns the Materials row's own actually-selected item text ("first available" -
+  // RM1 is no longer reliably reachable via that row's own search).
+  const materialItemText = await woPage.ensureBomForItem(bomPage, itemText);
   await woPage.selectDropdown('bom_id');
   await woPage.fillHeader({ date: '01-08-2026' });
   await woPage.selectLocation(woData.location);
+  const selectedLocationText = await woPage.getFieldDisplayText('location_id');
   await woPage.fillHeader({ quantity: woData.quantity });
   await woPage.save();
 
   const row = page.locator('tr', { hasText: 'Planned' }).first();
   const woSeriesNumber = (await row.getByText(/^WO-\d{4}-\d+$/).first().textContent()).trim();
 
-  // Try Release first - only seed RM1's stock via the real Stock Transfer Receipt flow if it
-  // actually reports insufficient material (confirmed live: seeding unconditionally, or via the
-  // backend API directly, is either wasteful or doesn't satisfy this check at all - see
+  // Try Release first - only seed the material's stock via the real Stock Transfer Receipt flow
+  // if it actually reports insufficient material (confirmed live: seeding unconditionally, or via
+  // the backend API directly, is either wasteful or doesn't satisfy this check at all - see
   // 03-work-order.spec.js's TC-WO-04 for the full reasoning).
   await woPage.openView(woSeriesNumber);
   const releaseOutcome = await woPage.release();
   if (releaseOutcome === 'insufficient_material') {
-    const releaseMaterial = woData.releaseMaterial;
     await seedMaterialStockViaReceipt(new StockTransferPage(page), {
-      itemName: releaseMaterial.itemName,
-      availableQuantity: releaseMaterial.availableQuantity,
-      location: woData.location,
+      itemName: materialItemText,
+      availableQuantity: woData.releaseMaterial.availableQuantity,
+      location: selectedLocationText,
     });
     await woPage.openView(woSeriesNumber);
     expect(await woPage.release()).toBe('released');

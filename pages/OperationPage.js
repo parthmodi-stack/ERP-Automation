@@ -1,4 +1,5 @@
-const { expect } = require('@playwright/test');
+const SettingsEntityPage = require('./base/SettingsEntityPage');
+const { selectDropdown } = require('../helpers/dropdown');
 
 // Operation (dashboard/manufacturing/settings/operations) - fourth step of the Work Center
 // Categories -> Work Center -> Operation and Equipments -> Routing sequence (Equipment itself was
@@ -29,9 +30,13 @@ const { expect } = require('@playwright/test');
 // Equipment's Edit, not Work Center Category/Work Center's Edit-only-has-Save shape). The Delete
 // confirmation dialog's own title is "Delete Item" rather than "Delete Operation" (confirmed live,
 // same inconsistency as Equipment's own Delete dialog).
-class OperationPage {
+class OperationPage extends SettingsEntityPage {
   constructor(page) {
-    this.page = page;
+    super(page, {
+      entityKey: 'operation',
+      listPath: '/dashboard/manufacturing/settings/operations',
+      addPath: '/dashboard/manufacturing/settings/operations/add-operations',
+    });
 
     this.addButton = page.getByRole('button', { name: 'Add', exact: true });
     this.nameInput = page.locator('input[name="operation.operation_name"]');
@@ -57,23 +62,12 @@ class OperationPage {
     await this.page.waitForLoadState('networkidle');
   }
 
-  // Same `mui-component-select-operation.<field>` pattern as every other Manufacturing form.
-  async selectDropdown(fieldName, optionText) {
-    await this.page.locator(`[id="mui-component-select-operation.${fieldName}"]`).click();
-    const menu = this.page.locator(`[id="menu-operation.${fieldName}"]`);
-    await menu.waitFor({ state: 'visible', timeout: 5000 });
-    await expect(async () => {
-      expect(await menu.locator('li').count()).toBeGreaterThan(1);
-    }).toPass({ timeout: 8000, intervals: [300] });
-    if (optionText) {
-      await menu.locator('input').pressSequentially(optionText, { delay: 60 });
-      const exact = menu.locator('li').filter({ hasText: new RegExp(`^${optionText}$`) });
-      await expect(exact.first()).toBeVisible({ timeout: 8000 });
-      await exact.first().click();
-    } else {
-      await menu.locator('li').nth(1).click();
-    }
-    await menu.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+  // Delegates to the inherited selectField() (pages/base/SettingsEntityPage.js -> helpers/
+  // dropdown.js) for the full search -> exact-match -> first-available-fallback -> create-new/
+  // throw chain - see WorkCenterCategoryPage.js's own selectDropdown for the rationale.
+  async selectDropdown(fieldName, optionText, opts = {}) {
+    const value = optionText || '';
+    await this.selectField(fieldName, value, value, { optional: false, ...opts });
   }
 
   async selectWorkCentre(workCentreName) {
@@ -104,21 +98,14 @@ class OperationPage {
     await this.page.getByRole('button', { name: 'Add', exact: true }).first().click();
     await this.page.waitForTimeout(500);
 
-    await this.page.locator('[id="mui-component-select-category"]').click();
-    const menu = this.page.locator('[id="menu-category"]');
-    await menu.waitFor({ state: 'visible', timeout: 5000 });
-    await expect(async () => {
-      expect(await menu.locator('li').count()).toBeGreaterThan(1);
-    }).toPass({ timeout: 8000, intervals: [300] });
-    if (categoryName) {
-      await menu.locator('input').pressSequentially(categoryName, { delay: 60 });
-      const exact = menu.locator('li').filter({ hasText: new RegExp(`^${categoryName}$`) });
-      await expect(exact.first()).toBeVisible({ timeout: 8000 });
-      await exact.first().click();
-    } else {
-      await menu.locator('li').nth(1).click();
-    }
-    await menu.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+    const value = categoryName || '';
+    await selectDropdown(
+      this.page,
+      this.page.locator('[id="mui-component-select-category"]'),
+      value,
+      value,
+      { optional: false }
+    );
     await this.page.waitForTimeout(300);
 
     const costingRow = this.page.locator('table tbody tr')

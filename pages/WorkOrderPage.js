@@ -1,4 +1,7 @@
 const { expect } = require('@playwright/test');
+const SettingsEntityPage = require('./base/SettingsEntityPage');
+const StockTransferPage = require('./StockTransferPage');
+const { seedMaterialStockViaReceipt } = require('../helpers/manufacturingStock');
 
 // Work Order (dashboard/manufacturing/orders/work-order) - a real, fully-built document module,
 // same `mui-component-select-work_order.<field>` pattern as Bill of Material's own `bom.<field>`.
@@ -28,9 +31,13 @@ const { expect } = require('@playwright/test');
 // Order's own "Close" button is NOT part of this path - confirmed live it's a mislabeled/buggy
 // action that reverts status back to "Released" (toast: "Work Order has been released", the same
 // confirm dialog/endpoint as Release itself) rather than completing anything.
-class WorkOrderPage {
+class WorkOrderPage extends SettingsEntityPage {
   constructor(page) {
-    this.page = page;
+    super(page, {
+      entityKey: 'work_order',
+      listPath: '/dashboard/manufacturing/orders/work-order',
+      addPath: '/dashboard/manufacturing/orders/work-order/add-work-order',
+    });
 
     this.addButton = page.getByRole('button', { name: 'Add', exact: true });
     this.saveButton = page.locator('button[form="work_order"]');
@@ -63,24 +70,16 @@ class WorkOrderPage {
     await this.page.waitForLoadState('networkidle');
   }
 
-  async selectDropdown(fieldName, optionText) {
-    await this.page.locator(`[id="mui-component-select-work_order.${fieldName}"]`).click();
-    const menu = this.page.locator(`[id="menu-work_order.${fieldName}"]`);
-    await menu.waitFor({ state: 'visible', timeout: 5000 });
-    await expect(async () => {
-      expect(await menu.locator('li').count()).toBeGreaterThan(1);
-    }).toPass({ timeout: 8000, intervals: [300] });
-    if (optionText) {
-      await menu.locator('input').fill(optionText);
-      await this.page.waitForTimeout(600);
-      await menu.locator('li[aria-disabled="false"], li:not([aria-disabled])')
-        .filter({ hasText: new RegExp(`^${optionText}$`) })
-        .first()
-        .click();
-    } else {
-      await menu.locator('li').nth(1).click();
-    }
-    await menu.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+  // Delegates to the inherited selectField() (pages/base/SettingsEntityPage.js -> helpers/
+  // dropdown.js) for the full search -> exact-match -> first-available-fallback -> create-new/
+  // throw chain - see WorkCenterCategoryPage.js's own selectDropdown for the rationale.
+  // `bom_id` specifically should go through ensureBomForItem() below instead of calling this
+  // directly with no optionText, since a "first available" BOM pick can land on one whose own
+  // material isn't RM1 and breaks Issue Material's downstream tracking - see that method's own
+  // comment.
+  async selectDropdown(fieldName, optionText, opts = {}) {
+    const value = optionText || '';
+    await this.selectField(fieldName, value, value, { optional: false, ...opts });
   }
 
   async selectItem(itemName) {
@@ -108,28 +107,6 @@ class WorkOrderPage {
     await this.selectDropdown('type', categoryName);
   }
 
-  // Returns the raw list of BOM option texts for whichever Item is currently selected - callers
-  // check for "No data available" (see ensureBomForItem below) rather than this method deciding
-  // that itself, so a caller that wants the full list for some other reason still can.
-  async getBomOptionsForSelectedItem() {
-    await this.page.locator('[id="mui-component-select-work_order.bom_id"]').click();
-    const menu = this.page.locator('[id="menu-work_order.bom_id"]');
-    await menu.waitFor({ state: 'visible', timeout: 5000 });
-    await this.page.waitForTimeout(800);
-    const options = await menu.locator('li').allTextContents();
-    // Escape alone doesn't reliably close this MUI popover (confirmed live - same underlying
-    // quirk BasePage.js's own dropdown helpers were fixed for elsewhere this round: it can leave
-    // a backdrop mounted that intercepts every later click on the page, blocking the very next
-    // selectDropdown() call). Force-click the backdrop directly rather than relying on Escape.
-    await this.page.keyboard.press('Escape').catch(() => {});
-    const staleBackdrop = this.page.locator('.MuiBackdrop-root.MuiModal-backdrop').first();
-    if (await staleBackdrop.count()) {
-      await staleBackdrop.click({ force: true }).catch(() => {});
-    }
-    await this.page.waitForTimeout(300);
-    return options;
-  }
-
   async selectBOM(bomName) {
     await this.selectDropdown('bom_id', bomName);
   }
@@ -153,24 +130,29 @@ class WorkOrderPage {
     await menu.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
   }
 
-  // Self-healing dependency, matching this repo's own established pattern (e.g. 03-bin.spec.js's
-  // Location check) rather than assuming every item already has one: call AFTER selectItem() on
-  // the Work Order's own Add form. If the selected item's BOM list is empty, creates one for that
-  // EXACT item via the given BillOfMaterialPage, approves it (only an Approved BOM with a sane
-  // Start < End date range is confirmed live to actually appear in this dropdown), then re-opens
-  // a fresh Work Order Add form and re-selects the same item so the caller can continue from a
-  // known-good state either way.
+  // Creates a fresh, Approved BOM for the exact given item (only an Approved BOM with a sane
+  // Start < End date range is confirmed live to actually appear in the Work Order's own BOM
+  // dropdown), then re-opens a fresh Work Order Add form and re-selects the same item so the
+  // caller continues from a known-good state. Returns the Materials row's own actually-selected
+  // item text (via BillOfMaterialPage.addMaterialRow's own return value).
   //
-  // The Materials row pins "RM1" (confirmed live: 1728 available stock, one of item FG1's own
-  // real working BOM's raw materials) instead of "first available" - confirmed live via direct
-  // network capture that Release fails server-side with a 400 ("Cannot release work order.
-  // Required materials are not available in sufficient quantity.") when the BOM's material has
-  // no real stock, which a random "first available" pick can easily land on.
-  async ensureBomForItem(bomPage, itemDisplayText) {
-    const options = await this.getBomOptionsForSelectedItem();
-    const hasRealBom = options.some((o) => o !== 'Select Bill of Material' && o !== 'No data available');
-    if (hasRealBom) return;
-
+  // The Materials row is left to "first available" rather than pinned to "RM1" - RM1 is no
+  // longer reliably reachable via this row's own item search (confirmed live: the search box's
+  // own debounced filter API never actually applies a name filter at all - it just re-fetches the
+  // same fixed "most recent 25 items by id" page regardless of what's typed - and RM1, an older
+  // item, has long since aged out of that window as newer automation items from other suites
+  // accumulate).
+  //
+  // CONFIRMED LIVE this session: Submit For Approval hangs indefinitely (no visible error, no
+  // status change) when the Materials row's own item has no real stock - stock it in via a real
+  // Stock Transfer Receipt (same mechanism Release's own "insufficient material" fallback uses)
+  // BEFORE attempting Submit, rather than after - this BOM can't be Approved at all otherwise.
+  // The receipt's own destination location is left to "first available" (StockTransferPage's own
+  // fallback when no location is passed) rather than pinned to this Work Order's own eventual
+  // Location - Submit For Approval doesn't check location at all (the BOM's own header shows
+  // Location as blank/unset here), that's only Release's own separate, Location-scoped concern,
+  // which already has its own conditional seeding fallback where it's actually needed.
+  async _createApprovedBomForItem(bomPage, itemDisplayText) {
     await bomPage.goto();
     await bomPage.selectItem(itemDisplayText);
     const bomName = `Automation_BOM_ForWO_${Date.now()}`;
@@ -181,14 +163,43 @@ class WorkOrderPage {
       endDate: '31-12-2027', // must be AFTER startDate - see this class's own header comment
     });
     await bomPage.selectUOM();
-    await bomPage.addMaterialRow({ itemName: 'RM1', quantity: 1 });
+    const materialItemText = await bomPage.addMaterialRow({ quantity: 1 });
     await bomPage.save();
-    await bomPage.openView((await bomPage.page.getByText(/^BOM-\d+$/).first().textContent()).trim());
+    const bomSeriesNumber = (await bomPage.page.getByText(/^BOM-\d+$/).first().textContent()).trim();
+    await bomPage.openView(bomSeriesNumber);
+
+    // addMaterialRow() returns "<SKU> - <Name>" (the Materials row's own display format), but
+    // Stock Transfer's own Operational Detail row shows only the plain Name (confirmed live) -
+    // StockTransferPage.rowByItemName()'s own substring match never finds a "<SKU> - <Name>"
+    // search string against that plain-name row, so strip the SKU prefix back off first.
+    const materialPlainName = materialItemText.includes(' - ')
+      ? materialItemText.slice(materialItemText.indexOf(' - ') + 3)
+      : materialItemText;
+    await seedMaterialStockViaReceipt(new StockTransferPage(this.page), {
+      itemName: materialPlainName,
+      availableQuantity: 500,
+    });
+
+    await bomPage.openView(bomSeriesNumber);
     await bomPage.submitForApproval();
     await bomPage.approve();
 
     await this.goto();
     await this.selectItem(itemDisplayText);
+    return materialItemText;
+  }
+
+  // Call AFTER selectItem() on the Work Order's own Add form. ALWAYS creates a fresh BOM rather
+  // than reusing whatever BOM the item might already have (confirmed live: an item can already
+  // carry an approved BOM from an earlier, unrelated test run whose own material has no real
+  // stock - reusing that would hit the same Submit-hangs-forever gap this method now stocks in
+  // for from scratch every time). Also directly selects the newly-created BOM, so callers no
+  // longer need a separate selectDropdown('bom_id') call afterward - existing calls to that are
+  // now a harmless re-selection, not a required step. Returns the Materials row's own item text.
+  async ensureBomForItem(bomPage, itemDisplayText) {
+    const materialItemText = await this._createApprovedBomForItem(bomPage, itemDisplayText);
+    await this.selectField('bom_id', '', '', { optional: false });
+    return materialItemText;
   }
 
   async fillHeader({ date, quantity, manufacturingTime, referenceNumber } = {}) {
@@ -258,27 +269,63 @@ class WorkOrderPage {
 
   // Released -> Material Issued. "Issue Material" opens a SEPARATE document ("Add Material
   // Issue"), pre-filled from this Work Order/its BOM, with its own Materials grid row already
-  // populated with the BOM's material and quantity. That row's own "Trace Details" icon (same
-  // Track Detail pattern as Stock Transfer - see StockTransferPage.addTrackDetail) already has a
-  // lot/serial entry covering the full quantity pre-populated - confirming it via this dialog's
-  // own Save is what makes Validate succeed instead of failing with "Stock Transfer details not
-  // found".
+  // populated with the BOM's material (RM1, per ensureBomForItem's own pinning) and quantity.
+  // That row's own "Trace Details" icon opens the same Track Detail dialog Stock Transfer uses
+  // (see StockTransferPage.addTrackDetail) - it should normally already have a lot/serial entry
+  // from Release's own conditional stock-seeding (seedMaterialStockViaReceipt, which creates a
+  // real Lot for RM1 as part of seeding its stock). If RM1's existing lot(s) have since been
+  // fully consumed by other runs, this dialog shows a genuinely empty "No Data" list with no way
+  // to create a new lot from THIS screen at all (confirmed live: no "Create New" option here,
+  // unlike Stock Transfer's own version of this feature) - fall back to seeding a fresh lot via a
+  // real Stock Transfer Receipt and restarting Issue Material from a clean state, same
+  // self-healing shape as ensureBomForItem().
   async issueMaterial() {
-    await this.page.getByRole('button', { name: 'Issue Material' }).click();
-    await this.page.waitForURL('**/material-issue/add-material-issue');
-    await this.page.waitForLoadState('networkidle');
-    await this.page.waitForTimeout(1000);
+    const workOrderViewUrl = this.page.url();
+    await this.openMaterialIssueTrackDetail();
 
-    const materialsRow = this.page.locator('table tbody tr').filter({ has: this.page.locator('text=Unit') }).first();
-    await materialsRow.locator('button').first().click();
     const trackDialog = this.page.getByRole('dialog', { name: 'Track Detail' });
-    await trackDialog.waitFor({ state: 'visible' });
+    const hasExistingEntry = !(await trackDialog.getByText('No Data', { exact: true }).isVisible().catch(() => false));
+    if (!hasExistingEntry) {
+      const itemName = (await trackDialog.locator('text=Item').locator('xpath=following-sibling::*[1]').textContent()).trim();
+      const quantity = (await trackDialog.locator('text=Quantity').first().locator('xpath=following-sibling::*[1]').textContent()).trim();
+      const location = (await trackDialog.locator('text=Location').locator('xpath=following-sibling::*[1]').textContent()).trim();
+
+      await this.page.keyboard.press('Escape').catch(() => {});
+      await seedMaterialStockViaReceipt(new StockTransferPage(this.page), {
+        itemName,
+        availableQuantity: Math.ceil(Number(quantity)) + 10, // headroom over this row's own requirement
+        location,
+      });
+
+      await this.page.goto(workOrderViewUrl);
+      await this.page.waitForLoadState('networkidle');
+      await this.openMaterialIssueTrackDetail();
+    }
+
     await trackDialog.getByRole('button', { name: 'Save', exact: true }).click();
     await trackDialog.waitFor({ state: 'hidden' });
 
     await this.page.getByRole('button', { name: 'Validate' }).click();
     await this.page.waitForURL('**/view-work-order', { timeout: 15000 });
     await expect(this.page.getByText('Material Issued', { exact: true })).toBeVisible({ timeout: 10000 });
+  }
+
+  // Navigates from this Work Order's own View page (if not already on the Material Issue page)
+  // through "Issue Material" and opens the Materials row's own Track Detail dialog - factored out
+  // so issueMaterial() can restart from a clean state after seeding a lot.
+  async openMaterialIssueTrackDetail() {
+    if (!/\/material-issue\/add-material-issue/.test(this.page.url())) {
+      await this.page.getByRole('button', { name: 'Issue Material' }).click();
+      await this.page.waitForURL('**/material-issue/add-material-issue');
+      await this.page.waitForLoadState('networkidle');
+      await this.page.waitForTimeout(1000);
+    }
+
+    const materialsRow = this.page.locator('table tbody tr').filter({ has: this.page.locator('text=Unit') }).first();
+    await materialsRow.locator('button').first().click();
+    const trackDialog = this.page.getByRole('dialog', { name: 'Track Detail' });
+    await trackDialog.waitFor({ state: 'visible' });
+    await this.page.waitForTimeout(500);
   }
 
   // Material Issued -> In progress (on the Work Order side) - opens Build Order's own "Add Build

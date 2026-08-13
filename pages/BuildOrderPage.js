@@ -1,4 +1,5 @@
 const { expect } = require('@playwright/test');
+const SettingsEntityPage = require('./base/SettingsEntityPage');
 
 // Build Order (dashboard/manufacturing/orders/build-order) - created FROM a Work Order's own
 // Actions menu ("Build", only available once that Work Order has reached "Material Issued"
@@ -18,9 +19,15 @@ const { expect } = require('@playwright/test');
 // completes the status transition. No page anywhere (View/Edit/Actions, on either the Build
 // Order or the Work Order) exposes this lot entry directly - it only ever appears via this
 // Ok-then-Track-Detail sequence.
-class BuildOrderPage {
+// Extends SettingsEntityPage purely for consistency with the rest of Manufacturing - this page
+// has no dropdowns and no direct-navigation Add form at all (see header comment above), so none
+// of the base class's dropdown/CRUD-navigation helpers actually get used here.
+class BuildOrderPage extends SettingsEntityPage {
   constructor(page) {
-    this.page = page;
+    super(page, {
+      entityKey: 'build_order',
+      listPath: '/dashboard/manufacturing/orders/build-order',
+    });
 
     this.quantityInput = page.locator('input[placeholder="Enter Quantity"]');
     this.finishedGoodCostInput = page.locator('input[placeholder="Enter Finished Good Cost"]');

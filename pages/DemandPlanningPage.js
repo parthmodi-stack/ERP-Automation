@@ -1,4 +1,5 @@
 const { selectDropdown } = require('../helpers/dropdown');
+const SettingsEntityPage = require('./base/SettingsEntityPage');
 
 // Demand Planning (dashboard/manufacturing/demand-planning) is a read-only reporting screen -
 // filter -> shortfall summary table - not a create/edit/view/delete master-data or document
@@ -15,9 +16,17 @@ const { selectDropdown } = require('../helpers/dropdown');
 // live: clicking the Location combobox opens a role="option" list whose first entry is the
 // search-input wrapper, not a real location) - so they reuse helpers/dropdown.js's
 // `selectDropdown` rather than a bespoke click sequence.
-class DemandPlanningPage {
+// Extends SettingsEntityPage purely for consistency with the rest of Manufacturing - this is a
+// read-only report screen with no add/edit form at all (see header comment above), so the base
+// class's CRUD-navigation helpers don't apply here; its filter dropdowns already delegate to
+// helpers/dropdown.js's selectDropdown directly (same engine the base class's own selectField()
+// wraps), so their fallback behavior is unaffected by this change.
+class DemandPlanningPage extends SettingsEntityPage {
   constructor(page) {
-    this.page = page;
+    super(page, {
+      entityKey: 'demand_planning',
+      listPath: '/dashboard/manufacturing/demand-planning',
+    });
 
     // Filter changes (checkbox toggle, item selection, ...) can each kick off their own summary
     // refetch in quick succession, so a single one-shot `page.waitForResponse()` set up right

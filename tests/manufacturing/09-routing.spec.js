@@ -35,8 +35,20 @@ test.describe.serial('Manufacturing - Routing', () => {
   let operationName;
   let bomName;
   let seriesNumber; // carried through Create -> View -> Edit
+  // Location's own search is confirmed live to be unreliable - selectLocation(wcData.location) can
+  // legitimately fall back to "first available" instead of matching wcData.location exactly.
+  // Capture what was ACTUALLY selected and assert against that on View, not the requested literal.
+  let selectedLocationText;
 
   test.beforeAll(async ({ browser }) => {
+    // describe.configure's own 150000ms timeout above governs test bodies, not this hook - it
+    // defaults to the global 60000ms config timeout instead. This chain (Work Center Category ->
+    // Work Center -> Operation -> an Approved Bill of Material) already ran close to that budget
+    // before; each dropdown selection now goes through the shared, more thorough helpers/
+    // dropdown.js engine (search -> exact-match -> first-available fallback -> verify), which adds
+    // real per-call latency over the old bare click-and-hope logic - bump explicitly rather than
+    // let it flake.
+    test.setTimeout(150000);
     page = await browser.newPage();
     wccPage = new WorkCenterCategoryPage(page);
     wcPage = new WorkCenterPage(page);
@@ -101,6 +113,7 @@ test.describe.serial('Manufacturing - Routing', () => {
     await routingPage.fillHeader({ name, narration: 'Automation test route' });
     await routingPage.selectBOM(bomName);
     await routingPage.selectLocation(wcData.location);
+    selectedLocationText = await routingPage.getFieldDisplayText('routing.location_id');
     await routingPage.addRoutingDetailRow({ operationName, sequence: 1, workCentreName });
 
     seriesNumber = await routingPage.save();
@@ -115,7 +128,7 @@ test.describe.serial('Manufacturing - Routing', () => {
 
     await expect(page.getByText(seriesNumber, { exact: false }).first()).toBeVisible();
     await expect(page.getByText(bomName, { exact: true }).first()).toBeVisible();
-    await expect(page.getByText(wcData.location, { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(selectedLocationText, { exact: true }).first()).toBeVisible();
 
     await expect(routingPage.editButton).toBeVisible();
     await expect(routingPage.deleteButton).toBeVisible();

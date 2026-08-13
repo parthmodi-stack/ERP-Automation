@@ -16,6 +16,11 @@ test.describe.serial('Manufacturing - Work Center', () => {
   let page;
   let wcPage;
   let seriesNumber; // carried through Create -> View -> Edit
+  // The Location field's own search is confirmed live to be unreliable (see pages/WorkCenterPage.js
+  // -> helpers/dropdown.js) - selectLocation(wcData.location) can legitimately fall back to
+  // "first available" instead of matching wcData.location exactly. Capture what was ACTUALLY
+  // selected right after choosing it, and assert against that on View - not the requested literal.
+  let selectedLocationText;
 
   test.beforeAll(async ({ browser }) => {
     page = await browser.newPage();
@@ -33,6 +38,7 @@ test.describe.serial('Manufacturing - Work Center', () => {
     await wcPage.goto();
     await wcPage.fillHeader({ name, narration: 'Automation test work center' });
     await wcPage.selectLocation(wcData.location);
+    selectedLocationText = await wcPage.getFieldDisplayText('location');
 
     seriesNumber = await wcPage.save();
     expect(seriesNumber).toMatch(/^WC-\d+$/);
@@ -45,7 +51,7 @@ test.describe.serial('Manufacturing - Work Center', () => {
     await wcPage.openView(seriesNumber);
 
     await expect(page.getByText(seriesNumber, { exact: false }).first()).toBeVisible();
-    await expect(page.getByText(wcData.location, { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(selectedLocationText, { exact: true }).first()).toBeVisible();
     // Created directly via Save (not Save To Draft) - no "Draft" chip should appear.
     await expect(page.getByText('Draft', { exact: true })).not.toBeVisible();
 

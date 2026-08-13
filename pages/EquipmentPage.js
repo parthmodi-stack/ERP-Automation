@@ -1,4 +1,4 @@
-const { expect } = require('@playwright/test');
+const SettingsEntityPage = require('./base/SettingsEntityPage');
 
 // Equipment (dashboard/manufacturing/settings/equipments) - third step of the Work Center
 // Categories -> Work Center -> Operation and Equipments -> Routing sequence. Unlike Work Center
@@ -22,9 +22,13 @@ const { expect } = require('@playwright/test');
 // the way Work Center Category's Add/Edit forms have). The Delete confirmation dialog's own title
 // is "Delete Item" rather than "Delete Equipment" (confirmed live - a real inconsistency, not a
 // mistake introduced here), though its body text does say "...delete Equipment: EQ-XXXX ?".
-class EquipmentPage {
+class EquipmentPage extends SettingsEntityPage {
   constructor(page) {
-    this.page = page;
+    super(page, {
+      entityKey: 'equipment',
+      listPath: '/dashboard/manufacturing/settings/equipments',
+      addPath: '/dashboard/manufacturing/settings/equipments/add-equipments',
+    });
 
     this.addButton = page.getByRole('button', { name: 'Add', exact: true });
     this.nameInput = page.locator('input[name="equipment.name"]');
@@ -50,23 +54,14 @@ class EquipmentPage {
     await this.page.waitForLoadState('networkidle');
   }
 
-  // Same `mui-component-select-equipment.<field>` pattern as every other Manufacturing form.
-  async selectDropdown(fieldName, optionText) {
-    await this.page.locator(`[id="mui-component-select-equipment.${fieldName}"]`).click();
-    const menu = this.page.locator(`[id="menu-equipment.${fieldName}"]`);
-    await menu.waitFor({ state: 'visible', timeout: 5000 });
-    await expect(async () => {
-      expect(await menu.locator('li').count()).toBeGreaterThan(1);
-    }).toPass({ timeout: 8000, intervals: [300] });
-    if (optionText) {
-      await menu.locator('input').pressSequentially(optionText, { delay: 60 });
-      const exact = menu.locator('li').filter({ hasText: new RegExp(`^${optionText}$`) });
-      await expect(exact.first()).toBeVisible({ timeout: 8000 });
-      await exact.first().click();
-    } else {
-      await menu.locator('li').nth(1).click();
-    }
-    await menu.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+  // Delegates to the inherited selectField() (pages/base/SettingsEntityPage.js -> helpers/
+  // dropdown.js) for the full search -> exact-match -> first-available-fallback -> create-new/
+  // throw chain - see WorkCenterCategoryPage.js's own selectDropdown for the rationale. Equipment
+  // Category has no "+Create New" footer (confirmed live, see class header comment) but is a
+  // fixed enum that always has options, so the throw tail should never actually fire for it.
+  async selectDropdown(fieldName, optionText, opts = {}) {
+    const value = optionText || '';
+    await this.selectField(fieldName, value, value, { optional: false, ...opts });
   }
 
   async selectEquipmentCategory(category) {

@@ -48,6 +48,7 @@ const testData = require('../../config/testData');
 const DemandPlanningPage = require('../../pages/DemandPlanningPage');
 const ProcurementRequestPage = require('../../pages/ProcurementRequestPage');
 const { seedStock } = require('../../helpers/apiSeed');
+const { selectDropdown } = require('../../helpers/dropdown');
 
 const dp = testData.manufacturing.demandPlanning;
 
@@ -56,29 +57,21 @@ async function waitForIdle(page, ms = 1200) {
 }
 
 // Same `mui-component-select-add_inventory_item.<field>` / `menu-add_inventory_item.<field>`
-// pattern as 07-inventory-item.spec.ts's own selectFromDropdown, with one fix: that file's
-// version can mis-click a disabled "Select ..." placeholder when the typed search text is itself
-// a substring of the placeholder's own label (confirmed live - "Unit" matches "Select Unit of
-// Measurement"), so this scopes to non-disabled options and matches the exact accessible name.
+// pattern as 07-inventory-item.spec.ts's own selectFromDropdown. Delegates to the shared
+// helpers/dropdown.js engine (search -> exact match -> first-available fallback -> create-new/
+// throw) instead of hand-rolling an exact-match-or-hang version here - this spec-local copy
+// predated the Manufacturing page objects' own dropdown-fallback fix and was missed by it, which
+// is exactly why a drifted fixture value (e.g. Department no longer matching 'Procurement' in
+// this environment) used to hang on click() instead of falling back to whatever's available.
 async function selectFromDropdown(page, fieldName, optionText) {
-  await page.locator(`[id="mui-component-select-add_inventory_item.${fieldName}"]`).click();
-  const menu = page.locator(`[id="menu-add_inventory_item.${fieldName}"]`);
-  await menu.waitFor({ state: 'visible', timeout: 5000 });
-  await expect(async () => {
-    expect(await menu.locator('li').count()).toBeGreaterThan(1);
-  }).toPass({ timeout: 8000, intervals: [300] });
-
-  if (optionText) {
-    await menu.locator('input').fill(optionText);
-    await waitForIdle(page, 600);
-    await menu.locator('li[aria-disabled="false"], li:not([aria-disabled])')
-      .filter({ hasText: new RegExp(`^${optionText}$`) })
-      .first()
-      .click();
-  } else {
-    await menu.locator('li').nth(1).click();
-  }
-  await menu.waitFor({ state: 'hidden', timeout: 5000 });
+  const value = optionText || '';
+  await selectDropdown(
+    page,
+    page.locator(`[id="mui-component-select-add_inventory_item.${fieldName}"]`),
+    value,
+    value,
+    { optional: false }
+  );
 }
 
 // Creates a real Inventory Item + Reordering Rule via the actual UI (Add wizard, then Edit ->
@@ -114,16 +107,53 @@ async function createItemWithReorderingRule(page, { itemName, sku, location, min
     await expect(page.locator('[role="tab"][aria-selected="true"]')).toHaveText(new RegExp(label, 'i'));
   }
 
+  // Default Tax, Income Account, Asset Account, and COGS Account are all required in this
+  // environment (confirmed live - none reliably auto-defaults; a prior comment here claiming
+  // Asset/COGS Account are "pre-filled and can be skipped" no longer holds). Only fill them if
+  // Next is actually disabled to begin with - if it's already enabled, whatever's pre-filled is
+  // already good enough and touching these fields is pure risk for no benefit.
+  //
+  // CONFIRMED LIVE APP BUG: Next's own disabled/enabled state is computed once when the
+  // Accounting tab mounts and does NOT reactively recompute as these fields are filled - selecting
+  // all four can still leave Next disabled even though every field now shows a real value. The
+  // only reliable way to force a re-evaluation is to navigate away to another tab and back, which
+  // remounts the tab and lets it re-read the now-filled values.
+  async function fillAccountingTabAndProceed() {
+    const nextButton = page.getByRole('button', { name: 'Next' });
+    if (!(await nextButton.isDisabled())) {
+      await nextTo('Inventory');
+      return;
+    }
+
+    for (const field of ['default_tax_id', 'income_account_id', 'asset_account_id', 'cogs_account_id']) {
+      await selectFromDropdown(page, field);
+    }
+    await waitForIdle(page, 1000);
+
+    if (!(await nextButton.isDisabled())) {
+      await nextTo('Inventory');
+      return;
+    }
+
+    // Still disabled after every field has a real value - force the remount workaround, retrying
+    // a few times in case the app's own tab switch/render also needs a moment to settle.
+    for (let attempt = 0; attempt < 3 && (await nextButton.isDisabled()); attempt++) {
+      await page.getByRole('tab', { name: 'Purchase', exact: true }).click();
+      await waitForIdle(page, 500);
+      await page.getByRole('tab', { name: 'Accounting', exact: true }).click();
+      await waitForIdle(page, 500);
+    }
+
+    await expect(nextButton).toBeEnabled({ timeout: 10000 });
+    await nextTo('Inventory');
+  }
+
   await nextTo('Rental Price');
   await nextTo('Sales');
   await page.getByPlaceholder('Enter Sales Price').fill(dp.salesPrice);
   await nextTo('Purchase');
   await nextTo('Accounting');
-  // Default Tax and Income Account are required and NOT auto-defaulted in this environment
-  // (Asset Account/COGS Account are pre-filled and can be skipped) - confirmed live.
-  await selectFromDropdown(page, 'default_tax_id');
-  await selectFromDropdown(page, 'income_account_id');
-  await nextTo('Inventory');
+  await fillAccountingTabAndProceed();
 
   await page.getByPlaceholder('Enter Default Lead Time in Days').fill(dp.leadTime);
   await page.getByPlaceholder('Enter Weight').fill(dp.weight);
@@ -265,18 +295,26 @@ test.describe.serial('Manufacturing - Demand Planning', () => {
     expect(await demandPlanningPage.isItemVisible(itemName)).toBe(false);
   });
 
-  // ── TC-DP-03: netting via a Purchase Request reduces/removes the shortfall (optional per the
-  // original scenario) - uses Demand Planning's OWN real, intended path rather than Procurement's
-  // standalone Add Request flow: its Detail view (openDetailView/selectDetailRow/
-  // createPurchaseRequestFromSelection) lets you check a shortfall row and jump straight into
-  // Procurement's Add Request page with Item/Quantity/Rate/Entity/Currency already pre-filled
-  // from that row (confirmed live) - only Location still needs filling there, via
-  // ProcurementRequestPage.selectLocation (itself fixed in pages/BasePage.js this round - see
-  // createLocationFromFooter's own comments for the two real bugs found and fixed: an ambiguous
-  // page-wide listbox query, and a broken .inputValue()-based verification that always triggered
-  // the wrong fallback company). Whether a Draft (not yet Submitted/Approved) Purchase Request is
-  // enough to net against demand is NOT confirmed live - if this fails for THAT reason, the most
-  // likely fix is adding a Submit step before re-checking rather than treating it as a broken test.
+  // ── TC-DP-03: netting via a Purchase Request reduces/removes the shortfall - uses Demand
+  // Planning's OWN real, intended path rather than Procurement's standalone Add Request flow: its
+  // Detail view (openDetailView/selectDetailRow/createPurchaseRequestFromSelection) lets you check
+  // a shortfall row and jump straight into Procurement's Add Request page with Entity/Currency
+  // pre-filled from that row - but, CONTRARY to what this comment originally assumed, Item is NOT
+  // actually carried over (confirmed live: the Items grid lands genuinely empty, "Please add
+  // atleast one Item", every time) - it's added manually below instead of relying on that hand-off.
+  // Location is selected via a plain, unfiltered click on the combobox (Mumbai is directly listed,
+  // no typing needed) rather than ProcurementRequestPage.selectLocation()'s own "always create a
+  // brand new one" workaround for a different, unrelated search bug.
+  //
+  // Two more confirmed-live gaps in the manually-added Item row, both silent (no visible error,
+  // Save/Save To Draft just does nothing) until diagnosed via a toast that only flashes briefly:
+  // Tax Template is required (addItemWithFullDetails() already has a "pick first available"
+  // fallback for it via selectFirstOptionByLabel - reused here), and the item modal's OWN Location
+  // field (item-entry-modal.tsx, separate from the header form's Classification section) must
+  // match the header's selected Location or Save fires "Please enter proper details. Mismatch
+  // found in details." With both fixed, a Draft Purchase Request DOES net against demand fine -
+  // the earlier assumption that Draft doesn't net, or that plain "Save" was separately broken,
+  // was wrong; both were really just this same missing-fields issue.
   test('TC-DP-03 [+/-] Purchase Request covering the shortfall reduces the Required quantity', async () => {
     const itemName = `Automation_DemandPlanning_Netting_${Date.now()}`;
     const sku = `SKU-DP-NETTING-${Date.now()}`;
@@ -314,14 +352,58 @@ test.describe.serial('Manufacturing - Demand Planning', () => {
     await page.getByRole('option', { name: dp.pr.location, exact: true }).click();
 
     const procurementRequestPage = new ProcurementRequestPage(page);
+    // CONFIRMED LIVE, this session: contrary to this test's own original comment,
+    // createPurchaseRequestFromSelection() does NOT actually carry the checked row's Item into
+    // the Add Request form's own Items grid - it lands here with "Please add atleast one Item"
+    // and a genuinely empty grid every time (Entity/Currency DO come through correctly; only the
+    // Item row doesn't). Add it manually instead of relying on that broken hand-off.
+    //
+    // Not using ProcurementRequestPage.addItem() here: it opens the item combobox and looks for
+    // the exact item text WITHOUT typing anything first, which only works when the target item is
+    // already visible in an unfiltered list - this environment's Item list is dominated by other
+    // suites' short-lived automation records (see billOfMaterial's own testData comment), so a
+    // freshly-created item like this test's own isn't anywhere near the top. Typing the name to
+    // filter first is the only way to actually reach it - kept local to this test rather than
+    // changed in the shared addItem() itself, since other Procurement specs' own callers may rely
+    // on its current no-typing behavior for items that ARE already visible without it.
+    await page.getByRole('button', { name: 'Add', exact: true }).click();
+    const itemModal = page.getByRole('dialog').filter({ hasText: 'Edit Item' });
+    await itemModal.getByRole('combobox', { name: 'Search Item' }).click();
+    // Settle before typing - confirmed live that typing immediately after the click can race with
+    // the combobox's own focus transfer, silently dropping the first keystroke(s) (e.g. "Au" from
+    // "Automation_..."). The option's own display text is "<SKU> - <Name>", never just the plain
+    // name, so match by substring rather than exact.
+    await page.waitForTimeout(500);
+    await page.keyboard.type(itemName, { delay: 60 });
+    await page.getByText(itemName, { exact: false }).first().click();
+    await itemModal.getByPlaceholder('0.00').first().fill(String(before.required_quantity));
+    await itemModal.locator('text=Rate *').locator('xpath=following::input[1]').fill('100');
+    // Tax Template is required for Save to actually persist (confirmed live: without it, Save/
+    // Save To Draft silently does nothing - no request, no visible error) - addItemWithFullDetails()
+    // already has a "pick first available" fallback for exactly this, reuse it instead of
+    // duplicating the selectFirstOptionByLabel call here.
+    await procurementRequestPage.selectFirstOptionByLabel('Tax Template *', { scope: itemModal });
+    // The item modal has its OWN Location/Department fields (item-entry-modal.tsx), separate from
+    // the header form's Classification section selected above - confirmed live: leaving this
+    // item-level Location unset while the header's is "Mumbai" fires a toast ("Please enter proper
+    // details. Mismatch found in details") and Save silently does nothing. Match the header value.
+    await procurementRequestPage.selectFieldByLabel('Location', dp.pr.location, {
+      scope: itemModal,
+      exact: false,
+    });
+    await itemModal.getByRole('button', { name: 'Save' }).click();
+    await expect(itemModal).not.toBeVisible();
+
+    // Save To Draft is enough to net against demand once the Item row is genuinely valid (Tax
+    // Template + matching item-level Location, both set above) - confirmed live.
     await procurementRequestPage.saveAsDraft();
 
     await demandPlanningPage.goto();
     await demandPlanningPage.toggleShowBelowReorderPoint(true);
     const after = demandPlanningPage.getLatestSummary().data.summary_data.find((row) => row.item_id === itemId);
 
-    // Either the item drops out entirely (fully netted) or its required_quantity decreases -
-    // accept both since the backend summary this suite was built from described it that way.
+    // Either the item drops out entirely (fully netted, `after` is undefined) or its
+    // required_quantity decreases - accept both, matching this test's own [+/-] framing.
     if (after) {
       expect(after.required_quantity).toBeLessThan(before.required_quantity);
     }

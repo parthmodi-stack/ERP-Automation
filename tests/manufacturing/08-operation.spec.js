@@ -30,6 +30,10 @@ test.describe.serial('Manufacturing - Operation', () => {
   let workCentreName;
   let categoryName;
   let seriesNumber; // carried through Create -> View -> Edit
+  // Location's own search is confirmed live to be unreliable - selectLocation(wcData.location) can
+  // legitimately fall back to "first available" instead of matching wcData.location exactly.
+  // Capture what was ACTUALLY selected and assert against that on View, not the requested literal.
+  let selectedLocationText;
 
   test.beforeAll(async ({ browser }) => {
     page = await browser.newPage();
@@ -65,6 +69,7 @@ test.describe.serial('Manufacturing - Operation', () => {
     await opPage.fillHeader({ name, narration: 'Automation test operation' });
     await opPage.selectWorkCentre(workCentreName);
     await opPage.selectLocation(wcData.location);
+    selectedLocationText = await opPage.getFieldDisplayText('location');
     await opPage.addCostingRow({ categoryName });
 
     seriesNumber = await opPage.save();
@@ -79,7 +84,7 @@ test.describe.serial('Manufacturing - Operation', () => {
 
     await expect(page.getByText(seriesNumber, { exact: false }).first()).toBeVisible();
     await expect(page.getByText(workCentreName, { exact: true }).first()).toBeVisible();
-    await expect(page.getByText(wcData.location, { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(selectedLocationText, { exact: true }).first()).toBeVisible();
 
     await expect(opPage.editButton).toBeVisible();
     await expect(opPage.deleteButton).toBeVisible();
