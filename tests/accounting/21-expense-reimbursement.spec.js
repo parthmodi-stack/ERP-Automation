@@ -41,7 +41,7 @@ async function waitForIdle(page, ms = 1000) {
 }
 
 test.describe('Expense Reimbursement Management', () => {
-  test('TC-ER-LIST-01 [+] Listing page loads with expected Add control', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-ER-LIST-01 [+] Listing page loads with expected Add control', async ({ page }) => {
     const er = new ExpenseReimbursementPage(page);
     await er.gotoList();
 
@@ -71,7 +71,7 @@ test.describe.serial('Expense Reimbursement -> Report Approval -> Payment Entry'
   // ExpenseReimbursementPage.save()'s doc comment for the confirmed FE crash
   // (`data.tax_code_data?.map is not a function`) that blanks that page for every record with a
   // Tax Template on its Expense Entry line (Tax Template is mandatory, so this hits every record).
-  test('TC-ER-CRUD-01 [+] Create an Expense Reimbursement with a required Expense Entry line item', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-ER-CRUD-01 [+] Create an Expense Reimbursement with a required Expense Entry line item', async ({ page }) => {
     test.setTimeout(90000);
     const er = new ExpenseReimbursementPage(page);
 

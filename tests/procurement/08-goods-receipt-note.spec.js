@@ -75,7 +75,7 @@ test.describe('Goods Receipt Note (GRN)', () => {
   }
 
   // ── TC-GRN-01: Create a GRN from an approved PO ───────────────────────────
-  test('TC-GRN-01 [+] Create a GRN from an approved purchase order via Receive', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-GRN-01 [+] Create a GRN from an approved purchase order via Receive', async ({ page }) => {
     approvedPo = await createApprovedPo(page, { narration: 'TC-GRN-01 source PO' });
 
     const grn = await receiveIntoGrn(page, approvedPo);

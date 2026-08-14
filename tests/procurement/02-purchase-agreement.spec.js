@@ -20,7 +20,7 @@ test.describe('Purchase Agreement Management', () => {
   const viewValues = {};
 
   // ── TC-PAGR-01: Create Agreement ─────────────────────────────────────────
-  test('TC-PAGR-01 [+] Create a new agreement with an item and save as Draft', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-PAGR-01 [+] Create a new agreement with an item and save as Draft', async ({ page }) => {
     const pa   = new PurchaseAgreementPage(page);
     const data = testData.purchaseAgreement.valid;
 

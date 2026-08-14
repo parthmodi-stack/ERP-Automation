@@ -27,7 +27,7 @@ test.describe('Salary Structure Master Module', () => {
 
   // ── Add / Create ────────────────────────────────────────────────────────────
   test.describe('Add / Create', () => {
-    test('TC-SSM-F-04 [+] Create Salary Structure with mandatory fields only', { tag: '@smoke' }, async ({ page }) => {
+    test('TC-SSM-F-04 [+] Create Salary Structure with mandatory fields only', async ({ page }) => {
       const ssm = new SalaryStructureMasterPage(page);
       const data = testData.salaryStructureMaster.valid;
 
@@ -205,7 +205,7 @@ test.describe('Salary Structure Master Module', () => {
   // be saved with mandatory fields empty. TC-SSM-DRAFT-01 exercises that by omitting Grade/
   // Employment Type, which plain Save requires.
   test.describe('Draft', () => {
-    test('TC-SSM-DRAFT-01 [+] Save as Draft with only a name - status shows Draft', { tag: '@smoke' }, async ({ page }) => {
+    test('TC-SSM-DRAFT-01 [+] Save as Draft with only a name - status shows Draft', async ({ page }) => {
       const ssm = new SalaryStructureMasterPage(page);
       const data = testData.salaryStructureMaster.draftMinimal;
       draftRecord.structureName = data.structureName;

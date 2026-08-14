@@ -144,7 +144,7 @@ async function ensureDebitNoteFormHasBill(page, vendorName) {
 }
 
 test.describe('Debit Note Management', () => {
-  test('TC-DN-LIST-01 [+] Listing page loads with expected Add control', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-DN-LIST-01 [+] Listing page loads with expected Add control', async ({ page }) => {
     const dn = new DebitNotePage(page);
     await dn.gotoList();
 
@@ -168,7 +168,7 @@ test.describe('Debit Note Management', () => {
 test.describe('Debit Note - CRUD', () => {
   const data = testData.accounting.debitNote;
 
-  test('TC-DN-CRUD-01 [+] Create a Debit Note from the listing page for a Vendor party', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-DN-CRUD-01 [+] Create a Debit Note from the listing page for a Vendor party', async ({ page }) => {
     test.setTimeout(90000);
     const dn = new DebitNotePage(page);
 

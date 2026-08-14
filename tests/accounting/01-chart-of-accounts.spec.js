@@ -38,7 +38,7 @@ test.describe('Chart of Accounts Management', () => {
       return { ...rest, ...overrides };
     };
 
-    test('TC-COA-CRUD-01 [+] List view loads with the expected controls', { tag: '@smoke' }, async ({ page }) => {
+    test('TC-COA-CRUD-01 [+] List view loads with the expected controls', async ({ page }) => {
       const coa = new ChartOfAccountsPage(page);
       await coa.gotoList();
       await expect(page).toHaveURL(coa.listPath);
@@ -53,7 +53,7 @@ test.describe('Chart of Accounts Management', () => {
       await expect(page.getByRole('button', { name: 'Filter', exact: true })).toHaveCount(0);
     });
 
-    test('TC-COA-CRUD-02 [+] Add flow: list -> add -> save -> back to list with the new row visible', { tag: '@smoke' }, async ({ page }) => {
+    test('TC-COA-CRUD-02 [+] Add flow: list -> add -> save -> back to list with the new row visible', async ({ page }) => {
       const coa = new ChartOfAccountsPage(page);
       const name = `${data.valid.name}_ADD`;
 

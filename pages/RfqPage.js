@@ -308,6 +308,48 @@ class RfqPage extends BasePage {
     await expect(dialog).not.toBeVisible();
   }
 
+  // ---------- Call For Tender ----------
+  // UNVERIFIED LIVE - written from the two ad-hoc draft scripts' own live observations (an
+  // "Add" under the "Call For Tender" accordion opens a modal with a Vendor search, a "Copy
+  // Product" checkbox, and Save), not independently re-confirmed here. Invites one additional
+  // vendor to quote on a sibling RFQ record; each call is expected to spawn a separate Draft RFQ
+  // per docs.google reasoning already captured in the spec file that calls this. Returns the
+  // picked vendor's name so callers can track which vendors were invited (e.g. to avoid picking
+  // the same one twice across repeated calls, or to locate that vendor's own row later).
+  async addTenderVendor() {
+    // .last(): "Add" also matches the Items accordion's own identically-labeled button earlier on
+    // the same tab (see addItem()'s .first() comment) - Call For Tender's own Add is the LAST
+    // such button on Basic Details.
+    await this.clickWithDialogRetry(() => this.page.getByRole('button', { name: 'Add', exact: true }).last());
+    const modal = this.page.getByRole('dialog').filter({ hasText: /Call For Tender/i });
+    await modal.waitFor({ state: 'visible', timeout: 10000 });
+
+    // Structural label -> combobox lookup, NOT getByPlaceholder/getByRole(name) - confirmed live
+    // elsewhere in this suite (erpforce-purchase-request.spec.js) that these custom combobox
+    // triggers don't reliably expose a matching placeholder/accessible-name attribute.
+    const vendorCombobox = modal.getByText(/^Vendor\s*\*?$/i).first()
+      .locator('xpath=..')
+      .getByRole('combobox')
+      .first();
+    await vendorCombobox.click();
+    await this.page.waitForTimeout(600);
+
+    // Same disabled/empty-placeholder-option filtering already confirmed live necessary
+    // elsewhere in this suite (erpforce-purchase-request.spec.js's pickFirstOption).
+    const firstOption = this.page.getByRole('listbox').locator('[role="option"]:not([aria-disabled="true"])')
+      .filter({ hasNot: this.page.locator('input') })
+      .filter({ hasNotText: /Select|No data available|Create New/ })
+      .first();
+    await firstOption.waitFor({ state: 'visible', timeout: 10000 });
+    const vendorName = (await firstOption.innerText()).trim();
+    await firstOption.click();
+
+    await modal.getByRole('checkbox', { name: /copy product/i }).check();
+    await modal.getByRole('button', { name: 'Save' }).click();
+    await expect(modal).not.toBeVisible();
+    return vendorName;
+  }
+
   // ---------- Create Order / Response / Agreement ----------
   // "Create" is a DropdownButton that only renders for certain statuses, but reuses the exact
   // same "select merge strategy" caret/MuiMenu pattern as the approval-workflow modules' submit

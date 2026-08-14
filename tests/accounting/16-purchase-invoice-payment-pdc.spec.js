@@ -31,34 +31,35 @@ const { selectDropdown } = require('../../helpers/dropdown');
 // Update them to match your environment before running.
 // =============================================================================
 
-const PURCHASE_INVOICES_URL = `${testData.baseUrl}/dashboard/accounting/invoice/purchase-invoices`;
+const BASE_URL = 'https://dev.erpforce.co';
+const PURCHASE_INVOICES_URL = `${BASE_URL}/dashboard/accounting/invoice/purchase-invoices`;
 const ADD_PURCHASE_INVOICE_URL = `${PURCHASE_INVOICES_URL}/add-purchase-invoice`;
 
 // --------------- Seed-data references (update per environment) ---------------
-const VENDOR            = 'Keyur  Italiya';        // vendor used throughout
-const PAYMENT_TERM      = 'Net 30';                // existing Payment Term
-const CURRENCY          = 'INR';                   // default currency
-const ACCOUNT_PAYABLE   = 'Accounts Payable';      // payable COA account
+const VENDOR = 'Keyur  Italiya';        // vendor used throughout
+const PAYMENT_TERM = 'Net 30';                // existing Payment Term
+const CURRENCY = 'INR';                   // default currency
+const ACCOUNT_PAYABLE = 'Accounts Payable';      // payable COA account
 // 'Test Item' no longer exists in this environment (confirmed live, same gap
 // config/testData.js's purchaseInvoice.item comment documents) - ITEM_NAME is the item's plain
 // display name (used for the search's first token and for on-page assertions, which render
 // without the SKU prefix), ITEM_DROPDOWN_OPTION is the exact "<SKU> - <name>" string the
 // item-entry modal's own dropdown requires for an exact option match.
-const ITEM_NAME             = 'Playwright Auto Item';
-const ITEM_DROPDOWN_OPTION  = 'ELEC-000071 - Playwright Auto Item';
-const ITEM_QTY          = '2';
-const ITEM_RATE         = '500';
-const TAX_TEMPLATE      = 'UAE VAT';               // existing tax template (confirmed live; 'Standard Tax' does not exist)
-const BANK_ACCOUNT      = 'Test Acc';              // bank account for Cheque payment
-const CHEQUE_NUMBER     = `PDC-CHQ-${Date.now()}`;
-const CHEQUE_DATE       = '30-09-2026';            // future date → post-dated cheque
-const CHEQUE_BANK_NAME  = 'Automation Test Bank';
+const ITEM_NAME = 'Playwright Auto Item';
+const ITEM_DROPDOWN_OPTION = 'ELEC-000071 - Playwright Auto Item';
+const ITEM_QTY = '2';
+const ITEM_RATE = '500';
+const TAX_TEMPLATE = 'UAE VAT';               // existing tax template (confirmed live; 'Standard Tax' does not exist)
+const BANK_ACCOUNT = 'Test Acc';              // bank account for Cheque payment
+const CHEQUE_NUMBER = `PDC-CHQ-${Date.now()}`;
+const CHEQUE_DATE = '30-09-2026';            // future date → post-dated cheque
+const CHEQUE_BANK_NAME = 'Automation Test Bank';
 const PAYMENT_NARRATION = `PDC Test Payment ${Date.now()}`;
 
 // --------------- Helpers -----------------------------------------------------
 
 async function waitForIdle(page, ms = 1000) {
-  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForLoadState('networkidle').catch(() => { });
   await page.waitForTimeout(ms);
 }
 
@@ -151,7 +152,6 @@ test.describe.serial('Purchase Invoice → Payment → Approve → PDC Transfer'
   // ---------------------------------------------------------------------------
   test(
     'TC-PI-CREATE-01 [+] Fill and submit the Add Purchase Invoice form; invoice appears in list',
-    { tag: '@smoke' },
     async ({ page }) => {
       await page.goto(ADD_PURCHASE_INVOICE_URL);
       await waitForIdle(page, 1500);

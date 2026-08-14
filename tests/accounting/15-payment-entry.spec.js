@@ -32,7 +32,6 @@ test.describe('Payment Entry', () => {
   test.describe('Navigation', () => {
     test(
       'TC-PE-NAV-01 [+] List view loads with expected page title and ActionBar controls',
-      { tag: '@smoke' },
       async ({ page }) => {
         const pe = new PaymentEntryPage(page);
         await pe.gotoList();
@@ -74,7 +73,6 @@ test.describe('Payment Entry', () => {
 
     test(
       'TC-PE-NAV-03 [+] Clicking Add navigates to the Add Payment Entry form',
-      { tag: '@smoke' },
       async ({ page }) => {
         const pe = new PaymentEntryPage(page);
         await pe.gotoList();
@@ -138,7 +136,6 @@ test.describe('Payment Entry', () => {
 
     test(
       'TC-PE-CRUD-01 [+] Create a Cash Advance Payment Entry and verify it appears in the list',
-      { tag: '@smoke' },
       async ({ page }) => {
         const pe = new PaymentEntryPage(page);
         await pe.openAdd();

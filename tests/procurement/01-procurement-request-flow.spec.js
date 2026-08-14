@@ -14,7 +14,7 @@ const APPROVER     = 'Parth regression'; // currently logged-in user — must se
 
 test.describe('Procurement Request Flow', () => {
 
-  test('TC-PROC-01 [+] Create, submit, and approve a procurement request', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-PROC-01 [+] Create, submit, and approve a procurement request', async ({ page }) => {
     test.setTimeout(90000); // multi-stage flow: create → submit → approve
 
     // Step 1: Navigate to Requests list and open Add form

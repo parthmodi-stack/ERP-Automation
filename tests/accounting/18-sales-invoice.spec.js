@@ -62,7 +62,7 @@ async function quickApprove(page, approverName = testData.accounting.paymentEntr
 }
 
 test.describe('Sales Invoice Management', () => {
-  test('TC-SI-LIST-01 [+] Listing page loads with expected columns and Add control', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-SI-LIST-01 [+] Listing page loads with expected columns and Add control', async ({ page }) => {
     const si = new SalesInvoicePage(page);
     await si.gotoList();
 
@@ -102,7 +102,7 @@ test.describe('Sales Invoice - CRUD', () => {
     let actualCustomer;
     let actualItem;
 
-    test('TC-SI-CRUD-01 [+] Create - Save to Draft with one item entry creates a Draft invoice', { tag: '@smoke' }, async ({ page }) => {
+    test('TC-SI-CRUD-01 [+] Create - Save to Draft with one item entry creates a Draft invoice', async ({ page }) => {
       test.setTimeout(150000);
       const si = new SalesInvoicePage(page);
 

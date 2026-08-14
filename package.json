@@ -14,7 +14,9 @@
     "test:request": "playwright test tests/procurement/01-procurement-request.spec.js",
     "test:rfq": "playwright test tests/procurement/03-rfq.spec.js",
     "test:purchase-order": "playwright test tests/procurement/04-purchase-order.spec.js",
-    "test:smoke": "playwright test --grep @smoke",
+    "test:procure-to-pay": "playwright test tests/procurement/erpforce-purchase-request.spec.js && playwright test tests/procurement/erpforce-procure-to-pay.spec.js",
+    "test:smoke": "playwright test --grep \"@smoke(?!2)\"",
+    "test:smoke2": "playwright test --grep @smoke2",
     "test:regression": "playwright test",
     "test:accounting": "playwright test tests/accounting"
   },

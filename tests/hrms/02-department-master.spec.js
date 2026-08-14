@@ -120,7 +120,7 @@ test.describe('Department Master Module', () => {
   });
 
   test.describe('Add/Edit/View Operations', () => {
-    test('TC-022: Add Department - Success', { tag: '@smoke' }, async ({ page }) => {
+    test('TC-022: Add Department - Success', async ({ page }) => {
       const dept = new DepartmentMasterPage(page);
       const data = testData.departmentMaster.valid;
 
@@ -152,7 +152,7 @@ test.describe('Department Master Module', () => {
 
 
 
-    test('TC-027: Add Department - Company Required Validation', { tag: '@smoke' }, async ({ page }) => {
+    test('TC-027: Add Department - Company Required Validation', async ({ page }) => {
       const dept = new DepartmentMasterPage(page);
       const data = testData.departmentMaster.missingCompany;
 
@@ -231,7 +231,7 @@ test.describe('Department Master Module', () => {
     test.describe.configure({ timeout: 60000 });
     let draftName = '';
 
-    test('TC-030 [+] Save Department as Draft with Code omitted - status shows Draft', { tag: '@smoke' }, async ({ page }) => {
+    test('TC-030 [+] Save Department as Draft with Code omitted - status shows Draft', async ({ page }) => {
       const dept = new DepartmentMasterPage(page);
       const data = testData.departmentMaster.draftMinimal;
       draftName = data.departmentName;
@@ -271,7 +271,7 @@ test.describe('Department Master Module', () => {
   test.describe('Delete Operations', () => {
     let deleteTargetCode = '';
 
-    test('TC-032 [+] Add a disposable Department for Delete testing', { tag: '@smoke' }, async ({ page }) => {
+    test('TC-032 [+] Add a disposable Department for Delete testing', async ({ page }) => {
       const dept = new DepartmentMasterPage(page);
       deleteTargetCode = testDataFactory.uniqueName('DEPT_DEL');
       const data = {
@@ -300,7 +300,7 @@ test.describe('Department Master Module', () => {
       await expect(page.getByText(deleteTargetCode, { exact: true }).first()).toBeVisible();
     });
 
-    test('TC-034 [+] Delete Department - Confirm removes record and redirects to list', { tag: '@smoke' }, async ({ page }) => {
+    test('TC-034 [+] Delete Department - Confirm removes record and redirects to list', async ({ page }) => {
       const dept = new DepartmentMasterPage(page);
 
       await dept.deleteFromView(deleteTargetCode);

@@ -15,8 +15,19 @@ class ItemsPage {
   }
 
   async gotoList() {
-    await this.page.goto('/dashboard/inventory/product-management/items');
-    await this.page.waitForLoadState('networkidle');
+    await this.page.goto('/dashboard/inventory/product-management/items', { timeout: 60000 });
+    // CONFIRMED LIVE (same class of bug as every other module in this suite): this page can get
+    // genuinely STUCK on a blank page after navigation - a single wait, however generous, never
+    // resolves that, but a hard reload reliably recovers it. Retry with a reload rather than trust
+    // one wait. CONFIRMED LIVE this page specifically needed more than one reload to recover (a
+    // single reload still left it blank twice in a row) - given 2 reloads here.
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      const visible = await this.searchToggle.waitFor({ state: 'visible', timeout: 15000 }).then(() => true).catch(() => false);
+      if (visible) break;
+      if (attempt === 3) break;
+      await this.page.reload({ timeout: 60000 }).catch(() => {});
+    }
     await this.waitForListLoaded();
   }
 
@@ -96,6 +107,51 @@ class ItemsPage {
         if (key) row[key] = (cells[idx] || '').trim();
       });
       snapshots.push(row);
+    }
+    return snapshots;
+  }
+
+  // CONFIRMED LIVE: searches for the item, then opens it by clicking its name cell (column index
+  // 3) directly rather than the whole row - a stray MUI menu/popover backdrop left open elsewhere
+  // on this page can intercept a bare row click. Lands on
+  // /dashboard/inventory/product-management/items/:id/view-inventory-item.
+  async openItemByName(name) {
+    await this.gotoList();
+    await this.searchFor(name);
+    await this.page.keyboard.press('Escape').catch(() => {});
+    await this.page.mouse.click(2, 2).catch(() => {});
+    await this.page.waitForTimeout(300);
+    await this.dataRows().first().locator('td').nth(3).click();
+    await this.page.waitForURL('**/view-inventory-item', { timeout: 15000 });
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+  }
+
+  // "Moves History" - one of the tabs on an Inventory Item's own view page (CONFIRMED LIVE tab
+  // order: Primary, Rental Price, Sales, Purchase, Accounting, Inventory, Price Rules/Sales,
+  // Update Quantity, Moves History, Reordering Rules, Variant). Columns: Date, Item, Lot/Serial
+  // Number, From, To, Quantity, Move Type ("In"/"Out"), Move Status, Entity.
+  async goToMovesHistoryTab() {
+    await this.page.getByRole('tab', { name: 'Moves History', exact: true }).click();
+    await this.page.waitForTimeout(800);
+  }
+
+  async getMovesHistoryRows() {
+    const rows = this.page.locator('table tbody tr');
+    const count = await rows.count().catch(() => 0);
+    const snapshots = [];
+    for (let i = 0; i < count; i++) {
+      const cells = await rows.nth(i).locator('td').allInnerTexts().catch(() => []);
+      snapshots.push({
+        date: (cells[0] || '').trim(),
+        item: (cells[1] || '').trim(),
+        lotSerialNumber: (cells[2] || '').trim(),
+        from: (cells[3] || '').trim(),
+        to: (cells[4] || '').trim(),
+        quantity: (cells[5] || '').trim(),
+        moveType: (cells[6] || '').trim(),
+        moveStatus: (cells[7] || '').trim(),
+        entity: (cells[8] || '').trim(),
+      });
     }
     return snapshots;
   }

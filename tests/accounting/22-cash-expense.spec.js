@@ -21,7 +21,7 @@ async function waitForIdle(page, ms = 1000) {
 }
 
 test.describe('Cash Expense Management', () => {
-  test('TC-CE-LIST-01 [+] Listing page loads with expected Add control', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-CE-LIST-01 [+] Listing page loads with expected Add control', async ({ page }) => {
     const ce = new CashExpensePage(page);
     await ce.gotoList();
 
@@ -51,7 +51,7 @@ test.describe.serial('Cash Expense - Create and Approve', () => {
   let createdId;
   let actualVendor;
 
-  test('TC-CE-CRUD-01 [+] Create a Cash Expense with one item entry', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-CE-CRUD-01 [+] Create a Cash Expense with one item entry', async ({ page }) => {
     test.setTimeout(90000);
     const ce = new CashExpensePage(page);
 

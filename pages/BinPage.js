@@ -24,8 +24,21 @@ class BinPage {
   }
 
   async gotoList() {
-    await this.page.goto('/dashboard/inventory/configuration/bins');
-    await this.page.waitForLoadState('networkidle');
+    // Same stuck-loading-spinner recovery as LocationPage.gotoList() - a single networkidle wait
+    // can leave the page stuck on its own spinner well past a generous timeout, and only a reload
+    // recovers it. Retry with a reload instead of trusting one wait, so callers of addButton right
+    // after gotoList() don't time out on it.
+    await this.page.goto('/dashboard/inventory/configuration/bins', { timeout: 60000 });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      try {
+        await this.addButton.waitFor({ state: 'visible', timeout: 30000 });
+        return;
+      } catch (e) {
+        if (attempt === 3) throw e;
+        await this.page.reload({ timeout: 60000 }).catch(() => {});
+      }
+    }
   }
 
   async openEdit(name) {

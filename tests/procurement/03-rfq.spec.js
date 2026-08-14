@@ -30,7 +30,7 @@ test.describe.serial('RFQ (Request for Quote) Management', () => {
   const viewValues = {};
 
   // ── TC-RFQ-01: Create RFQ ──────────────────────────────────────────────────
-  test('TC-RFQ-01 [+] Create a new RFQ with an item and save as Draft', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-RFQ-01 [+] Create a new RFQ with an item and save as Draft', async ({ page }) => {
     const rfq  = new RfqPage(page);
     const data = testData.rfq.valid;
 

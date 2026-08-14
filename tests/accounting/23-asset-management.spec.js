@@ -28,7 +28,7 @@ async function waitForIdle(page, ms = 1000) {
 }
 
 test.describe('Asset Management', () => {
-  test('TC-AM-LIST-01 [+] Listing page loads with expected Add control', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-AM-LIST-01 [+] Listing page loads with expected Add control', async ({ page }) => {
     const am = new AssetManagementPage(page);
     await am.gotoList();
 
@@ -45,7 +45,7 @@ test.describe('Asset Management', () => {
     await expect(page).toHaveURL(/add-asset/);
   });
 
-  test('TC-AM-CRUD-01 [+] Create an Asset, creating all three accounts on the fly', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-AM-CRUD-01 [+] Create an Asset, creating all three accounts on the fly', async ({ page }) => {
     test.setTimeout(150000);
     const data = testData.accounting.assetManagement;
     const am = new AssetManagementPage(page);

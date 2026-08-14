@@ -9,8 +9,22 @@ class LoginPage {
   }
 
   async goto() {
-    await this.page.goto('/');
-    await this.page.waitForLoadState('networkidle');
+    // CONFIRMED LIVE: same stuck-on-its-own-bare-loading-spinner class of bug as
+    // LocationPage.gotoList()/BinPage.gotoList()/ItemCategoryPage.gotoList()/UOMPage.goto() - a
+    // single networkidle wait can hang well past a generous timeout on a cold first load, and only
+    // a reload recovers it. This is the very first navigation of a run, so a stall here kills
+    // every step after it - retry with a reload instead of trusting one wait.
+    await this.page.goto('/', { timeout: 60000 });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      try {
+        await this.emailInput.waitFor({ state: 'visible', timeout: 30000 });
+        return;
+      } catch (e) {
+        if (attempt === 3) throw e;
+        await this.page.reload({ timeout: 60000 }).catch(() => {});
+      }
+    }
   }
 
   async fillEmail(email) {

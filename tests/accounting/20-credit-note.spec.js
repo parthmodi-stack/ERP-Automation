@@ -136,7 +136,7 @@ async function ensureCreditNoteFormHasInvoice(page, customerName) {
 }
 
 test.describe('Credit Note Management', () => {
-  test('TC-CN-LIST-01 [+] Listing page loads with expected Add control', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-CN-LIST-01 [+] Listing page loads with expected Add control', async ({ page }) => {
     const cn = new CreditNotePage(page);
     await cn.gotoList();
 
@@ -159,7 +159,7 @@ test.describe('Credit Note Management', () => {
 test.describe('Credit Note - CRUD', () => {
   const data = testData.accounting.creditNote;
 
-  test('TC-CN-CRUD-01 [+] Create a Credit Note from the listing page for a Customer party', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-CN-CRUD-01 [+] Create a Credit Note from the listing page for a Customer party', async ({ page }) => {
     test.setTimeout(90000);
     const cn = new CreditNotePage(page);
 

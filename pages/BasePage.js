@@ -300,23 +300,57 @@ class BasePage {
 
     // 1. Close any open dropdown before clicking (if listbox is already visible, clicking the
     // combobox will fail with pointer interception) - same pattern ProcurementRequestPage.selectLocation
-    // uses for recovery (confirmed live fix across document-style modules).
-    await this.page.keyboard.press("Escape").catch(() => {});
+    // uses for recovery (confirmed live fix across document-style modules). A single Escape isn't
+    // always enough: a field's own debounced search request can still be in flight and re-open its
+    // popover asynchronously moments later, independent of Escape having closed it a beat earlier
+    // (same root cause documented on ProcurementRequestPage.closeAnyOpenPopover) - retry the close
+    // instead of firing Escape once and hoping it sticks.
+    for (let i = 0; i < 3; i++) {
+      const openListbox = this.page.getByRole("listbox");
+      if (!(await openListbox.isVisible().catch(() => false))) break;
+      await this.page.keyboard.press("Escape").catch(() => {});
+      await this.page
+        .locator("body")
+        .click({ position: { x: 2, y: 2 }, force: true })
+        .catch(() => {});
+      await openListbox.waitFor({ state: "hidden", timeout: 2000 }).catch(() => {});
+    }
 
     // 2. Click the combobox to open the listbox
     await combobox.click();
 
-    // 3. Click "+ Create New Location" from the footer
-    await this.page.getByText("Create New Location", { exact: false }).click();
+    // 3. Click "+ Create New Location" from the footer - the SAME broken-i18n-key bug that can
+    // make the field's own label read "crm.salesOrder.fields.location_label *" (see
+    // selectLocation's comment) also affects this footer link on Purchase Order specifically
+    // (confirmed live: renders literally as "+ Create New crm.salesOrder.fields.location_label"),
+    // so match on "Create New" alone rather than the full "Create New Location" string - there's
+    // only ever one such footer link in an open popover at a time.
+    await this.page.getByText(/Create New/i).click();
 
     // 4. Wait for the dialog to be visible
     const dialog = this.page.getByRole("dialog");
     await dialog.waitFor({ state: "visible" });
 
-    // 5. Fill in Location Name and a unique Location Code
-    await dialog.getByPlaceholder("Enter Name").fill(locationName);
+    // 5. Fill in Location Name and a unique Location Code. This dialog's own translation
+    // namespace (inventory.item.locationModal) can fail to load on some routes (confirmed live
+    // on Purchase Order specifically) - title/labels/placeholders all render as raw i18n keys
+    // ("inventory.item.locationModal.location_name_placeholder" instead of "Enter Name"), unlike
+    // every other module using this same footer action. Fall back to the dialog's first/second
+    // text input by position when the expected placeholder isn't there at all.
+    const nameField = dialog.getByPlaceholder("Enter Name");
+    if (await nameField.isVisible().catch(() => false)) {
+      await nameField.fill(locationName);
+    } else {
+      await dialog.locator('input[type="text"]').nth(0).fill(locationName);
+    }
+
     const code = "LOC-" + Math.random().toString(36).substr(2, 9).toUpperCase();
-    await dialog.getByPlaceholder("Enter Short Code").fill(code);
+    const codeField = dialog.getByPlaceholder("Enter Short Code");
+    if (await codeField.isVisible().catch(() => false)) {
+      await codeField.fill(code);
+    } else {
+      await dialog.locator('input[type="text"]').nth(1).fill(code);
+    }
 
     // 6. Select Entity (Company) inside the dialog - MUST match the outer form's own currently
     // selected company (the `companyName` argument, usually resolved by the caller via

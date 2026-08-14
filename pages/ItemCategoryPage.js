@@ -21,8 +21,22 @@ class ItemCategoryPage {
   }
 
   async gotoList() {
-    await this.page.goto('/dashboard/inventory/product-management/item-category');
-    await this.page.waitForLoadState('networkidle');
+    // CONFIRMED LIVE: same stuck-on-its-own-bare-loading-spinner class of bug as
+    // LocationPage.gotoList()/BinPage.gotoList()/DiscountedItemPage.gotoList()/UOMPage.goto() - a
+    // single networkidle wait can hang well past a generous timeout on a cold first load, and only
+    // a reload recovers it. Retry with a reload instead of trusting one wait, so callers of
+    // addButton right after gotoList() don't time out on it.
+    await this.page.goto('/dashboard/inventory/product-management/item-category', { timeout: 60000 });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      try {
+        await this.addButton.waitFor({ state: 'visible', timeout: 30000 });
+        return;
+      } catch (e) {
+        if (attempt === 3) throw e;
+        await this.page.reload({ timeout: 60000 }).catch(() => {});
+      }
+    }
   }
 
   async openAdd() {

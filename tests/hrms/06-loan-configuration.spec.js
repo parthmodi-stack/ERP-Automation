@@ -39,7 +39,7 @@ test.describe('Loan Configuration Module', () => {
   let draftRecord = {};
 
   // ── TC-LOAN-SAVE-01: Create with mandatory + core Loan Limits fields ─────────
-  test('TC-LOAN-SAVE-01 [+] Create Loan Configuration with mandatory fields', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-LOAN-SAVE-01 [+] Create Loan Configuration with mandatory fields', async ({ page }) => {
     const lc = new LoanConfigurationPage(page);
     const data = testData.loanConfiguration.valid;
 

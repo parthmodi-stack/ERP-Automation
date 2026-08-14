@@ -28,7 +28,7 @@ test.describe('Document Master Module', () => {
   let draftRecord = {};
 
   // ── TC-DOC-01: Create Document Master ────────────────────────────────────
-  test('TC-DOC-01 [+] Create Document Master with two Document rows', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-DOC-01 [+] Create Document Master with two Document rows', async ({ page }) => {
     const doc = new DocumentMasterPage(page);
     const data = testData.documentMaster.valid;
 

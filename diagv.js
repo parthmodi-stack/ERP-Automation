@@ -20,7 +20,7 @@ const LandedCostPage = require('/home/trootech/Documents/Project/Erpforce/ERP-Au
   await lc.gotoView(created.id);
   console.log('status before validate:', await lc.getStatusBadge());
   await lc.clickValidate();
-  console.log('clicked validate, status right after click (no wait):', await lc.getStatusBadge().catch(e => 'ERR:'+e.message));
+  console.log('clicked validate, status right after click (no wait):', await lc.getStatusBadge().catch(e => 'ERR:' + e.message));
   await lc.gotoView(created.id);
   console.log('status after re-navigating to view:', await lc.getStatusBadge());
   await browser.close();

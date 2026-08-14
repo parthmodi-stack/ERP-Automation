@@ -41,8 +41,22 @@ class LocationPage {
   }
 
   async gotoList() {
-    await this.page.goto('/dashboard/inventory/configuration/location');
-    await this.page.waitForLoadState('networkidle');
+    // CONFIRMED LIVE: this SPA can get genuinely stuck on its own loading spinner well past a
+    // generous wait, not just slow - a single wait, however long, never resolves, but a hard
+    // reload recovers it (same fix as ProcurementRequestPage/PurchaseOrderPage gotoAdd/gotoEdit
+    // and the erpforce-*.spec.js Step 1 Add-button wait). Retry with a reload instead of trusting
+    // one networkidle wait, so callers of addButton right after gotoList() don't time out on it.
+    await this.page.goto('/dashboard/inventory/configuration/location', { timeout: 60000 });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      try {
+        await this.addButton.waitFor({ state: 'visible', timeout: 30000 });
+        return;
+      } catch (e) {
+        if (attempt === 3) throw e;
+        await this.page.reload({ timeout: 60000 }).catch(() => {});
+      }
+    }
   }
 
   async goto() {

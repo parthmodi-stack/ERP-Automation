@@ -1,9 +1,10 @@
 require('dotenv').config();
 const ts = Date.now();
 const factory = require("./testDataFactory");
+const sharedItem = require("./sharedItem");
 const tsDigits = String(ts).slice(-8);
 const testData = {
-  baseUrl: process.env.BASE_URL || "http://localhost:7173",
+  baseUrl: process.env.BASE_URL || "https://dev.erpforce.co",
 
   credentials: {
     valid: {
@@ -156,10 +157,10 @@ const testData = {
     // ACCOUNTING_FINDINGS.md "RBAC test coverage" for what each role needs to grant/deny.
     rbacRoles: {
       fullAccess: null, // filled in below with credentials.valid - canView/canAdd/canEdit/canDelete all true
-      readOnly:   null, // canView=true, canAdd/canEdit/canDelete=false
-      noAdd:      null, // canAdd=false, others true
-      noEdit:     null, // canEdit=false, others true
-      noDelete:   null, // canDelete=false, others true
+      readOnly: null, // canView=true, canAdd/canEdit/canDelete=false
+      noAdd: null, // canAdd=false, others true
+      noEdit: null, // canEdit=false, others true
+      noDelete: null, // canDelete=false, others true
     },
 
     // valid.name / valid.updatedName are the generic display-name keys consumed by
@@ -167,9 +168,9 @@ const testData = {
     // backend field via `displayNameField` (see pages/base/SettingsEntityPage.js).
     chartOfAccounts: {
       valid: {
-        parentType:  'Assets',
+        parentType: 'Assets',
         accountType: 'Current Assets',
-        name:        `Automation_COA_${ts}`,
+        name: `Automation_COA_${ts}`,
         updatedName: `Automation_COA_UPDATED_${ts}`,
       },
       missingRequired: {
@@ -180,13 +181,13 @@ const testData = {
       // true/false here, not a checkbox state.
       crud: {
         valid: {
-          parentType:  'Assets',
+          parentType: 'Assets',
           accountType: 'Current Assets',
-          name:        `Automation_COA_CRUD_${ts}`,
+          name: `Automation_COA_CRUD_${ts}`,
           allowedJournal: 'Cheque Receipt Voucher',
           updatedName: `Automation_COA_CRUD_UPDATED_${ts}`,
           description: 'Created by the Chart of Accounts CRUD spec',
-          enabled:     true,
+          enabled: true,
         },
         missingRequired: {
           name: '',
@@ -202,24 +203,24 @@ const testData = {
     // valid payload to demonstrate this.
     currency: {
       valid: {
-        name:                    `Automation_Currency_${ts}`,
-        updatedName:             `Automation_Currency_UPDATED_${ts}`,
-        symbol:                  '$',
-        fraction:                'Cents',
-        fraction_unit:           '100',
+        name: `Automation_Currency_${ts}`,
+        updatedName: `Automation_Currency_UPDATED_${ts}`,
+        symbol: '$',
+        fraction: 'Cents',
+        fraction_unit: '100',
         smallest_fraction_value: '0.01',
-        exchange_rate:           '1',
+        exchange_rate: '1',
       },
       missingRequired: {
         name: '',
       },
       duplicate: {
-        name:                    `Automation_Currency_${ts}`, // intentionally same as valid.name
-        symbol:                  '$',
-        fraction:                'Cents',
-        fraction_unit:           '100',
+        name: `Automation_Currency_${ts}`, // intentionally same as valid.name
+        symbol: '$',
+        fraction: 'Cents',
+        fraction_unit: '100',
         smallest_fraction_value: '0.01',
-        exchange_rate:           '1',
+        exchange_rate: '1',
       },
     },
 
@@ -229,19 +230,19 @@ const testData = {
     // applies_to (a plain select with options Net/Gross).
     taxCode: {
       valid: {
-        name:                 `Automation_TaxCode_${ts}`,
-        updatedName:          `Automation_TaxCode_UPDATED_${ts}`,
-        rate:                 '5',
+        name: `Automation_TaxCode_${ts}`,
+        updatedName: `Automation_TaxCode_UPDATED_${ts}`,
+        rate: '5',
         effective_start_date: '01-01-2026',
-        effective_end_date:   '31-12-2026',
-        tax_category_id:      'VAT',
-        applies_to:           'Net',
+        effective_end_date: '31-12-2026',
+        tax_category_id: 'VAT',
+        applies_to: 'Net',
       },
       missingRequired: {
         name: '',
       },
       boundaryRates: {
-        zero:     '0',
+        zero: '0',
         maxValid: '100',
         negative: '-1',
       },
@@ -250,8 +251,8 @@ const testData = {
     // Confirmed against the running app's add-bank form: swift_number is required alongside name.
     bank: {
       valid: {
-        name:         `Automation_Bank_${ts}`,
-        updatedName:  `Automation_Bank_UPDATED_${ts}`,
+        name: `Automation_Bank_${ts}`,
+        updatedName: `Automation_Bank_UPDATED_${ts}`,
         swift_number: `AUTOSWIFT${String(ts).slice(-6)}`,
       },
       missingRequired: {
@@ -267,13 +268,13 @@ const testData = {
       // a beforeAll hook, kept independent of 04-bank.spec.js's own bank (which that suite
       // deletes as part of its own lifecycle) so this spec file can run standalone.
       valid: {
-        bank:           `Automation_Bank_ForAccount_${ts}`,
-        name:           `Automation_BankAccount_${ts}`,
-        updatedName:    `Automation_BankAccount_UPDATED_${ts}`,
+        bank: `Automation_Bank_ForAccount_${ts}`,
+        name: `Automation_BankAccount_${ts}`,
+        updatedName: `Automation_BankAccount_UPDATED_${ts}`,
         account_number: `AC-${ts}`,
-        type_id:        'Current Account',
-        iban_code:      `AE07AUTOMATION${String(ts).slice(-6)}`,
-        branch_code:    `BR${String(ts).slice(-4)}`,
+        type_id: 'Current Account',
+        iban_code: `AE07AUTOMATION${String(ts).slice(-6)}`,
+        branch_code: `BR${String(ts).slice(-4)}`,
       },
       missingRequired: {
         name: '',
@@ -287,11 +288,11 @@ const testData = {
     // default-list accounts are used instead; the field doesn't appear to filter by account type.
     taxCategory: {
       valid: {
-        name:               `Automation_TaxCategory_${ts}`,
-        updatedName:        `Automation_TaxCategory_UPDATED_${ts}`,
-        sales_account_id:   'Employee Expense Reimbursement',
+        name: `Automation_TaxCategory_${ts}`,
+        updatedName: `Automation_TaxCategory_UPDATED_${ts}`,
+        sales_account_id: 'Employee Expense Reimbursement',
         purchase_account_id: 'Depreciation Expense',
-        description:        'Created by the Tax Category automation suite',
+        description: 'Created by the Tax Category automation suite',
       },
       missingRequired: {
         name: '',
@@ -309,9 +310,9 @@ const testData = {
       seedTaxCategoryName: `Automation_TaxTemplate_TCAT_${ts}`,
       seedTaxCodeName: `Automation_TaxTemplate_TC_${ts}`,
       valid: {
-        name:        `Automation_TaxTemplate_${ts}`,
+        name: `Automation_TaxTemplate_${ts}`,
         updatedName: `Automation_TaxTemplate_UPDATED_${ts}`,
-        tax_codes:   `Automation_TaxTemplate_TC_${ts}`,
+        tax_codes: `Automation_TaxTemplate_TC_${ts}`,
       },
       missingRequired: {
         name: '',
@@ -325,11 +326,11 @@ const testData = {
     // not because one is currently known to exist.
     fiscalYear: {
       valid: {
-        name:            `Automation_FiscalYear_${ts}`,
-        updatedName:     `Automation_FiscalYear_UPDATED_${ts}`,
+        name: `Automation_FiscalYear_${ts}`,
+        updatedName: `Automation_FiscalYear_UPDATED_${ts}`,
         year_start_date: '01-01-2030',
-        year_end_date:   '31-12-2030',
-        company_ids:     'Trootech',
+        year_end_date: '31-12-2030',
+        company_ids: 'Trootech',
       },
       missingRequired: {
         name: '',
@@ -343,11 +344,11 @@ const testData = {
     // with those.
     paymentTerm: {
       valid: {
-        name:               `Automation_PaymentTerm_${ts}`,
-        updatedName:        `Automation_PaymentTerm_UPDATED_${ts}`,
-        due_date_based_on:  "Day's after Invoice date",
-        credit_days:        '30',
-        mode_of_payment:    'Bank Draft',
+        name: `Automation_PaymentTerm_${ts}`,
+        updatedName: `Automation_PaymentTerm_UPDATED_${ts}`,
+        due_date_based_on: "Day's after Invoice date",
+        credit_days: '30',
+        mode_of_payment: 'Bank Draft',
       },
       missingRequired: {
         name: '',
@@ -361,12 +362,12 @@ const testData = {
     // beforeAll seeds two dedicated, never-deleted Currency records specifically for this pair.
     currencyExchange: {
       seedFromCurrencyName: `Automation_CE_From_${ts}`,
-      seedToCurrencyName:   `Automation_CE_To_${ts}`,
+      seedToCurrencyName: `Automation_CE_To_${ts}`,
       valid: {
-        date:              '14-07-2026',
-        from_currency_id:  `Automation_CE_From_${ts}`,
-        to_currency_id:    `Automation_CE_To_${ts}`,
-        exchange_rate:     '3.6725',
+        date: '14-07-2026',
+        from_currency_id: `Automation_CE_From_${ts}`,
+        to_currency_id: `Automation_CE_To_${ts}`,
+        exchange_rate: '3.6725',
         updatedExchangeRate: '3.75',
       },
       missingRequired: {
@@ -393,15 +394,15 @@ const testData = {
     // self-heal step creates it once if missing and leaves it in place after that.
     accountingSetting: {
       valid: {
-        company_id:    'Trootech',
+        company_id: 'Trootech',
         department_id: 'Procurement',
-        location_id:   `Automation_Location_${ts}`,
+        location_id: `Automation_Location_${ts}`,
       },
       updatedLocation: `Automation_Location_${ts}_UPD`,
       duplicate: {
-        company_id:    'Trootech',
+        company_id: 'Trootech',
         department_id: 'Administration',
-        location_id:   'Mumbai',
+        location_id: 'Mumbai',
       },
     },
 
@@ -411,9 +412,9 @@ const testData = {
     // rather than guessed.
     journalType: {
       valid: {
-        name:        `Automation_JournalType_${ts}`,
+        name: `Automation_JournalType_${ts}`,
         updatedName: `Automation_JournalType_UPDATED_${ts}`,
-        isPayment:   false,
+        isPayment: false,
       },
       missingRequired: {
         name: '',
@@ -517,9 +518,9 @@ const testData = {
     //   Address & Contact tab ("Shipping Address is required") even though Vendor Address/Contact
     //   Person auto-fill from the vendor's own saved address - Save-to-Draft skips this check.
     purchaseInvoice: {
-      vendor:          'Royal Mine Industries',
-      currency:        'US Dollars',
-      paymentTerm:     'Net 30',
+      vendor: 'Royal Mine Industries',
+      currency: 'US Dollars',
+      paymentTerm: 'Net 30',
       shippingAddress: 'Rajkot',
       // `name` is the item's actual display name as it renders inside the invoice's own item
       // table/view (confirmed live - no SKU prefix there); `dropdownOption` is the full
@@ -527,18 +528,18 @@ const testData = {
       // matchable option text. Keep both - using `dropdownOption` for on-page assertions never
       // matches, since the SKU prefix isn't part of the rendered cell text.
       item: {
-        name:           'Playwright Auto Item',
+        name: 'Playwright Auto Item',
         dropdownOption: 'ELEC-000071 - Playwright Auto Item',
-        quantity:       '2',
-        rate:           '500',
-        taxTemplate:    'UAE VAT',
+        quantity: '2',
+        rate: '500',
+        taxTemplate: 'UAE VAT',
       },
       valid: {
         vendorInvoiceNo: `PI-AUTOMATION-${ts}`,
       },
       updated: {
         vendorInvoiceNo: `PI-AUTOMATION-${ts}-UPDATED`,
-        quantity:        '3',
+        quantity: '3',
       },
     },
 
@@ -551,16 +552,16 @@ const testData = {
     // "Shipping" tab (confirmed live: that tab is shipping cost/rules, not an address, and Save
     // succeeded without touching it).
     salesInvoice: {
-      customer:          'AutoCorp',
-      currency:          'INR',
-      paymentTerm:       'Net 30',
+      customer: 'AutoCorp',
+      currency: 'INR',
+      paymentTerm: 'Net 30',
       accountReceivable: 'Accounts Receivable',
       item: {
-        name:           'Playwright Auto Item',
+        name: 'Playwright Auto Item',
         dropdownOption: 'ELEC-000071 - Playwright Auto Item',
-        quantity:       '2',
-        rate:           '500',
-        taxCode:        'UAE VAT',
+        quantity: '2',
+        rate: '500',
+        taxCode: 'UAE VAT',
       },
     },
 
@@ -606,19 +607,24 @@ const testData = {
     // DebitNotePage.js falls back to whatever real Vendor already exists via selectDropdown()'s
     // search+fallback cascade if it doesn't match exactly - same reasoning as purchaseInvoice's
     // own vendor field) - always assert against the actualPartyName createDebitNote() returns,
-    // not this literal value. `journalType`/`currency` are confirmed live to always have at
-    // least one real option ("Journal Voucher"/company default currency).
+    // not this literal value. `journalType` is confirmed live to always have at least one real
+    // option ("Journal Voucher"). `currency` was 'US Dollars' - confirmed live this environment
+    // has no such currency configured (selectCurrencyIfNeeded only opens the dropdown when the
+    // pre-filled default doesn't already match, and doing so here found the list genuinely empty -
+    // same INR-only setup the sibling creditNote fixture below already reflects and consistently
+    // passes with, since 'INR' matches the pre-filled default and never needs to open the dropdown
+    // at all).
     debitNote: {
-      vendor:      'Royal Mine Industries',
+      vendor: 'Royal Mine Industries',
       journalType: 'Journal Voucher',
-      currency:    'US Dollars',
-      reference:   `Automation Debit Note ${ts}`,
-      amount:      '750',
+      currency: 'INR',
+      reference: `Automation Debit Note ${ts}`,
+      amount: '750',
       item: {
         dropdownOption: 'ELEC-000071 - Playwright Auto Item',
-        quantity:       '1',
-        rate:           '750',
-        taxTemplate:    'UAE VAT',
+        quantity: '1',
+        rate: '750',
+        taxTemplate: 'UAE VAT',
       },
     },
 
@@ -626,15 +632,15 @@ const testData = {
     // to an approved Sales Invoice instead of a Purchase Invoice). `customer`/`item.taxCode`
     // reuse salesInvoice's own best-effort seed names/fallback reasoning above.
     creditNote: {
-      customer:    'AutoCorp',
+      customer: 'AutoCorp',
       journalType: 'Journal Voucher',
-      currency:    'INR',
-      reference:   `Automation Credit Note ${ts}`,
+      currency: 'INR',
+      reference: `Automation Credit Note ${ts}`,
       item: {
         dropdownOption: 'ELEC-000071 - Playwright Auto Item',
-        quantity:       '1',
-        rate:           '750',
-        taxCode:        'UAE VAT',
+        quantity: '1',
+        rate: '750',
+        taxCode: 'UAE VAT',
       },
     },
 
@@ -645,22 +651,22 @@ const testData = {
     // exists via selectDropdown()'s search+fallback cascade if these don't match exactly - same
     // reasoning as every other module's own vendor/item/tax fields).
     expenseReimbursement: {
-      employee:        'John Smith Doe',
-      journal:         'Journal Voucher',
-      currency:        'INR',
-      exchangeRate:    '1',
-      description:     `Automation Expense Reimbursement ${ts}`,
+      employee: 'John Smith Doe',
+      journal: 'Journal Voucher',
+      currency: 'INR',
+      exchangeRate: '1',
+      description: `Automation Expense Reimbursement ${ts}`,
       expenseEntryType: 'Expense',
       item: {
-        category:    'Client-related Expenses',
+        category: 'Client-related Expenses',
         taxTemplate: 'UAE VAT',
-        amount:      '500',
+        amount: '500',
         // Confirmed live: despite the "Reference Number" label, this field is a real
         // type="number" input - a free-text value like "ER-AUTOMATION-<ts>" throws
         // "Cannot type text into input[type=number]", and the raw 13-digit `ts` epoch alone
         // throws "Out of range value for column 'ref_number'" (an INT column server-side) -
         // truncated to 6 digits to stay safely within range while still varying per run.
-        refNumber:   `${ts % 1000000}`,
+        refNumber: `${ts % 1000000}`,
       },
     },
 
@@ -668,23 +674,23 @@ const testData = {
     // Entries shape), except "Vendor Invoice No" is required here. Reuses purchaseInvoice's own
     // vendor/item best-effort seed names and fallback reasoning.
     cashExpense: {
-      vendor:          'Royal Mine Industries',
-      currency:        'US Dollars',
-      paymentTerm:     'Net 30',
+      vendor: 'Royal Mine Industries',
+      currency: 'US Dollars',
+      paymentTerm: 'Net 30',
       // Confirmed live the Save toast blocks with "Please fill all the required fields" unless
       // both of these are set - same as Purchase Invoice's own required Shipping Address, plus
       // this module's own required "Account" field (unlike Sales Invoice's account_receivable_id,
       // which has zero real options in this environment, this one does).
-      accountPayable:  'Accounts Payable',
+      accountPayable: 'Accounts Payable',
       shippingAddress: 'Rajkot',
       valid: {
         vendorInvoiceNo: `CE-AUTOMATION-${ts}`,
       },
       item: {
         dropdownOption: 'ELEC-000071 - Playwright Auto Item',
-        quantity:       '2',
-        rate:           '500',
-        taxTemplate:    'UAE VAT',
+        quantity: '2',
+        rate: '500',
+        taxTemplate: 'UAE VAT',
       },
     },
 
@@ -693,22 +699,22 @@ const testData = {
     // AssetManagementPage's create-if-missing fallback (a throwaway-tab Chart of Accounts
     // create) rather than coincidentally matching a record from an earlier run.
     assetManagement: {
-      assetType:           'Computer',
-      location:            'Rajkot',
-      department:          'Accounting',
-      acquisitionDate:      '01-07-2026',
-      assetValue:           '1000',
-      notDepreciableValue:  '0',
-      bookValue:            '1000',
-      depreciationMethod:   'Straight line',
+      assetType: 'Computer',
+      location: 'Rajkot',
+      department: 'Accounting',
+      acquisitionDate: '01-07-2026',
+      assetValue: '1000',
+      notDepreciableValue: '0',
+      bookValue: '1000',
+      depreciationMethod: 'Straight line',
       // Best-effort guess - selectDropdown()'s search+fallback substitutes whatever real
       // Computation option exists in this environment if this exact text doesn't match.
-      computation:          'Monthly',
-      assetName:            `Automation Asset ${ts}`,
-      seriesNumber:         `AST-AUTOMATION-${ts}`,
-      fixedAssetAccount:    `Automation_FixedAsset_${ts}`,
-      depreciationAccount:  `Automation_Depreciation_${ts}`,
-      expenseAccount:       `Automation_Expense_${ts}`,
+      computation: 'Monthly',
+      assetName: `Automation Asset ${ts}`,
+      seriesNumber: `AST-AUTOMATION-${ts}`,
+      fixedAssetAccount: `Automation_FixedAsset_${ts}`,
+      depreciationAccount: `Automation_Depreciation_${ts}`,
+      expenseAccount: `Automation_Expense_${ts}`,
     },
 
     // Asset Transfer - the prerequisite Asset is created fresh each run (via AssetManagementPage,
@@ -719,30 +725,37 @@ const testData = {
     // which record's Location actually changed after the transfer.
     assetTransfer: {
       prereqAsset: {
-        assetType:           'Computer',
-        seriesNumber:        `AT-PREREQ-${ts}`,
-        assetName:           `Automation Transfer Prereq Asset ${ts}`,
-        location:            'Mumbai',
-        department:          'Procurement',
-        acquisitionDate:     '01-07-2026',
-        assetValue:          '1000',
+        assetType: 'Computer',
+        seriesNumber: `AT-PREREQ-${ts}`,
+        assetName: `Automation Transfer Prereq Asset ${ts}`,
+        // Was 'Mumbai' - confirmed live this no longer exists as a standalone, exact-match Location
+        // option in this environment (only "Navi Mumbai" does now); selectDropdown()'s exact-match
+        // search found no match and silently fell back to the first available option, which
+        // TC-ATR-PREREQ-01's own loose (non-exact) getByText assertion failed to catch since
+        // "Mumbai" is a substring of "Navi Mumbai". Confirmed via a live error-context snapshot.
+        location: 'Navi Mumbai',
+        department: 'Procurement',
+        acquisitionDate: '01-07-2026',
+        assetValue: '1000',
         notDepreciableValue: '0',
-        bookValue:           '1000',
-        depreciationMethod:  'Straight line',
-        computation:         'Monthly',
-        fixedAssetAccount:   `Automation_AT_FixedAsset_${ts}`,
+        bookValue: '1000',
+        depreciationMethod: 'Straight line',
+        computation: 'Monthly',
+        fixedAssetAccount: `Automation_AT_FixedAsset_${ts}`,
         depreciationAccount: `Automation_AT_Depreciation_${ts}`,
-        expenseAccount:      `Automation_AT_Expense_${ts}`,
+        expenseAccount: `Automation_AT_Expense_${ts}`,
       },
-      transferName:          `Automation Asset Transfer ${ts}`,
+      transferName: `Automation Asset Transfer ${ts}`,
       // Despite the "Reference Number" label this is a real type="number" input (same quirk
       // ExpenseReimbursementPage's own refNumber documents) - numeric-only, truncated to stay
       // within a plausible range while still varying per run.
-      referenceNumber:       `${ts % 1000000}`,
-      // Confirmed live: this environment's Location list has both "Mumbai" (used as the
-      // prerequisite Asset's own source location above) and "Baroda" - a genuinely different,
-      // real destination distinct from the source, not a best-effort guess.
-      destinationLocation:  'Baroda',
+      referenceNumber: `${ts % 1000000}`,
+      // NOT a pinned real location name - AssetTransferPage.createDestinationLocation() always
+      // creates a brand new Location from this seed prefix rather than searching for a pinned
+      // name (see that method's doc comment: this environment's Location dropdown only shows a
+      // limited, ever-shifting recent window, so any pinned literal - "Baroda" included - reliably
+      // gets evicted by other specs' own auto-created Locations account-wide).
+      destinationLocationPrefix: 'Automation_AssetTransfer_Destination',
       destinationDepartment: 'Finance',
     },
 
@@ -753,15 +766,15 @@ const testData = {
     // for the full CRUD lifecycle rather than mutating/reading a pre-existing shared one.
     commissionPlan: {
       valid: {
-        title:            `Automation Commission Plan ${ts}`,
-        type:              'Fixed Rate',
-        commissionAmount:  '500',
-        description:       `Automation-created commission plan ${ts}`,
+        title: `Automation Commission Plan ${ts}`,
+        type: 'Fixed Rate',
+        commissionAmount: '500',
+        description: `Automation-created commission plan ${ts}`,
         // Confirmed live: this environment's Location/Department lists are real but this exact
         // pair isn't pinned/verified against a specific option - selectLocation()/selectDepartment()
         // both fall back gracefully (optional: true) if these exact names don't match.
-        location:          'Mumbai',
-        department:        'Finance',
+        location: 'Mumbai',
+        department: 'Finance',
       },
       updatedDescription: `Updated by automation ${ts}`,
     },
@@ -770,15 +783,15 @@ const testData = {
     // above. This suite creates and uses its own disposable record for the full CRUD lifecycle.
     commissionTarget: {
       valid: {
-        salesperson:  'Dipen Modi', // matches credentials.valid's own logged-in user
-        type:         'Monthly',
-        startDate:    '01-07-2026',
+        salesperson: 'Dipen Modi', // matches credentials.valid's own logged-in user
+        type: 'Monthly',
+        startDate: '01-07-2026',
         // No endDate - confirmed live that field is disabled/auto-computed from startDate+type.
         targetAmount: '5000',
         // Confirmed live real options in this environment - selectLocation()/selectDepartment()
         // both fall back gracefully (optional: true) if these exact names don't match.
-        location:     'Mumbai',
-        department:   'Finance',
+        location: 'Mumbai',
+        department: 'Finance',
       },
       updatedTargetAmount: '7500',
     },
@@ -793,17 +806,17 @@ const testData = {
     // header comment for why the line item is an inline table row, not a modal.
     commissionAssignment: {
       valid: {
-        title:       `Automation Commission Assignment ${ts}`,
+        title: `Automation Commission Assignment ${ts}`,
         description: `Automation-created commission assignment ${ts}`,
         lineItem: {
-          salesperson:    'Dipen Modi', // matches credentials.valid's own logged-in user
+          salesperson: 'Dipen Modi', // matches credentials.valid's own logged-in user
           commissionPlan: 'Sales Commission Plan',
-          target:         'CMT-2025-000039',
+          target: 'CMT-2025-000039',
           // Day-of-month for the calendar-picker helper (see fillLineItemEndDate) - the masked
           // date input doesn't reliably accept typed/filled values, confirmed live. Start Date
           // auto-defaults to today and isn't user-settable (see class doc comment), so only End
           // Date needs a day picked here.
-          endDateDay:     25,
+          endDateDay: 25,
         },
       },
       updatedDescription: `Updated by automation ${ts}`,
@@ -814,15 +827,15 @@ const testData = {
     // disposable record for the CRUD lifecycle.
     budget: {
       valid: {
-        budgetName:      `Automation Budget ${ts}`,
-        budgetType:      'Company budget',
+        budgetName: `Automation Budget ${ts}`,
+        budgetType: 'Company budget',
         // Best-effort seed - selectDropdown()'s search+fallback substitutes a real option if this
         // exact Financial Year name doesn't match (this environment's Financial Year list is
         // large and includes several near-duplicates like "2024-2025 (New)").
-        financialYear:   '2024-2025 (New)',
-        totalAmount:     '50000',
-        budgetPeriod:    'Monthly',
-        budgetMonths:    'January',
+        financialYear: '2024-2025 (New)',
+        totalAmount: '50000',
+        budgetPeriod: 'Monthly',
+        budgetMonths: 'January',
         // Top-level account category selected via the multi-step "Select Account" picker (see
         // BudgetPage.js's own class doc comment) - confirmed live real options are Assets/
         // Expense/Income/Liabilities/Equity.
@@ -832,150 +845,150 @@ const testData = {
     },
 
     // ---- Master Data: Customer Management ----
-  //
-  // Routes:
-  //   List:  /dashboard/accounting/master-data/customer-management
-  //   Add:   /dashboard/accounting/master-data/customer-management/add-customer
-  //   Edit:  /dashboard/accounting/master-data/customer-management/:id/edit-customer
-  //   View:  /dashboard/accounting/master-data/customer-management/:id/view-customer
-  //
-  // account_type: 'Individual' | 'Company'  (confirmed from parties.service.js)
-  // Individual required fields: first_name + last_name
-  // Company required field: company_name (labelled "Entity Name" in the UI)
-  // Both types require at least one Address and at least one Contact before Save.
-  //
-  // account_id on the Accounting tab is the Account Receivable COA record.
-  // Update the seeded names below to match what actually exists in your environment.
-  // ── Customer Management ──────────────────────────────────────────────────────
-  //
-  // Routes (CRM module, also duplicated in accounting module):
-  //   List:  /dashboard/accounting/master-data/customer-management
-  //   Add:   .../add-customer
-  //   Edit:  .../:id/edit-customer
-  //   View:  .../:id/view-customer
-  //
-  // account_type: 'Individual' | 'Company'  (parties.service.js)
-  //   Individual → first_name + last_name required
-  //   Company    → company_name required (label "Entity Name")
-  //
-  // At least one Address AND one Contact are required before Save.
-  // Accounting tab → account_id = Accounts Receivable COA.
-  //
-  // Address object keys must match PartyPage.addAddress() params:
-  //   addressType, contactName, mobile, street1, zipCode, country, defaultBilling
-  //
-  // Update seeded names (accountName, paymentTerm, currencies) to match your environment.
-  customerManagement: {
-    individual: {
-      accountType:     'Individual',
-      firstName:       'Auto',
-      lastName:        `Cust_${ts}`,
-      // No vatNumber/crn — VAT requires exactly 15 digits, CRN exactly 10 digits;
-      // invalid values show inline errors that block the Next button.
-      address: {
-        addressType:    'Office',
-        contactName:    'Auto Cust Contact',
-        street1:        '10 Automation Avenue',
-        zipCode:        '100001',
-        defaultBilling: true,
+    //
+    // Routes:
+    //   List:  /dashboard/accounting/master-data/customer-management
+    //   Add:   /dashboard/accounting/master-data/customer-management/add-customer
+    //   Edit:  /dashboard/accounting/master-data/customer-management/:id/edit-customer
+    //   View:  /dashboard/accounting/master-data/customer-management/:id/view-customer
+    //
+    // account_type: 'Individual' | 'Company'  (confirmed from parties.service.js)
+    // Individual required fields: first_name + last_name
+    // Company required field: company_name (labelled "Entity Name" in the UI)
+    // Both types require at least one Address and at least one Contact before Save.
+    //
+    // account_id on the Accounting tab is the Account Receivable COA record.
+    // Update the seeded names below to match what actually exists in your environment.
+    // ── Customer Management ──────────────────────────────────────────────────────
+    //
+    // Routes (CRM module, also duplicated in accounting module):
+    //   List:  /dashboard/accounting/master-data/customer-management
+    //   Add:   .../add-customer
+    //   Edit:  .../:id/edit-customer
+    //   View:  .../:id/view-customer
+    //
+    // account_type: 'Individual' | 'Company'  (parties.service.js)
+    //   Individual → first_name + last_name required
+    //   Company    → company_name required (label "Entity Name")
+    //
+    // At least one Address AND one Contact are required before Save.
+    // Accounting tab → account_id = Accounts Receivable COA.
+    //
+    // Address object keys must match PartyPage.addAddress() params:
+    //   addressType, contactName, mobile, street1, zipCode, country, defaultBilling
+    //
+    // Update seeded names (accountName, paymentTerm, currencies) to match your environment.
+    customerManagement: {
+      individual: {
+        accountType: 'Individual',
+        firstName: 'Auto',
+        lastName: `Cust_${ts}`,
+        // No vatNumber/crn — VAT requires exactly 15 digits, CRN exactly 10 digits;
+        // invalid values show inline errors that block the Next button.
+        address: {
+          addressType: 'Office',
+          contactName: 'Auto Cust Contact',
+          street1: '10 Automation Avenue',
+          zipCode: '100001',
+          defaultBilling: true,
+        },
+        contact: {
+          name: 'Auto Cust Contact',
+          email: `autocust.${ts}@example.com`,
+          designation: 'QA Tester',
+        },
+        accountName: 'Accounts Receivable',
+        paymentTerm: 'Net 30',
+        currencies: ['INR'],
+        // Recently added, required field on the Accounting tab (confirmed live - Save silently
+        // stays on the add form with "This Field is required" under "Default tax template" if
+        // omitted); 'UAE VAT' is the same confirmed-live Tax Template used elsewhere in this suite.
+        defaultTaxTemplate: 'UAE VAT',
+        displayName: `Auto Cust_${ts}`,
+        updatedLastName: `Cust_${ts}_UPD`,
       },
-      contact: {
-        name:        'Auto Cust Contact',
-        email:       `autocust.${ts}@example.com`,
-        designation: 'QA Tester',
+      company: {
+        accountType: 'Company',
+        companyName: `AutoCorp_${ts}`,
+        // No vatNumber/crn for same reason
+        address: {
+          addressType: 'Office',
+          contactName: 'Corp Contact',
+          street1: '20 Business Park',
+          zipCode: '200002',
+          defaultBilling: true,
+        },
+        contact: {
+          name: 'Corp Contact Person',
+          email: `autocorp.${ts}@example.com`,
+          designation: 'Manager',
+        },
+        accountName: 'Accounts Receivable',
+        paymentTerm: 'Net 30',
+        currencies: ['INR'],
+        defaultTaxTemplate: 'UAE VAT',
+        displayName: `AutoCorp_${ts}`,
+        updatedCompanyName: `AutoCorp_${ts}_UPD`,
       },
-      accountName:     'Accounts Receivable',
-      paymentTerm:     'Net 30',
-      currencies:      ['INR'],
-      // Recently added, required field on the Accounting tab (confirmed live - Save silently
-      // stays on the add form with "This Field is required" under "Default tax template" if
-      // omitted); 'UAE VAT' is the same confirmed-live Tax Template used elsewhere in this suite.
-      defaultTaxTemplate: 'UAE VAT',
-      displayName:     `Auto Cust_${ts}`,
-      updatedLastName: `Cust_${ts}_UPD`,
+      missingRequired: {
+        accountType: 'Individual',
+        firstName: '',
+        lastName: '',
+      },
     },
-    company: {
-      accountType:        'Company',
-      companyName:        `AutoCorp_${ts}`,
-      // No vatNumber/crn for same reason
-      address: {
-        addressType:    'Office',
-        contactName:    'Corp Contact',
-        street1:        '20 Business Park',
-        zipCode:        '200002',
-        defaultBilling: true,
-      },
-      contact: {
-        name:        'Corp Contact Person',
-        email:       `autocorp.${ts}@example.com`,
-        designation: 'Manager',
-      },
-      accountName:        'Accounts Receivable',
-      paymentTerm:        'Net 30',
-      currencies:         ['INR'],
-      defaultTaxTemplate: 'UAE VAT',
-      displayName:        `AutoCorp_${ts}`,
-      updatedCompanyName: `AutoCorp_${ts}_UPD`,
-    },
-    missingRequired: {
-      accountType: 'Individual',
-      firstName:   '',
-      lastName:    '',
-    },
-  },
 
-  vendorManagement: {
-    individual: {
-      accountType:     'Individual',
-      firstName:       'Auto',
-      lastName:        `Vend_${ts}`,
-      address: {
-        addressType:    'Office',
-        contactName:    'Auto Vend Contact',
-        street1:        '30 Supplier Lane',
-        zipCode:        '300003',
-        defaultBilling: true,
+    vendorManagement: {
+      individual: {
+        accountType: 'Individual',
+        firstName: 'Auto',
+        lastName: `Vend_${ts}`,
+        address: {
+          addressType: 'Office',
+          contactName: 'Auto Vend Contact',
+          street1: '30 Supplier Lane',
+          zipCode: '300003',
+          defaultBilling: true,
+        },
+        contact: {
+          name: 'Auto Vend Contact',
+          email: `autovend.${ts}@example.com`,
+          designation: 'Sales Rep',
+        },
+        accountName: 'Accounts Payable',
+        paymentTerm: 'Net 30',
+        currencies: ['INR'],
+        defaultTaxTemplate: 'UAE VAT',
+        displayName: `Auto Vend_${ts}`,
+        updatedLastName: `Vend_${ts}_UPD`,
       },
-      contact: {
-        name:        'Auto Vend Contact',
-        email:       `autovend.${ts}@example.com`,
-        designation: 'Sales Rep',
+      company: {
+        accountType: 'Company',
+        companyName: `AutoVendCorp_${ts}`,
+        address: {
+          addressType: 'Office',
+          contactName: 'VendCorp Contact',
+          street1: '40 Trade Centre',
+          zipCode: '400004',
+          defaultBilling: true,
+        },
+        contact: {
+          name: 'VendCorp Contact Person',
+          email: `autovendcorp.${ts}@example.com`,
+          designation: 'Account Manager',
+        },
+        accountName: 'Accounts Payable',
+        paymentTerm: 'Net 30',
+        currencies: ['INR'],
+        defaultTaxTemplate: 'UAE VAT',
+        displayName: `AutoVendCorp_${ts}`,
+        updatedCompanyName: `AutoVendCorp_${ts}_UPD`,
       },
-      accountName:     'Accounts Payable',
-      paymentTerm:     'Net 30',
-      currencies:      ['INR'],
-      defaultTaxTemplate: 'UAE VAT',
-      displayName:     `Auto Vend_${ts}`,
-      updatedLastName: `Vend_${ts}_UPD`,
+      missingRequired: {
+        accountType: 'Individual',
+        firstName: '',
+        lastName: '',
+      },
     },
-    company: {
-      accountType:        'Company',
-      companyName:        `AutoVendCorp_${ts}`,
-      address: {
-        addressType:    'Office',
-        contactName:    'VendCorp Contact',
-        street1:        '40 Trade Centre',
-        zipCode:        '400004',
-        defaultBilling: true,
-      },
-      contact: {
-        name:        'VendCorp Contact Person',
-        email:       `autovendcorp.${ts}@example.com`,
-        designation: 'Account Manager',
-      },
-      accountName:        'Accounts Payable',
-      paymentTerm:        'Net 30',
-      currencies:         ['INR'],
-      defaultTaxTemplate: 'UAE VAT',
-      displayName:        `AutoVendCorp_${ts}`,
-      updatedCompanyName: `AutoVendCorp_${ts}_UPD`,
-    },
-    missingRequired: {
-      accountType: 'Individual',
-      firstName:   '',
-      lastName:    '',
-    },
-  },
   },  // closes accounting
   // Vendor/item/location/representative/approver values below are foreign-key references to
   // existing master data (same pattern as bin.valid.entity above), not freeform strings this
@@ -1112,8 +1125,21 @@ const testData = {
       entity: "erp-force",
       currency: "INR",
       purchaseRepresentative: "QA  Nikita", // renders with a double space in the live DOM
-      location: "Dhule",
-      itemName: "Regression_1-00001 - Reg-item1",
+      // Getters (not plain literals): resolved at the moment each PO/GRN/Vendor Return test
+      // actually reads them, so the same-run item + its Location/Department created by
+      // 07-inventory-item.spec.ts (which writes shared-item.json on save) are picked up
+      // automatically - PurchaseOrderPage.selectLocation/selectDepartment each try to reuse the
+      // exact name first, falling back to their own pinned-default behavior only when that name
+      // is no longer selectable (file absent/stale, or evicted from the field's options window).
+      get itemName() {
+        return sharedItem.getCreatedItem()?.dropdownOption || "Regression_1-00001 - Reg-item1";
+      },
+      get location() {
+        return sharedItem.getCreatedItem()?.location || "Dhule";
+      },
+      get department() {
+        return sharedItem.getCreatedItem()?.department || null;
+      },
       narration: factory.narration("Automation purchase order"),
       updatedNarration: factory.narration("Automation purchase order EDITED"),
       quantity: "5",
@@ -1130,6 +1156,9 @@ const testData = {
       purchaseRepresentative: "Dipen  Modi",
       location: "Dhule",
       itemName: "Regression_1-00001 - Reg-item1",
+      get department() {
+        return sharedItem.getCreatedItem()?.department || null;
+      },
       narration: factory.narration("Automation purchase order reject flow"),
       quantity: "3",
       rate: "50",
@@ -1778,7 +1807,10 @@ const testData = {
       address2: 'Sheikh Zayed Road',
       zipCode: '00000',
       country: 'United Arab Emirates',
-      state: 'Dubai',
+      // CONFIRMED LIVE: Country now arrives pre-filled to "India" regardless (LeadPage no
+      // longer fights that locator - see fillAddressRow) - State must be a real Indian state to
+      // exact-match, not the UAE one this fixture originally pinned.
+      state: 'West Bengal',
       city: 'Dubai',
       updatedCompanyName: `Automation_Lead_UPDATED_${ts}`,
       updatedPhone: `4${tsDigits}`,
@@ -1806,7 +1838,9 @@ const testData = {
       address1: 'Office 12, Business Tower',
       zipCode: '00000',
       country: 'United Arab Emirates',
-      state: 'Dubai',
+      // See .valid's own comment above - Country pre-fills to "India" regardless, so State
+      // must exact-match a real Indian state.
+      state: 'West Bengal',
       city: 'Dubai',
     },
 
@@ -1843,6 +1877,136 @@ const testData = {
       // literal here previously got flagged "already exists" from a prior run
       // before the length validation could even fire.
       vatNumber: tsDigits.slice(0, 3),
+    },
+
+    // ── Extended fixtures (tests/crm/06-lead-extended.spec.js) ──────────────
+    individual: {
+      firstName: 'John',
+      middleName: 'Q',
+      lastName: `Doe_${tsDigits}`,
+      phone: `8${tsDigits}`,
+      email: `automation.lead.individual.${ts}@acmeglobal.com`,
+      responsiblePerson: 'Ahmed Khan',
+      leadStatus: 'Cold Call',
+      priority: 'Medium',
+      source: 'Test',
+      industry: 'IT and Digital Services',
+      location: 'Almeda',
+      department: 'parth',
+      address1: 'Office 12, Business Tower',
+      zipCode: '00000',
+      country: 'United Arab Emirates',
+      state: 'West Bengal',
+      city: 'Dubai',
+    },
+    missingEntity: {
+      companyName: `Automation_Lead_MissingEntity_${ts}`,
+      phone: `9${tsDigits}`,
+      email: `automation.lead.missingentity.${ts}@acmeglobal.com`,
+      responsiblePerson: 'Ahmed Khan',
+    },
+    missingSalesperson: {
+      companyName: `Automation_Lead_MissingSP_${ts}`,
+      phone: `1${tsDigits}`,
+      email: `automation.lead.missingsp.${ts}@acmeglobal.com`,
+      responsiblePerson: 'Ahmed Khan',
+    },
+    blankResponsiblePerson: {
+      companyName: `Automation_Lead_BlankRP_${ts}`,
+      phone: `2${tsDigits}`,
+      email: `automation.lead.blankrp.${ts}@acmeglobal.com`,
+      responsiblePerson: '',
+    },
+    shortResponsiblePerson: {
+      companyName: `Automation_Lead_ShortRP_${ts}`,
+      phone: `3${tsDigits}`,
+      email: `automation.lead.shortrp.${ts}@acmeglobal.com`,
+      responsiblePerson: 'A',
+    },
+    invalidCrn: {
+      companyName: `Automation_Lead_InvalidCrn_${ts}`,
+      phone: `4${tsDigits}`,
+      email: `automation.lead.invalidcrn.${ts}@acmeglobal.com`,
+      responsiblePerson: 'Ahmed Khan',
+      crnNumber: tsDigits.slice(0, 4),
+    },
+    blankEmail: {
+      companyName: `Automation_Lead_BlankEmail_${ts}`,
+      phone: `5${tsDigits}`,
+      email: '',
+      responsiblePerson: 'Ahmed Khan',
+    },
+    secondAddress: {
+      addressType: 'Office',
+      addressee: 'Second Contact Person',
+      address1: 'Suite 200, Marina Tower',
+      city: 'Abu Dhabi',
+    },
+    secondContact: {
+      name: 'Second Contact Person',
+      email: `automation.lead.secondcontact.${ts}@acmeglobal.com`,
+    },
+    secondContactInvalidEmail: {
+      name: 'Bad Email Contact',
+      email: 'not-an-email',
+    },
+    draft: {
+      companyName: `Automation_Lead_Draft_${ts}`,
+      phone: `6${tsDigits}`,
+      email: `automation.lead.draft.${ts}@acmeglobal.com`,
+      responsiblePerson: 'Ahmed Khan',
+    },
+    draftToDelete: {
+      companyName: `Automation_Lead_DraftDel_${ts}`,
+      phone: `7${tsDigits}`,
+      email: `automation.lead.draftdel.${ts}@acmeglobal.com`,
+      responsiblePerson: 'Ahmed Khan',
+    },
+  },
+
+  // CRM > Orders pipeline: Lead -> Opportunity -> Quotation -> Sales Order. Each stage's own
+  // test reads the PRIOR stage's real created record via config/crmChain.js rather than these
+  // pinned values - customerSearchText/opportunitySearchText etc. below are the fallback used
+  // only when a stage runs standalone (no earlier stage having run first in the same session),
+  // same convention as testData.purchaseOrder's shared-item.json fallback.
+  opportunity: {
+    valid: {
+      // Fallback Customer search text if no Lead has run yet this session - a real, long-lived
+      // master customer record (not a random unique string), unverified against current master
+      // data name so pick-first-available is still the safer default (see OpportunityPage).
+      customerSearchText: '',
+      // '' (not a raw timestamp) - CONFIRMED LIVE: a truthy non-date string here (the old
+      // placeholder was literally `${ts}`, e.g. "1786003635164") gets fill()'d straight into the
+      // date picker as-is, leaving it invalid and blocking Save with "Please fill all the
+      // required fields" / "Select Closing Date" marked invalid. Empty lets
+      // OpportunityPage.fillExpectedClosingDate's own `dateStr || this.formatFutureDate()`
+      // fallback compute a real, correctly-formatted future date instead.
+      expectedClosingDate: '',
+      expectedRevenue: '50000',
+      phone: `8${tsDigits}`,
+      email: `automation.opportunity.${ts}@acmeglobal.com`,
+      stage: '',
+      priority: 'Medium',
+    },
+    invalidVat: {
+      vatNumber: tsDigits.slice(0, 3),
+    },
+    invalidCrn: {
+      crnNumber: tsDigits.slice(0, 4),
+    },
+  },
+
+  quotation: {
+    valid: {
+      opportunitySearchText: '',
+      expectedRevenue: '50000',
+    },
+  },
+
+  crmSalesOrder: {
+    valid: {
+      quotationSearchText: '',
+      poNumber: `PO-${tsDigits}`,
     },
   },
 

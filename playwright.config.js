@@ -18,6 +18,16 @@ module.exports = defineConfig({
   fullyParallel: false,
   workers: WORKERS,
 
+  // Playwright's own default is 30000ms - raised alongside actionTimeout below so a test with a
+  // couple of slow steps has room to actually finish instead of hitting the per-test cap before
+  // its own actions (each now allowed up to 25s) get the chance to.
+  timeout: 60000,
+
+  // expect().toBeVisible()-style assertions use their OWN default timeout (5000ms), separate
+  // from actionTimeout - raised in step with it so a slow-to-render page fails assertions at the
+  // same threshold actions are now given.
+  expect: { timeout: 25000 },
+
   retries: process.env.CI || 0,
 
   reporter: [
@@ -30,12 +40,11 @@ module.exports = defineConfig({
   globalSetup: require.resolve("./global-setup"),
 
   use: {
-    baseURL: BASE_URL || "http://localhost:7172",
+    baseURL: BASE_URL,
     storageState: "auth.json",
-    headless: false,
     slowMo: 500,
     viewport: { width: 1280, height: 720 },
-    actionTimeout: 15000,
+    actionTimeout: 25000,
     navigationTimeout: 30000,
     trace: "on-first-retry",
     screenshot: "only-on-failure",

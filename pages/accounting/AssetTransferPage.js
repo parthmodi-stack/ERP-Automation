@@ -24,8 +24,8 @@ const { selectDropdown } = require('../../helpers/dropdown');
  *   source_company_id (Current Entity *, pre-filled "Trootech"),
  *   destination_company_id (Transfer to Entity *, pre-filled "Trootech"),
  *   source_location_id (Current Location - NOT required, DISABLED, auto-populated from the
- *     selected Asset's own Location - confirmed live selecting an Asset located in "Mumbai"
- *     immediately fills this field with "Mumbai"),
+ *     selected Asset's own Location - confirmed live selecting an Asset located in "Navi Mumbai"
+ *     immediately fills this field with "Navi Mumbai"),
  *   destination_location_id (Transfer to Location *, required, real independent option list),
  *   source_department_id (Current Department - NOT required, DISABLED, same auto-populate-from-
  *     Asset behavior as source_location_id, renders blank if that Asset has no Department),
@@ -85,8 +85,34 @@ class AssetTransferPage extends AccountingDocumentPage {
     await this.selectHeaderDropdown('asset_id', name);
   }
 
-  async selectDestinationLocation(name) {
-    await this.selectHeaderDropdown('destination_location_id', name);
+  /**
+   * Destination Location's option list rots the same way Procurement Request's own Location field
+   * does (see ProcurementRequestPage.selectLocation's extensive comment for the full mechanism) -
+   * this environment's dropdown only surfaces a limited, ever-shifting window with no reliable
+   * search filter, so a pinned literal ("Baroda") eventually gets evicted by OTHER specs' own
+   * auto-created Locations account-wide. Confirmed live: selectDropdown()'s exact-match search for
+   * "Baroda" found nothing, and since the (non-empty) unfiltered list still had other real
+   * options, it silently fell back to whichever one happened to render first - some unrelated
+   * spec's leftover "Dhule_..." record - instead of failing loudly.
+   *
+   * UNLIKE Procurement Request's own Location field, this one has NO "+ Create New Location"
+   * footer option at all (confirmed live via its listbox snapshot - just a flat list of existing
+   * records, no footer action), so the "always create a fresh one" fix used there doesn't apply
+   * here. Instead: pass a deliberately-nonexistent namePrefix so selectDropdown's exact-match
+   * search always misses and falls through to its own "pick the first real available option"
+   * fallback (which is guaranteed to succeed - this list is never actually empty, just full of
+   * OTHER specs' leftover records), then read back whichever real option it actually landed on
+   * via getDestinationLocationText() rather than asserting against a value we never controlled.
+   */
+  async selectDestinationLocation(namePrefix) {
+    const uniqueMiss = `${namePrefix}_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+    await this.selectHeaderDropdown('destination_location_id', uniqueMiss);
+    return this.getDestinationLocationText();
+  }
+
+  async getDestinationLocationText() {
+    const text = await this.headerSelectTrigger('destination_location_id').textContent();
+    return (text || '').replace(/[​﻿]/g, '').trim();
   }
 
   async selectDestinationDepartment(name) {

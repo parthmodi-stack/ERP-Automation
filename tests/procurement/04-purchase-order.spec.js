@@ -22,7 +22,7 @@ test.describe('Purchase Order Management', () => {
   const viewValues = {};
 
   // ── TC-PO-01: Create Order ────────────────────────────────────────────────
-  test('TC-PO-01 [+] Create a new purchase order with an item and save as Draft', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-PO-01 [+] Create a new purchase order with an item and save as Draft', async ({ page }) => {
     const po   = new PurchaseOrderPage(page);
     const data = testData.purchaseOrder.valid;
 
@@ -33,6 +33,7 @@ test.describe('Purchase Order Management', () => {
       currency:               data.currency,
       purchaseRepresentative: data.purchaseRepresentative,
       narration:              data.narration,
+      department:             data.department,
     });
     await po.selectLocation(data.location);
     await po.selectPaymentTerm();
@@ -63,6 +64,7 @@ test.describe('Purchase Order Management', () => {
       entity:                 data.entity,
       currency:               data.currency,
       narration:              data.updatedNarration,
+      department:             data.department,
     });
     await po.selectLocation(data.location);
     await po.selectPaymentTerm();
@@ -95,7 +97,7 @@ test.describe('Purchase Order Management', () => {
     // module's approval flow.
     await po.gotoEdit(createdOrder.id);
     await po.setDateToToday();
-    await po.fillBasicDetails({ vendor: data.vendor, entity: data.entity, currency: data.currency });
+    await po.fillBasicDetails({ vendor: data.vendor, entity: data.entity, currency: data.currency, department: data.department });
     await po.selectLocation(data.location);
     await po.selectPaymentTerm();
     await po.save();
@@ -122,6 +124,7 @@ test.describe('Purchase Order Management', () => {
       currency:               data.currency,
       purchaseRepresentative: data.purchaseRepresentative,
       narration:              data.narration,
+      department:             data.department,
     });
     await po.selectLocation(data.location);
     await po.selectPaymentTerm();
@@ -150,6 +153,7 @@ test.describe('Purchase Order Management', () => {
       currency:               data.currency,
       purchaseRepresentative: data.purchaseRepresentative,
       narration:              'TC-PO-06 full-field auto-fill check',
+      department:             data.department,
     });
     await po.selectLocation(data.location);
     await po.selectPaymentTerm();
@@ -186,7 +190,7 @@ test.describe('Purchase Order Management', () => {
 
     await po.gotoEdit(editOrder.id);
     await po.setDateToToday();
-    await po.fillBasicDetails({ vendor: data.vendor, entity: data.entity, currency: data.currency });
+    await po.fillBasicDetails({ vendor: data.vendor, entity: data.entity, currency: data.currency, department: data.department });
     await po.selectLocation(data.location);
     await po.selectPaymentTerm();
     await po.editFirstItem({ quantity: '9' });
@@ -230,7 +234,7 @@ test.describe('Purchase Order Management', () => {
 
     await po.gotoEdit(created.id);
     await po.setDateToToday();
-    await po.fillBasicDetails({ vendor: data.vendor, entity: data.entity, currency: data.currency });
+    await po.fillBasicDetails({ vendor: data.vendor, entity: data.entity, currency: data.currency, department: data.department });
     await po.selectLocation(data.location);
     await po.selectPaymentTerm();
     await po.save(); // Draft -> Pending
@@ -250,7 +254,7 @@ test.describe('Purchase Order Management', () => {
 
     await po.gotoEdit(created.id);
     await po.setDateToToday();
-    await po.fillBasicDetails({ vendor: data.vendor, entity: data.entity, currency: data.currency });
+    await po.fillBasicDetails({ vendor: data.vendor, entity: data.entity, currency: data.currency, department: data.department });
     await po.selectLocation(data.location);
     await po.selectPaymentTerm();
     await po.save();
@@ -423,6 +427,7 @@ test.describe('Purchase Order Management', () => {
         currency:               data.currency,
         purchaseRepresentative: data.purchaseRepresentative,
         narration:              'TC-PO-R01 source PO for Vendor Return conversion',
+        department:             data.department,
       });
       const sourceLocation = await po.selectLocation('Automation_PO_Return_Location');
       await po.selectPaymentTerm();

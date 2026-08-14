@@ -23,9 +23,21 @@ class UOMPage {
   }
 
   async goto() {
-    await this.page.goto('/dashboard/inventory/configuration/uom/add-UOM');
-    await this.page.waitForLoadState('load');
-    await this.unitNameInput.waitFor({ state: 'visible', timeout: 15000 });
+    // CONFIRMED LIVE: same stuck-on-its-own-bare-loading-spinner class of bug as
+    // LocationPage.gotoList()/BinPage.gotoList()/DiscountedItemPage.gotoList() - a single
+    // load-state wait can hang well past a generous timeout on a cold first load, and only a
+    // reload recovers it. Retry with a reload instead of trusting one wait.
+    await this.page.goto('/dashboard/inventory/configuration/uom/add-UOM', { timeout: 60000 });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      try {
+        await this.unitNameInput.waitFor({ state: 'visible', timeout: 15000 });
+        return;
+      } catch (e) {
+        if (attempt === 3) throw e;
+        await this.page.reload({ timeout: 60000 }).catch(() => {});
+      }
+    }
   }
 
   async gotoList() {

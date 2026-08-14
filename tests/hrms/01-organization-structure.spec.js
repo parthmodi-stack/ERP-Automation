@@ -31,7 +31,7 @@ test.describe('Organization Structure Module', () => {
   let draft = {};
 
   // ── TC-ORG-01: Create Organization Structure (Company node) ─────────────
-  test('TC-ORG-01 [+] Create Organization Structure with a Company node', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-ORG-01 [+] Create Organization Structure with a Company node', async ({ page }) => {
     const org = new OrganizationStructurePage(page);
     const data = testData.organizationStructure.valid;
 

@@ -36,7 +36,6 @@ test.describe.serial("Procurement Request Management", () => {
   // ── TC-PREQ-01: Create Request ───────────────────────────────────────────
   test(
     "TC-PREQ-01 [+] Create a new request with an item and save as Draft",
-    { tag: "@smoke" },
     async ({ page }) => {
       const pr = new ProcurementRequestPage(page);
       const data = testData.procurementRequest.valid;

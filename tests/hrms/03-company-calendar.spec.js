@@ -30,7 +30,7 @@ test.describe('Company Calendar Module', () => {
   let draftRecord = {};
 
   // ── TC-CAL-01: Create Company Calendar ───────────────────────────────────
-  test('TC-CAL-01 [+] Create Company Calendar with default Working Days and two Holidays', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-CAL-01 [+] Create Company Calendar with default Working Days and two Holidays', async ({ page }) => {
     const cal = new CompanyCalendarPage(page);
     const data = testData.companyCalendar.valid;
     data.location = testDataFactory.uniqueName('Loc');

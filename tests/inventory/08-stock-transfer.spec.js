@@ -19,7 +19,12 @@ test.describe('Stock Transfer Management', () => {
     // (creating the location from scratch involves ~10 slowMo'd actions) -
     // give it real headroom since that path only runs on a true first/
     // standalone run, not when 02-location.spec.js already created it.
-    test.setTimeout(90000);
+    // CONFIRMED LIVE: 90000ms still wasn't enough under this account's real network latency on a
+    // true standalone run (context got torn down mid-step, surfacing as a confusing "Target page
+    // ... has been closed" error on whatever await happened to run next) - bumped to 150000 to
+    // match this suite's own convention for slow multi-step flows (see erpforce-purchase-request's
+    // comment on 01/02/04/05/07/09 using 150000).
+    test.setTimeout(150000);
 
     const context = await browser.newContext({ storageState: 'auth.json', ...videoContextOptions() });
     page = await context.newPage();

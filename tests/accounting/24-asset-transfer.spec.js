@@ -47,9 +47,10 @@ async function waitForIdle(page, ms = 1000) {
 // transferName text.
 let prereqAssetName;
 let created;
+let destinationLocationName;
 
 test.describe('Asset Transfer Management', () => {
-  test('TC-ATR-LIST-01 [+] Listing page loads with expected Add control', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-ATR-LIST-01 [+] Listing page loads with expected Add control', async ({ page }) => {
     const at = new AssetTransferPage(page);
     await at.gotoList();
 
@@ -70,7 +71,7 @@ test.describe('Asset Transfer Management', () => {
 test.describe.serial('Asset Transfer - Create, Approve, and Verify Asset Relocation', () => {
   const data = testData.accounting.assetTransfer;
 
-  test('TC-ATR-PREREQ-01 [+] Create the prerequisite Asset with a Source Location assigned', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-ATR-PREREQ-01 [+] Create the prerequisite Asset with a Source Location assigned', async ({ page }) => {
     test.setTimeout(150000);
     const am = new AssetManagementPage(page);
     const asset = data.prereqAsset;
@@ -100,10 +101,14 @@ test.describe.serial('Asset Transfer - Create, Approve, and Verify Asset Relocat
     await expect(page.getByText(prereqAssetName).first()).toBeVisible({ timeout: 10000 });
     // Confirms the prerequisite's Source Location actually saved - the rest of this suite depends
     // on this exact value being the transfer's own "Current Location" after selecting the asset.
-    await expect(page.getByText(asset.location).first()).toBeVisible({ timeout: 10000 });
+    // exact: true matters here - a loose match let this silently pass even when the dropdown
+    // actually landed on "Navi Mumbai" instead of "Mumbai" (confirmed live: TC-ATR-CRUD-01's own
+    // exact getSourceLocationText() comparison caught the real mismatch one test later, after this
+    // one had already reported success).
+    await expect(page.getByText(asset.location, { exact: true }).first()).toBeVisible({ timeout: 10000 });
   });
 
-  test('TC-ATR-CRUD-01 [+] Create an Asset Transfer to a different Destination Location/Department', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-ATR-CRUD-01 [+] Create an Asset Transfer to a different Destination Location/Department', async ({ page }) => {
     test.setTimeout(90000);
     test.skip(!prereqAssetName, 'depends on TC-ATR-PREREQ-01 creating the prerequisite Asset first');
     const at = new AssetTransferPage(page);
@@ -117,11 +122,12 @@ test.describe.serial('Asset Transfer - Create, Approve, and Verify Asset Relocat
     const sourceLocationText = await at.getSourceLocationText();
     expect(sourceLocationText).toBe(data.prereqAsset.location);
 
+    destinationLocationName = await at.selectDestinationLocation(data.destinationLocationPrefix);
+
     await at.fillHeader({
       referenceNumber:       data.referenceNumber,
       transferName:          data.transferName,
       transferDate:          at.formatDateToday(),
-      destinationLocation:   data.destinationLocation,
       destinationDepartment: data.destinationDepartment,
     });
 
@@ -144,7 +150,7 @@ test.describe.serial('Asset Transfer - Create, Approve, and Verify Asset Relocat
     await expect(page.getByText(prereqAssetName).first()).toBeVisible();
     await expect(page.getByText(data.transferName).first()).toBeVisible();
     await expect(page.getByText(data.prereqAsset.location).first()).toBeVisible();
-    await expect(page.getByText(data.destinationLocation).first()).toBeVisible();
+    await expect(page.getByText(destinationLocationName).first()).toBeVisible();
     await expect(page.getByText(data.destinationDepartment).first()).toBeVisible();
     // Newly created record is directly Pending (no Draft state) - Submit and Edit are both
     // available at this point; the split-button caret ("select merge strategy") drives approval.
@@ -173,7 +179,7 @@ test.describe.serial('Asset Transfer - Create, Approve, and Verify Asset Relocat
     await expect(at.approvalStatusChipOnView()).toHaveText(/Approved/i, { timeout: 15000 });
   });
 
-  test('TC-ATR-CRUD-04 [+] Approving the transfer relocates the Asset to the Destination Location/Department', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-ATR-CRUD-04 [+] Approving the transfer relocates the Asset to the Destination Location/Department', async ({ page }) => {
     test.setTimeout(60000);
     test.skip(!created, 'depends on TC-ATR-CRUD-03 approving the transfer first');
     const am = new AssetManagementPage(page);
@@ -187,7 +193,7 @@ test.describe.serial('Asset Transfer - Create, Approve, and Verify Asset Relocat
     // Core business-rule validation: this is a LIVE mutation of the Asset's own record, not just
     // a historical field on the transfer - confirmed live the Asset's Location/Department here
     // change from the prerequisite's original values to the transfer's Destination values.
-    await expect(page.getByText(data.destinationLocation).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(destinationLocationName).first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByText(data.destinationDepartment).first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByText(data.prereqAsset.location, { exact: true })).toHaveCount(0);
   });

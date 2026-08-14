@@ -127,6 +127,13 @@ test.describe('Bin Management', () => {
 
   // ── TC-BIN-03: Create Bin ────────────────────────────────────────────────
   test('TC-BIN-03 [+/-] Create Bin - validate empty form, fill all fields, save and verify', { tag: '@smoke' }, async () => {
+    // This test calls bin.gotoList() twice, and its stuck-loading-spinner retry/reload logic
+    // (added after this account's real network latency left it stuck on a bare spinner) can alone
+    // take up to ~45s per call on a single slow attempt - tight against the default 60s test
+    // timeout even before the rest of this test's own steps run. Same fix as this suite's other
+    // slow multi-step flows (see erpforce-purchase-request's comment on 01/02/04/05/07/09 using
+    // 150000).
+    test.setTimeout(120000);
 
     // Step 1: Navigate to Bins list and open Add form
     await bin.gotoList();

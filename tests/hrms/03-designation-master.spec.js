@@ -144,7 +144,7 @@ test.describe('Designation Master Module', () => {
   });
 
   test.describe('Add/Edit/View Operations', () => {
-    test('TC-040: Add Designation - Success', { tag: '@smoke' }, async ({ page }) => {
+    test('TC-040: Add Designation - Success', async ({ page }) => {
       const desig = new DesignationMasterPage(page);
       const data = testData.designationMaster.valid;
 

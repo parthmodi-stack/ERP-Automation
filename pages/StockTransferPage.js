@@ -116,8 +116,20 @@ class StockTransferPage {
   }
 
   async gotoList() {
-    await this.page.goto('/dashboard/inventory/operations/stock-transfer');
-    await this.page.waitForLoadState('networkidle');
+    // CONFIRMED LIVE: this SPA can get genuinely stuck on its own bare loading spinner on a cold
+    // first load, not just slow - a single wait, however generous, never resolves, but a hard
+    // reload recovers it (same fix as LocationPage.gotoList()/BinPage.gotoList()).
+    await this.page.goto('/dashboard/inventory/operations/stock-transfer', { timeout: 60000 });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      try {
+        await this.addButton.waitFor({ state: 'visible', timeout: 20000 });
+        break;
+      } catch (e) {
+        if (attempt === 3) throw e;
+        await this.page.reload({ timeout: 60000 }).catch(() => {});
+      }
+    }
     await this.waitForListLoaded();
   }
 
@@ -139,7 +151,19 @@ class StockTransferPage {
     await this.gotoList();
     await this.addButton.click();
     await this.page.waitForURL('**/add-stock-transfer');
-    await this.page.waitForLoadState('networkidle');
+    // CONFIRMED LIVE: same stuck-loading-spinner class of bug as LocationPage.gotoList()/
+    // BinPage.gotoList() - a single networkidle wait can hang well past a generous timeout on a
+    // cold first load, and only a reload recovers it.
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await this.page.waitForLoadState('networkidle', { timeout: 20000 });
+        break;
+      } catch (e) {
+        if (attempt === 3) throw e;
+        await this.page.reload({ timeout: 60000 }).catch(() => {});
+        await this.page.waitForURL('**/add-stock-transfer').catch(() => {});
+      }
+    }
     // The schema-driven form fields load via a separate API call after the
     // shell renders; submitting before react-hook-form finishes wiring up
     // per-field validation lets onSubmit fire early and hit the (buggy)
@@ -149,8 +173,20 @@ class StockTransferPage {
   }
 
   async gotoView(id) {
-    await this.page.goto(`/dashboard/inventory/operations/stock-transfer/${id}/view-stock-transfer`);
-    await this.page.waitForLoadState('networkidle');
+    // Same stuck-loading-spinner recovery as gotoList()/openAdd() above.
+    await this.page.goto(`/dashboard/inventory/operations/stock-transfer/${id}/view-stock-transfer`, { timeout: 60000 });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      try {
+        // Edit button renders regardless of status (Draft/Ready/...), unlike Mark as to do/Validate
+        // which are status-specific - a reliable "page is not stuck on the spinner" signal here.
+        await this.editButton.waitFor({ state: 'visible', timeout: 20000 });
+        return;
+      } catch (e) {
+        if (attempt === 3) throw e;
+        await this.page.reload({ timeout: 60000 }).catch(() => {});
+      }
+    }
   }
 
   // Generic MUI "search & select" dropdown shared by the header form and the

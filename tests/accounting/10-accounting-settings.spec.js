@@ -46,7 +46,7 @@ async function deleteComboIfPresent(page, acs, company, department, location) {
 test.describe('Accounting Settings (Settings)', () => {
   const data = testData.accounting.accountingSetting;
 
-  test('TC-ACST-01 [+] Navigate to list and verify page loads', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-ACST-01 [+] Navigate to list and verify page loads', async ({ page }) => {
     const acs = new AccountingSettingPage(page);
     await acs.gotoList();
     await expect(page.getByRole('main')).toBeVisible();
@@ -95,7 +95,7 @@ test.describe('Accounting Settings (Settings)', () => {
   test.describe.serial('Create -> View -> Edit -> Delete lifecycle', () => {
     let viewUrl;
 
-    test('TC-ACST-03 [+] Create with a fresh company/department/location combination', { tag: '@smoke' }, async ({ page }) => {
+    test('TC-ACST-03 [+] Create with a fresh company/department/location combination', async ({ page }) => {
       test.setTimeout(60000);
       const acs = new AccountingSettingPage(page);
 

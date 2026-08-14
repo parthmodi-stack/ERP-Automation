@@ -28,7 +28,7 @@ test.describe.serial('Vendor Return Authorization Management', () => {
   const viewValues = {};
 
   // ── TC-VRA-01: Create record ──────────────────────────────────────────────
-  test('TC-VRA-01 [+] Create a new Vendor Return Authorization with an item and save as Draft', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-VRA-01 [+] Create a new Vendor Return Authorization with an item and save as Draft', async ({ page }) => {
     const vra = new VendorReturnAuthorizationPage(page);
     const data = testData.vendorReturnAuthorization.valid;
 

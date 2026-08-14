@@ -43,13 +43,13 @@ test.describe('Journal Entry Management', () => {
     return je;
   }
 
-  test('TC-JE-01 [+] Navigate to Journal Entry list', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-JE-01 [+] Navigate to Journal Entry list', async ({ page }) => {
     const je = new JournalEntryPage(page);
     await je.gotoList();
     await expect(page.getByRole('main')).toBeVisible();
   });
 
-  test('TC-JE-02 [+] Create a balanced Journal Entry with two line items', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-JE-02 [+] Create a balanced Journal Entry with two line items', async ({ page }) => {
     // Two line-item modals plus header/list navigation, each with dropdown selections, is
     // marginal against the 30s default with this suite's global slowMo: 500 (same reasoning as
     // settings-entity.contract.js's TC-05 and 09-customer-vendor.spec.js's create tests).

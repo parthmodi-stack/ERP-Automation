@@ -2,11 +2,12 @@ const { test, expect } = require('@playwright/test');
 const testData = require('../../config/testData');
 const PurchaseInvoicePage = require('../../pages/accounting/PurchaseInvoicePage');
 
-const PURCHASE_INVOICES_URL = `${testData.baseUrl}/dashboard/accounting/invoice/purchase-invoices`;
+const BASE_URL = 'https://dev.erpforce.co';
+const PURCHASE_INVOICES_URL = `${BASE_URL}/dashboard/accounting/invoice/purchase-invoices`;
 const ADD_PURCHASE_INVOICE_URL = `${PURCHASE_INVOICES_URL}/add-purchase-invoice`;
 
 async function waitForIdle(page, ms = 1000) {
-  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForLoadState('networkidle').catch(() => { });
   await page.waitForTimeout(ms);
 }
 
@@ -119,7 +120,7 @@ async function openInvoiceWithStatus(page, status) {
 }
 
 test.describe('Purchase Invoice Management', () => {
-  test('TC-PI-LIST-01 Listing - load Item invoices, search, sort/pagination shell, and switch to Fixed Asset', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-PI-LIST-01 Listing - load Item invoices, search, sort/pagination shell, and switch to Fixed Asset', async ({ page }) => {
     const initialResponse = await openPurchaseInvoiceList(page);
 
     if (initialResponse) {
@@ -144,19 +145,19 @@ test.describe('Purchase Invoice Management', () => {
 
     if (!(await searchBox.isVisible().catch(() => false)) && await searchTrigger.isVisible().catch(() => false)) {
       await searchTrigger.click();
-      await searchBox.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+      await searchBox.waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
     }
 
     if (await searchBox.isVisible().catch(() => false)) {
       await waitForPurchaseInvoiceApi(page, async () => {
         await searchBox.fill('PI-AUTOMATION-NO-RESULT');
-        await searchBox.press('Enter').catch(() => {});
+        await searchBox.press('Enter').catch(() => { });
         await waitForIdle(page, 800);
       });
 
       await waitForPurchaseInvoiceApi(page, async () => {
         await searchBox.clear();
-        await searchBox.press('Enter').catch(() => {});
+        await searchBox.press('Enter').catch(() => { });
         await waitForIdle(page, 800);
       });
 
@@ -487,9 +488,9 @@ test.describe('Purchase Invoice - CRUD', () => {
   // `item` key; on-page assertions and row lookups use the plain display name instead (see
   // testData.js's purchaseInvoice.item comment for why the two differ).
   const itemEntry = () => ({
-    item:        data.item.dropdownOption,
-    quantity:    data.item.quantity,
-    rate:        data.item.rate,
+    item: data.item.dropdownOption,
+    quantity: data.item.quantity,
+    rate: data.item.rate,
     taxTemplate: data.item.taxTemplate,
   });
 
@@ -510,7 +511,7 @@ test.describe('Purchase Invoice - CRUD', () => {
     const vendorInvoiceNo = `${data.valid.vendorInvoiceNo}_VIEWFLOW`;
     const updatedVendorInvoiceNo = `${data.updated.vendorInvoiceNo}_VIEWFLOW`;
 
-    test('TC-PI-CRUD-01 [+] Create - Save to Draft with one item entry creates a Draft invoice', { tag: '@smoke' }, async ({ page }) => {
+    test('TC-PI-CRUD-01 [+] Create - Save to Draft with one item entry creates a Draft invoice', async ({ page }) => {
       test.setTimeout(60000);
       const pi = new PurchaseInvoicePage(page);
 
@@ -520,9 +521,9 @@ test.describe('Purchase Invoice - CRUD', () => {
       // uses, confirmed live in TC-PI-CRUD-03, so that field has to already be on the record.
       ({ actualVendor, actualItems: [actualItem] } = await pi.createItemInvoice(
         {
-          vendor:          data.vendor,
-          currency:        data.currency,
-          paymentTerm:     data.paymentTerm,
+          vendor: data.vendor,
+          currency: data.currency,
+          paymentTerm: data.paymentTerm,
           vendorInvoiceNo,
           shippingAddress: data.shippingAddress,
         },
@@ -705,9 +706,9 @@ test.describe('Purchase Invoice - CRUD', () => {
 
     await pi.createItemInvoice(
       {
-        vendor:          data.vendor,
-        currency:        data.currency,
-        paymentTerm:     data.paymentTerm,
+        vendor: data.vendor,
+        currency: data.currency,
+        paymentTerm: data.paymentTerm,
         vendorInvoiceNo,
         shippingAddress: data.shippingAddress,
       },
@@ -734,9 +735,9 @@ test.describe('Purchase Invoice - CRUD', () => {
 
     await pi.createItemInvoice(
       {
-        vendor:          data.vendor,
-        currency:        data.currency,
-        paymentTerm:     data.paymentTerm,
+        vendor: data.vendor,
+        currency: data.currency,
+        paymentTerm: data.paymentTerm,
         vendorInvoiceNo,
         shippingAddress: data.shippingAddress,
       },

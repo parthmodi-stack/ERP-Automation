@@ -177,17 +177,20 @@ class OrganizationStructurePage extends BasePage {
     const dialog = this.page.getByRole('dialog');
     await dialog.waitFor({ state: 'visible' });
 
-    // 4. Fill in Location Name and a unique Location Code
-    await dialog.getByPlaceholder(/Enter Name|location_name_placeholder/i).fill(locationName);
+    // 4. Fill in Location Name and a unique Location Code - was previously matched by their raw,
+    // untranslated i18n keys (confirmed live this has since been fixed app-side: the dialog now
+    // renders real "Enter Name"/"Enter Short Code" placeholders and a plain "Company *" label,
+    // same text BasePage's own createLocationFromFooter already uses for other callers).
+    await dialog.getByPlaceholder('Enter Name').fill(locationName);
     const code = 'LOC-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-    await dialog.getByPlaceholder(/Enter Short Code|location_code_placeholder/i).fill(code);
+    await dialog.getByPlaceholder('Enter Short Code').fill(code);
 
-    // 5. Select Company inside the dialog
-    try {
-      await this.selectFieldByLabel('Company', companyName, { exact: false, scope: dialog, timeout: 5000 });
-    } catch (e) {
-      await this.selectFirstOptionByLabel('Company', { scope: dialog }).catch(() => {});
-    }
+    // 5. Select Company inside the dialog (normal individually-wrapped form - base implementation is fine here)
+    await this.selectFieldByLabel(
+      'Company',
+      companyName,
+      { exact: false, scope: dialog }
+    );
 
     // 6. Save the new location
     await dialog.getByRole('button', { name: 'Save' }).click();
@@ -199,8 +202,8 @@ class OrganizationStructurePage extends BasePage {
     const selected = await this.selectOptionFromListbox(locationName, { timeout: 7000 });
     if (!selected) {
       // Ensure any dialog/backdrop is fully hidden/detached before manual selection fallback
-      await this.page.waitForSelector('.MuiDialog-root', { state: 'detached', timeout: 5000 }).catch(() => {});
-      await this.page.waitForSelector('.MuiBackdrop-root', { state: 'detached', timeout: 5000 }).catch(() => {});
+      await this.page.waitForSelector('.MuiDialog-root', { state: 'detached', timeout: 5000 }).catch(() => { });
+      await this.page.waitForSelector('.MuiBackdrop-root', { state: 'detached', timeout: 5000 }).catch(() => { });
       await this.selectSidebarFieldByLabel(this.locationField, locationName, { scope });
     }
   }
@@ -253,7 +256,7 @@ class OrganizationStructurePage extends BasePage {
 
     await buttonLocator.click();
     const listResponse = await listResponsePromise;
-    await this.page.waitForLoadState('networkidle').catch(() => {});
+    await this.page.waitForLoadState('networkidle').catch(() => { });
     const body = listResponse ? await listResponse.json().catch(() => null) : null;
     const record = body?.data?.organisation_structures?.[0];
 

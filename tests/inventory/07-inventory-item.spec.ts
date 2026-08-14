@@ -1,8 +1,8 @@
 import { test, expect, Page } from '@playwright/test';
+const { saveCreatedItem } = require('../../config/sharedItem');
 
 // ─── Configuration ───────────────────────────────────────────────────────────
-// const BASE_URL   = 'https://dev.erpforce.co';
-const BASE_URL   = 'http://localhost:7172';
+const BASE_URL   = 'https://dev.erpforce.co';
 
 const ITEMS_URL  = `${BASE_URL}/dashboard/inventory/product-management/items`;
 
@@ -10,7 +10,6 @@ const ITEMS_URL  = `${BASE_URL}/dashboard/inventory/product-management/items`;
 const ITEM_NAME      = `Playwright Auto Item_${Date.now()}`;
 const CATEGORY       = 'Electronics';
 const COSTING_METHOD = 'FIFO';
-const DEPARTMENT     = 'Test Operations';
 const SALES_PRICE    = '750';
 const LEAD_TIME      = '7';
 const WEIGHT         = '3.5';
@@ -20,6 +19,15 @@ const AVG_COST       = '350';
 // ─── Helper: wait for page to be idle ────────────────────────────────────────
 async function waitForIdle(page: Page, ms = 1500) {
   await page.waitForTimeout(ms);
+}
+
+// ─── Helper: read back a dropdown's currently-selected display text ─────────
+// Used right after selectFromDropdown() picks the first available option, so the exact
+// Location/Department this item ended up assigned to can be handed off to the Purchase Order
+// flow (shared-item.json) instead of being lost once the form moves on.
+async function getSelectedText(page: Page, fieldName: string): Promise<string> {
+  const text = await page.locator(`[id="mui-component-select-add_inventory_item.${fieldName}"]`).innerText();
+  return text.trim();
 }
 
 // ─── Helper: select from the app's searchable dropdown component ────────────
@@ -57,10 +65,22 @@ test.describe('ERPForce – Add Inventory Item (full flow)', () => {
     test.setTimeout(120000); // ~14 tab transitions with slowMo exceed the 30s default
 
     // ── STEP 1: Navigate to Items list and click Add ──────────────────────────
-    await page.goto(ITEMS_URL);
-    await page.waitForLoadState('networkidle');
-
-    await page.getByRole('button', { name: 'Add' }).click();
+    // Same stuck-loading-spinner recovery used elsewhere in this suite (e.g.
+    // LocationPage.gotoList/BinPage.gotoList) - this SPA can get genuinely stuck on its own
+    // spinner well past a generous wait, and only a reload recovers it.
+    await page.goto(ITEMS_URL, { timeout: 60000 });
+    const addButton = page.getByRole('button', { name: 'Add' });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+      try {
+        await addButton.waitFor({ state: 'visible', timeout: 30000 });
+        break;
+      } catch (e) {
+        if (attempt === 3) throw e;
+        await page.reload({ timeout: 60000 }).catch(() => {});
+      }
+    }
+    await addButton.click();
     await page.waitForURL('**/add-inventory-item');
     await page.waitForLoadState('networkidle');
     await waitForIdle(page);
@@ -113,19 +133,24 @@ test.describe('ERPForce – Add Inventory Item (full flow)', () => {
     console.log('✅ Step 4 – UOM and Costing Method selected');
 
     // ── STEP 5: Select Location and Department ────────────────────────────────
+    // Department is dynamic master data like Location/UOM above (the hardcoded
+    // "Test Operations" option no longer exists in this environment and made
+    // selectFromDropdown time out) - pick first available instead.
     await selectFromDropdown(page, 'location'); // pick first available location
-    await selectFromDropdown(page, 'department', DEPARTMENT);
+    const SELECTED_LOCATION = await getSelectedText(page, 'location');
+    await selectFromDropdown(page, 'department'); // pick first available department
+    const SELECTED_DEPARTMENT = await getSelectedText(page, 'department');
 
-    console.log('✅ Step 5 – Location and Department selected');
+    console.log(`✅ Step 5 – Location "${SELECTED_LOCATION}" and Department "${SELECTED_DEPARTMENT}" selected`);
 
-    // ── STEP 5.5: Fix duplicate SKU if the auto-generated SKU is already taken ─
+    // ── STEP 5.5: Always append 2 random digits to the auto-generated SKU ──────
     const skuInput = page.getByPlaceholder('Enter Number');
-    if ((await skuInput.getAttribute('aria-invalid')) === 'true') {
-      const currentSku = await skuInput.inputValue();
-      await skuInput.fill(currentSku + '1');
-      await waitForIdle(page, 500);
-      console.log(`✅ Step 5.5 – Duplicate SKU fixed: ${currentSku} → ${currentSku}1`);
-    }
+    const currentSku = await skuInput.inputValue();
+    const randomSuffix = `${Math.floor(Math.random() * 10)}${Math.floor(Math.random() * 10)}`;
+    const nextSku = `${currentSku}${randomSuffix}`;
+    await skuInput.fill(nextSku);
+    await waitForIdle(page, 500);
+    console.log(`✅ Step 5.5 – SKU updated: ${currentSku} → ${nextSku}`);
 
     // ── STEP 6: Click Next → Rental Price ────────────────────────────────────
     await page.getByRole('button', { name: 'Next' }).click();
@@ -161,7 +186,26 @@ test.describe('ERPForce – Add Inventory Item (full flow)', () => {
     await expect(page.locator('[role="tab"][aria-selected="true"]'))
       .toHaveText(/Accounting/i);
 
-    console.log('✅ Step 9 – Navigated to Accounting tab (pre-filled values used)');
+    // Default Tax * can arrive unselected (unlike Income Account/Asset Account, which are
+    // pre-filled) - Save silently bounces back to this tab with "Default tax is required" when
+    // it's empty, so select it explicitly instead of assuming pre-fill.
+    const defaultTaxCombobox = page.getByText('Default Tax *', { exact: true }).first()
+      .locator('xpath=..')
+      .getByRole('combobox')
+      .first();
+    if ((await defaultTaxCombobox.textContent())?.trim() === 'Search Default Tax') {
+      await defaultTaxCombobox.click();
+      const taxListbox = page.getByRole('listbox');
+      await taxListbox.waitFor({ state: 'visible', timeout: 5000 });
+      const taxOptions = taxListbox.locator('[role="option"]:not([aria-disabled="true"])')
+        .filter({ hasNot: page.locator('input') })
+        .filter({ hasNotText: /Select|No data available|Create New/ });
+      await taxOptions.first().waitFor({ state: 'visible', timeout: 8000 });
+      await taxOptions.first().click();
+      await taxListbox.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+    }
+
+    console.log('✅ Step 9 – Navigated to Accounting tab, Default Tax selected');
 
     // ── STEP 10: Next → Inventory ─────────────────────────────────────────────
     await page.getByRole('button', { name: 'Next' }).click();
@@ -238,6 +282,18 @@ test.describe('ERPForce – Add Inventory Item (full flow)', () => {
     await expect(row.getByText(`AED ${Number(SALES_PRICE).toFixed(4)}`)).toBeVisible();
 
     console.log(`✅ Step 14 – Item "${ITEM_NAME}" saved successfully!`);
-    console.log('🎉 All 14 steps completed!');
+
+    // ── STEP 15: Hand this item (+ its Location/Department) off to the Purchase Order flow ────
+    // Column order matches pages/ItemsPage.js's COLUMNS ('', '', 'sku', 'name', ...) - SKU is
+    // the 3rd <td>. Written to shared-item.json so testData.purchaseOrder.valid's itemName/
+    // location/department getters pick these up on their next read, letting the same run's
+    // PO/GRN/Vendor Return tests exercise the exact item (and the Location/Department it was
+    // assigned to) created here instead of the pinned regression master records.
+    const sku = (await row.locator('td').nth(2).innerText()).trim();
+    const dropdownOption = `${sku} - ${ITEM_NAME}`;
+    saveCreatedItem({ dropdownOption, location: SELECTED_LOCATION, department: SELECTED_DEPARTMENT });
+    console.log(`✅ Step 15 – Saved for procurement flow: item="${dropdownOption}", location="${SELECTED_LOCATION}", department="${SELECTED_DEPARTMENT}"`);
+
+    console.log('🎉 All 15 steps completed!');
   });
 });

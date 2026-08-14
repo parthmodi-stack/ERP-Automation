@@ -28,7 +28,7 @@ test.describe('Leave Policy Master Module', () => {
   let draftRecord = {};
 
   // ── TC-LPM-F-04: Create with mandatory fields only ───────────────────────
-  test('TC-LPM-F-04 [+] Create Leave Policy with mandatory fields only', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-LPM-F-04 [+] Create Leave Policy with mandatory fields only', async ({ page }) => {
     const lpm = new LeavePolicyMasterPage(page);
     const data = testData.leavePolicyMaster.valid;
 

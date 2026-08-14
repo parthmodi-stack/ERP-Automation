@@ -45,7 +45,7 @@ test.describe('Currency Exchange (Settings)', () => {
     await context.close();
   });
 
-  test('TC-CEX-01 [+] Navigate to list and verify page loads', { tag: '@smoke' }, async ({ page }) => {
+  test('TC-CEX-01 [+] Navigate to list and verify page loads', async ({ page }) => {
     const ce = new CurrencyExchangePage(page);
     await ce.gotoList();
     await expect(page.getByRole('main')).toBeVisible();
@@ -64,7 +64,7 @@ test.describe('Currency Exchange (Settings)', () => {
   test.describe.serial('Create -> View -> Edit -> Search -> Delete lifecycle', () => {
     let seriesNumber;
 
-    test('TC-CEX-03 [+] Create with all fields', { tag: '@smoke' }, async ({ page }) => {
+    test('TC-CEX-03 [+] Create with all fields', async ({ page }) => {
       test.setTimeout(60000);
       const ce = new CurrencyExchangePage(page);
       const { updatedExchangeRate, ...formFields } = data.valid;

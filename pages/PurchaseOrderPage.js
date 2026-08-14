@@ -74,7 +74,7 @@ class PurchaseOrderPage extends BasePage {
   // is structural (finds the combobox via its adjacent label, not its accessible name) and already
   // short-circuits when the current value matches, so it's used here instead - same fix already
   // proven for Location/Payment Terms on this page.
-  async fillBasicDetails({ vendor, entity, currency, purchaseRepresentative, narration } = {}) {
+  async fillBasicDetails({ vendor, entity, currency, purchaseRepresentative, narration, department } = {}) {
     if (vendor) {
       await this.selectFieldByLabel('Vendor', vendor, { exact: false });
     }
@@ -89,6 +89,9 @@ class PurchaseOrderPage extends BasePage {
     }
     if (narration) {
       await this.page.getByPlaceholder('Enter Narration').fill(narration);
+    }
+    if (department) {
+      await this.selectDepartment(department);
     }
   }
 
@@ -117,14 +120,42 @@ class PurchaseOrderPage extends BasePage {
   //     ProcurementRequestPage.selectLocation. Rather than keep re-pinning a literal that will
   //     inevitably rot again, create a brand new Location from the field's own "+ Create New
   //     Location" footer action every time, scoped to whichever Entity is currently selected.
+  //  3. Same broken-translation-key bug already documented on ProcurementRequestPage.selectLocation:
+  //     on this account the Location label's i18n key (crm.salesOrder.fields.location_label)
+  //     doesn't always resolve, so the paragraph can literally read
+  //     "crm.salesOrder.fields.location_label *" instead of "Location *" (confirmed live via ARIA
+  //     snapshot - an app content bug, not a test issue) - match either text.
   // `namePrefix` seeds the generated name (existing callers keep passing a familiar seed like
   // "Dhule") - a per-call timestamp+random suffix is appended so concurrent/rapid calls never
   // collide. Returns the actual generated name for callers that need to assert on it later.
+  //
+  // Reuse-first: `testData.purchaseOrder.valid.location` can now be a REAL, currently-selectable
+  // Location name (e.g. one 07-inventory-item.spec.ts just created in the same run, handed off
+  // via shared-item.json) rather than a bare seed like "Dhule" - try selecting it as an existing
+  // option before falling back to creating a brand new one. This keeps the PO on the same
+  // Location the inventory item itself was assigned to, while staying self-healing (falls back
+  // to create-new, same as before) whenever that name isn't there - stale hand-off file, or
+  // evicted from the field's own limited recent-options window.
   async selectLocation(namePrefix) {
-    const combobox = this.page
-      .getByText('Location *', { exact: true })
-      .first()
-      .locator('xpath=following::*[@role="combobox"][1]');
+    const properLabelText = 'Location *';
+    const brokenLabelText = 'crm.salesOrder.fields.location_label *';
+    const label = this.page
+      .getByText(properLabelText, { exact: true })
+      .or(this.page.getByText(brokenLabelText, { exact: true }));
+    const combobox = label.locator('xpath=following::*[@role="combobox"][1]');
+
+    try {
+      await this.selectInCombobox(combobox, namePrefix, { timeout: 6000, labelForError: 'Location' });
+      return namePrefix;
+    } catch (e) {
+      // Not an existing/selectable option - selectInCombobox doesn't clean up after itself on
+      // failure, so its own search popover can be left open (confirmed live: this blocked the
+      // very next getSelectedEntity() read below, which hung waiting on the Entity combobox).
+      // Close it before falling through to create-new.
+      await this.page.keyboard.press('Escape').catch(() => {});
+      await this.page.locator('body').click({ position: { x: 2, y: 2 }, force: true }).catch(() => {});
+      await this.page.getByRole('listbox').waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {});
+    }
 
     const companyName = (await this.getSelectedEntity()) || 'erp-force';
     const locationName = `${namePrefix}_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
@@ -139,6 +170,33 @@ class PurchaseOrderPage extends BasePage {
         await this.page.waitForTimeout(500);
       }
     }
+  }
+
+  // Department (Classification section, Basic Details tab) - optional field, plain "Department"
+  // label (no broken-i18n variant observed here, unlike Location above). Reuse-first, same
+  // rationale as selectLocation: prefer the exact Department the inventory item created in this
+  // run was assigned to; fall back to whatever renders first when no name is given or that name
+  // isn't selectable.
+  async selectDepartment(name) {
+    const combobox = this.page
+      .getByText(/^Department\s*\*?$/i)
+      .first()
+      .locator('xpath=..')
+      .getByRole('combobox')
+      .first();
+
+    if (name) {
+      try {
+        await this.selectInCombobox(combobox, name, { timeout: 6000, labelForError: 'Department' });
+        return;
+      } catch (e) {
+        // Not selectable - same stray-popover cleanup as selectLocation's identical catch block.
+        await this.page.keyboard.press('Escape').catch(() => {});
+        await this.page.locator('body').click({ position: { x: 2, y: 2 }, force: true }).catch(() => {});
+        await this.page.getByRole('listbox').waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {});
+      }
+    }
+    await this.selectFirstAvailableOption(combobox);
   }
 
   // Payment Terms may pre-populate when the PO is sourced from a Request/RFQ/Agreement, but often
@@ -333,10 +391,13 @@ class PurchaseOrderPage extends BasePage {
   // is misspelled - getSummaryValue's trimmed/whitespace-tolerant regex already tolerates these.
 
   // ---------- Create GRN (Receive) ----------
-  // The "Receive" split-button on an APPROVED PO's View page launches GRN creation, navigating to
-  // /purchase-order/:poId/grn/add-grn with the PO in router state (source: header-buttons.tsx).
-  // It only renders when the PO is Approved (or Billed with pending receiving) AND some item still
-  // has remaining quantity. Unlike Submit/Accept this is a plain button, not a caret menu.
+  // CONFIRMED LIVE: the "Receive" split-button on an APPROVED PO's View page launches GRN
+  // creation, navigating to /purchase-order/:poId/grn/add-grn with the PO in router state
+  // (source: header-buttons.tsx). It only renders when the PO is Approved (or Billed with
+  // pending receiving) AND some item still has remaining quantity. There's also a separate
+  // top-level "GRN" button (eye icon, next to Actions) - that one's for viewing/listing GRNs
+  // already created against this PO, not for creating a new one; don't confuse the two. The
+  // "Actions" caret menu itself only holds Edit/Duplicate/Close/Delete, no GRN/Receive item.
   async clickReceive() {
     await this.page.getByRole('button', { name: 'Receive', exact: true }).click();
   }
@@ -463,6 +524,7 @@ class PurchaseOrderPage extends BasePage {
       currency: data.currency,
       purchaseRepresentative: data.purchaseRepresentative,
       narration: data.narration,
+      department: data.department,
     });
     await this.selectLocation(data.location);
     await this.selectPaymentTerm();

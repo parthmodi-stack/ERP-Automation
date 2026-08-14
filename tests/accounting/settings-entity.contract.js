@@ -48,7 +48,7 @@ function registerSettingsEntityTests({
     await expect(page.getByRole('main')).toBeVisible();
   });
 
-  test(`${tcPrefix}-02 [+] Create with all fields`, { tag: '@smoke' }, async ({ page }) => {
+  test(`${tcPrefix}-02 [+] Create with all fields`, async ({ page }) => {
     const entity = makePage(page);
     await entity.openAdd();
     await entity.create(formFieldsOf(validData));
