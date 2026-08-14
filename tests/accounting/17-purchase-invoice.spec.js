@@ -2,8 +2,7 @@ const { test, expect } = require('@playwright/test');
 const testData = require('../../config/testData');
 const PurchaseInvoicePage = require('../../pages/accounting/PurchaseInvoicePage');
 
-const BASE_URL = 'http://localhost:7172';
-const PURCHASE_INVOICES_URL = `${BASE_URL}/dashboard/accounting/invoice/purchase-invoices`;
+const PURCHASE_INVOICES_URL = `${testData.baseUrl}/dashboard/accounting/invoice/purchase-invoices`;
 const ADD_PURCHASE_INVOICE_URL = `${PURCHASE_INVOICES_URL}/add-purchase-invoice`;
 
 async function waitForIdle(page, ms = 1000) {

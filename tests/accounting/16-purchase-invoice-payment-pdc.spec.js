@@ -31,8 +31,7 @@ const { selectDropdown } = require('../../helpers/dropdown');
 // Update them to match your environment before running.
 // =============================================================================
 
-const BASE_URL = 'http://localhost:7172';
-const PURCHASE_INVOICES_URL = `${BASE_URL}/dashboard/accounting/invoice/purchase-invoices`;
+const PURCHASE_INVOICES_URL = `${testData.baseUrl}/dashboard/accounting/invoice/purchase-invoices`;
 const ADD_PURCHASE_INVOICE_URL = `${PURCHASE_INVOICES_URL}/add-purchase-invoice`;
 
 // --------------- Seed-data references (update per environment) ---------------
@@ -177,6 +176,24 @@ test.describe.serial('Purchase Invoice → Payment → Approve → PDC Transfer'
       if (!currencyText.includes(CURRENCY)) {
         await selectDropdown(page, currencyTrigger, CURRENCY, CURRENCY);
         await waitForIdle(page, 800);
+      }
+
+      // Payment Term – required (add-purchase-invoice.tsx sends payment_term_id as
+      // Number(values.payment_term_id) unconditionally on save). It can arrive pre-filled from
+      // the selected vendor's own default payment term (the same file sets
+      // add_purchase_invoice.payment_term_id automatically when supplier.data?.payment_term
+      // exists), so only select it explicitly when it doesn't already show PAYMENT_TERM.
+      // Confirmed live (mui-component-select-add_purchase_invoice.payment_term_id): an unfilled
+      // trigger's textContent is its placeholder ("Search Payment Terms"), never an empty string,
+      // so checking for emptiness here always evaluates to "already filled" and never selects -
+      // check for the target text instead, same pattern as Currency's own check above.
+      const paymentTermTrigger = page.locator('[id*="mui-component-select-"][id*="payment_term"]').first();
+      if (await paymentTermTrigger.isVisible({ timeout: 3000 }).catch(() => false)) {
+        const paymentTermText = (await paymentTermTrigger.textContent().catch(() => '')) || '';
+        if (!paymentTermText.includes(PAYMENT_TERM)) {
+          await selectDropdown(page, paymentTermTrigger, PAYMENT_TERM, PAYMENT_TERM);
+          await waitForIdle(page, 800);
+        }
       }
 
       // Vendor Invoice No (supplier_invoice_number) – required free-text field
@@ -509,84 +526,49 @@ test.describe.serial('Purchase Invoice → Payment → Approve → PDC Transfer'
     async ({ page }) => {
       test.skip(!paymentViewUrl, 'Depends on TC-PI-PMT-02');
 
-      await page.goto(paymentViewUrl);
+      // PDC Transfer isn't triggered from the Payment Entry's own View page at all - confirmed
+      // live it's a dedicated "PDC Send Transfer" list
+      // (/dashboard/accounting/payment-entry/pdc-sender): every Cheque-type payment with a
+      // post-dated cheque shows up there (by Cheque Number), Status starts "Paid", and
+      // transferring it is a row-checkbox + top-right "Transfer" button action on THIS list, not
+      // anything on the payment entry's own view/Actions menu.
+      await page.goto(`${testData.baseUrl}/dashboard/accounting/payment-entry/pdc-sender`);
       await waitForIdle(page);
 
-      // "PDC Transfer" button / menu item is rendered only for Approved Cheque-type payment
-      // entries. It may appear as a top-level header button or inside the Actions menu.
-      const pdcButton = page.getByRole('button', { name: /PDC Transfer/i });
-      const pdcMenuItem = page.getByRole('menuitem', { name: /PDC Transfer/i });
+      const row = page.locator('table tbody tr').filter({ hasText: CHEQUE_NUMBER });
+      await expect(row.first()).toBeVisible({ timeout: 15000 });
 
-      let pdcVisible = await pdcButton.isVisible({ timeout: 3000 }).catch(() => false);
+      await row.first().locator('input[type="checkbox"]').check();
 
-      if (!pdcVisible) {
-        // Open Actions menu and check for PDC Transfer item
-        const actionsBtn = page.getByRole('button', { name: /^Actions$/i });
-        if (await actionsBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-          await actionsBtn.click();
-          pdcVisible = await pdcMenuItem.isVisible({ timeout: 5000 }).catch(() => false);
+      const transferButton = page.getByRole('button', { name: 'Transfer', exact: true });
+      await expect(transferButton).toBeEnabled({ timeout: 5000 });
+      await transferButton.click();
+
+      // A confirmation dialog is likely, matching every other status-transition action in this
+      // suite (Submit/Accept/Reject/Mark As Void) - confirm it if one appears.
+      const dialog = page.getByRole('dialog');
+      if (await dialog.isVisible({ timeout: 5000 }).catch(() => false)) {
+        const confirmBtn = dialog.getByRole('button', { name: /Transfer|Confirm|Submit|Yes/i }).first();
+        if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await confirmBtn.click();
         }
-      }
-
-      test.skip(
-        !pdcVisible,
-        'PDC Transfer control is not visible for this payment entry. ' +
-        'This may mean: (a) the test account lacks the PDC permission, ' +
-        '(b) the Payment Entry is not of type Cheque or not in an Approved state, or ' +
-        '(c) this environment\'s app version does not expose PDC Transfer on this screen.'
-      );
-
-      // Trigger PDC Transfer
-      if (await pdcButton.isVisible().catch(() => false)) {
-        await pdcButton.click();
-      } else {
-        await pdcMenuItem.click();
       }
       await waitForIdle(page, 1000);
 
-      // A PDC Transfer typically opens a confirmation dialog or a modal form.
-      const dialog = page.getByRole('dialog');
-      const dialogVisible = await dialog.isVisible({ timeout: 8000 }).catch(() => false);
-
-      if (dialogVisible) {
-        // Confirm dialog: look for a primary "Transfer" / "Confirm" / "Submit" button
-        const confirmBtn = dialog
-          .getByRole('button', { name: /Transfer|Confirm|Submit/i })
-          .first();
-        if (await confirmBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-          await confirmBtn.click();
-          await waitForIdle(page, 1500);
-        }
+      // A successful transfer moves the row's Status from "Paid" to "In Transit" - but confirmed
+      // live this list's own view can also just drop the row entirely once transferred (it
+      // reappeared with the OLD, pre-existing rows still showing "In Transit" from way earlier,
+      // while this run's own freshly-transferred row was simply no longer present at all, on the
+      // same default view). Treat either outcome as success; the real failure case is the row
+      // still present and still reading "Paid" (transfer never actually applied).
+      const rowGone = await row.first().waitFor({ state: 'visible', timeout: 15000 })
+        .then(() => false)
+        .catch(() => true);
+      if (!rowGone) {
+        await expect(row.first()).toContainText(/In Transit/i, { timeout: 5000 });
       }
 
-      // After PDC Transfer the page should either:
-      //  (a) stay on the same view page with an updated status chip (e.g. "In Transit"), or
-      //  (b) navigate to the PDC Transfer list/view page.
-      // Either outcome means the action completed without a crash.
-      const currentUrl = page.url();
-      const successIndicators = [
-        page.getByText(/In Transit|PDC|Transfer/i).first(),
-        page.getByText(/success/i).first(),
-        page.locator('#notistack-snackbar'),
-      ];
-
-      let anyVisible = false;
-      for (const loc of successIndicators) {
-        if (await loc.isVisible({ timeout: 3000 }).catch(() => false)) {
-          anyVisible = true;
-          break;
-        }
-      }
-
-      // At minimum, the page must not show a hard error and must not have crashed
-      await expect(page.locator('main')).toBeVisible({ timeout: 10000 });
-
-      // If the dialog has closed and no hard error is visible, the transfer was accepted
-      await expect(page.getByRole('dialog')).not.toBeVisible({ timeout: 8000 }).catch(() => {
-        // Dialog may still be open for multi-step PDC flows; that is acceptable
-      });
-
-      console.log(`PDC Transfer triggered. Post-action URL: ${page.url()}`);
+      console.log(`PDC Transfer triggered for cheque ${CHEQUE_NUMBER}.`);
     }
   );
 

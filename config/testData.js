@@ -3,7 +3,7 @@ const ts = Date.now();
 const factory = require("./testDataFactory");
 const tsDigits = String(ts).slice(-8);
 const testData = {
-  baseUrl: process.env.BASE_URL || "http://localhost:7172",
+  baseUrl: process.env.BASE_URL || "http://localhost:7173",
 
   credentials: {
     valid: {
@@ -378,19 +378,29 @@ const testData = {
     // Confirmed against the running app's add-accounting-setting form: company_id, department_id
     // and location_id are the ONLY required fields (this triple is the row's uniqueness key -
     // saving a combination that already exists is rejected with a snackbar, not a field error).
-    // "Trootech" is this environment's one company; "Test"/"Delhi" and "Admin"/"Mumbai" are real
-    // seeded Department/Location options confirmed live - picked to avoid colliding with
-    // pre-existing rows for other Company/Department/Location combinations already in this list.
+    // Every other Settings field (currency_id, inventory_valuation_in/out, and ~35 other
+    // account-mapping selects) auto-fills its own default once Company is picked. "Trootech" is
+    // this environment's one company; "Procurement"/"Administration" are real seeded Department
+    // options confirmed live (the previously-assumed "Test"/"Admin" no longer exist - selecting
+    // them silently fell back to whatever real option the dropdown defaults to instead).
+    // Confirmed live: a specific Location value can only ever be used successfully ONCE in this
+    // environment's whole lifetime - even deleting the row that used it doesn't free it back up,
+    // Save just silently fails again. `valid`/`updatedLocation` are timestamped so every run uses
+    // a genuinely new Location (created on the fly via the dropdown's own "+ Create New" option -
+    // see AccountingSettingPage.create()'s `createNewLocation`), rather than a static name that
+    // only ever works on the very first run. `duplicate` deliberately stays static/reused - it's
+    // supposed to already exist so the duplicate-rejection path actually triggers - the spec's own
+    // self-heal step creates it once if missing and leaves it in place after that.
     accountingSetting: {
       valid: {
         company_id:    'Trootech',
-        department_id: 'Test',
-        location_id:   'Delhi',
+        department_id: 'Procurement',
+        location_id:   `Automation_Location_${ts}`,
       },
-      updatedLocation: 'Houston',
+      updatedLocation: `Automation_Location_${ts}_UPD`,
       duplicate: {
         company_id:    'Trootech',
-        department_id: 'Admin',
+        department_id: 'Administration',
         location_id:   'Mumbai',
       },
     },
@@ -443,11 +453,24 @@ const testData = {
     // bypasses the "Bills is required" validation (see PaymentEntryPage.js) since no vendor in
     // this environment currently has an outstanding bill to allocate against.
     paymentEntry: {
+      // `party` was 'Keyur  Italiya' - confirmed live that vendor no longer exists in this
+      // environment (see the purchaseInvoice block's own comment below, where the same stale
+      // vendor was already swapped out) - switched to 'Royal Mine Industries', the same
+      // confirmed-live, currently-existing vendor purchaseInvoice already uses.
+      // NOT "INR": confirmed live (2026-08-14) that Payment Entry's own Currency dropdown for
+      // this vendor never resolves "INR" to a real match ("No data available" even with the
+      // search cleared) - the Currency *master list* does have a real, Enabled "INR" record
+      // (CUR-2026-000001), it's just never offered as a selectable option here, same class of
+      // "options scoped to whatever's linked to the party" gap already documented for
+      // purchaseAgreement.reject's own currency field below. "kud" is the one option that
+      // actually resolves for this vendor right now - pinning to it explicitly (rather than
+      // leaving 'INR' for selectDropdown()'s fallback to silently swap out) keeps selection
+      // deterministic instead of depending on whichever option happens to render first.
       cash: {
         type: 'Cash',
         partyType: 'Vendor',
-        party: 'Keyur  Italiya',
-        currency: 'INR',
+        party: 'Royal Mine Industries',
+        currency: 'kud',
         amount: '500',
         narration: `Automation Cash Payment ${ts}`,
         advance: true,
@@ -455,8 +478,8 @@ const testData = {
       bank: {
         type: 'Bank',
         partyType: 'Vendor',
-        party: 'Keyur  Italiya',
-        currency: 'INR',
+        party: 'Royal Mine Industries',
+        currency: 'kud',
         amount: '500',
         bankAccount: 'Test Acc',
         narration: `Automation Bank Payment ${ts}`,
@@ -465,8 +488,8 @@ const testData = {
       cheque: {
         type: 'Cheque',
         partyType: 'Vendor',
-        party: 'Keyur  Italiya',
-        currency: 'INR',
+        party: 'Royal Mine Industries',
+        currency: 'kud',
         amount: '11.11',
         bankAccount: 'Test Acc',
         chequeNumber: `CHQ-${ts}`,
@@ -550,28 +573,31 @@ const testData = {
     // Confirmed live the Invoice Entries table lists EVERY outstanding invoice for that customer
     // (not just the one the Collection Entry was opened from) - this suite only applies payment
     // against our own invoice's row (matched by series number, see CollectionPage.
-    // applyToInvoiceRow), so `amount`/invoicePaymentAmount here match just that one invoice's own
-    // total (salesInvoice.item: quantity 2 x rate 500 = 1000 gross + 50 tax = 1050).
+    // applyToInvoiceRow), so `amount`/invoicePaymentAmount here must match that invoice's own
+    // total. The original '1050' assumed quantity 2 x rate 500 = 1000 gross + 50 tax - confirmed
+    // live the Collection dialog's own "Invoice Amount" instead reads 1000 (no tax component
+    // included there), so '1050' overpays by 50 and is rejected with "Payment cannot be added
+    // more than the due amount: 1000" (TC-SI-COLL-01). Use 1000 - the confirmed-live real total.
     collection: {
       cash: {
         type: 'Cash',
         partyType: 'Customer',
         currency: 'INR',
-        amount: '1050',
+        amount: '1000',
         narration: `Automation Collection ${ts}`,
-        invoicePaymentAmount: '1050',
+        invoicePaymentAmount: '1000',
       },
       cheque: {
         type: 'Cheque',
         partyType: 'Customer',
         currency: 'INR',
-        amount: '1050',
+        amount: '1000',
         bankAccount: 'Test Acc',
         chequeNumber: `COLL-CHQ-${ts}`,
         chequeDate: '30-09-2026',
         chequeBank: 'Automation Test Bank',
         narration: `Automation Cheque Collection ${ts}`,
-        invoicePaymentAmount: '1050',
+        invoicePaymentAmount: '1000',
       },
     },
 
@@ -720,6 +746,91 @@ const testData = {
       destinationDepartment: 'Finance',
     },
 
+    // Commission Plan - master data (no approval workflow, plain Active/Inactive status). Create
+    // was previously blocked by a confirmed live app bug (a dead duplicate form section polluting
+    // Save's payload with a stray `company_id` field) - confirmed fixed (both duplicate sections
+    // are gone from the Add form now), so this suite creates and uses its own disposable record
+    // for the full CRUD lifecycle rather than mutating/reading a pre-existing shared one.
+    commissionPlan: {
+      valid: {
+        title:            `Automation Commission Plan ${ts}`,
+        type:              'Fixed Rate',
+        commissionAmount:  '500',
+        description:       `Automation-created commission plan ${ts}`,
+        // Confirmed live: this environment's Location/Department lists are real but this exact
+        // pair isn't pinned/verified against a specific option - selectLocation()/selectDepartment()
+        // both fall back gracefully (optional: true) if these exact names don't match.
+        location:          'Mumbai',
+        department:        'Finance',
+      },
+      updatedDescription: `Updated by automation ${ts}`,
+    },
+
+    // Commission Target - master data (no approval workflow), same archetype as commissionPlan
+    // above. This suite creates and uses its own disposable record for the full CRUD lifecycle.
+    commissionTarget: {
+      valid: {
+        salesperson:  'Dipen Modi', // matches credentials.valid's own logged-in user
+        type:         'Monthly',
+        startDate:    '01-07-2026',
+        // No endDate - confirmed live that field is disabled/auto-computed from startDate+type.
+        targetAmount: '5000',
+        // Confirmed live real options in this environment - selectLocation()/selectDepartment()
+        // both fall back gracefully (optional: true) if these exact names don't match.
+        location:     'Mumbai',
+        department:   'Finance',
+      },
+      updatedTargetAmount: '7500',
+    },
+
+    // Commission Assignment - master data (no approval workflow), same archetype as
+    // commissionPlan/commissionTarget above. This suite creates and uses its own disposable
+    // record for the full CRUD lifecycle. The "Salesperson" line item references real, existing
+    // Commission Plan/Commission Target records already in this environment (best-effort seed
+    // names - selectDropdown()'s search+fallback substitutes a real option if these don't match
+    // exactly) rather than ones this suite creates itself, since cross-referencing a specific
+    // record by name is simpler than provisioning one - see CommissionAssignmentPage.js's own
+    // header comment for why the line item is an inline table row, not a modal.
+    commissionAssignment: {
+      valid: {
+        title:       `Automation Commission Assignment ${ts}`,
+        description: `Automation-created commission assignment ${ts}`,
+        lineItem: {
+          salesperson:    'Dipen Modi', // matches credentials.valid's own logged-in user
+          commissionPlan: 'Sales Commission Plan',
+          target:         'CMT-2025-000039',
+          // Day-of-month for the calendar-picker helper (see fillLineItemEndDate) - the masked
+          // date input doesn't reliably accept typed/filled values, confirmed live. Start Date
+          // auto-defaults to today and isn't user-settable (see class doc comment), so only End
+          // Date needs a day picked here.
+          endDateDay:     25,
+        },
+      },
+      updatedDescription: `Updated by automation ${ts}`,
+    },
+
+    // Budget - document with an approval workflow (Draft-less: Save creates it directly in
+    // "Pending" status, same status model as Asset Transfer). This suite creates and uses its own
+    // disposable record for the CRUD lifecycle.
+    budget: {
+      valid: {
+        budgetName:      `Automation Budget ${ts}`,
+        budgetType:      'Company budget',
+        // Best-effort seed - selectDropdown()'s search+fallback substitutes a real option if this
+        // exact Financial Year name doesn't match (this environment's Financial Year list is
+        // large and includes several near-duplicates like "2024-2025 (New)").
+        financialYear:   '2024-2025 (New)',
+        totalAmount:     '50000',
+        budgetPeriod:    'Monthly',
+        budgetMonths:    'January',
+        // Top-level account category selected via the multi-step "Select Account" picker (see
+        // BudgetPage.js's own class doc comment) - confirmed live real options are Assets/
+        // Expense/Income/Liabilities/Equity.
+        accountCategory: 'Assets',
+      },
+      updatedTotalAmount: '75000',
+    },
+
     // ---- Master Data: Customer Management ----
   //
   // Routes:
@@ -776,6 +887,10 @@ const testData = {
       accountName:     'Accounts Receivable',
       paymentTerm:     'Net 30',
       currencies:      ['INR'],
+      // Recently added, required field on the Accounting tab (confirmed live - Save silently
+      // stays on the add form with "This Field is required" under "Default tax template" if
+      // omitted); 'UAE VAT' is the same confirmed-live Tax Template used elsewhere in this suite.
+      defaultTaxTemplate: 'UAE VAT',
       displayName:     `Auto Cust_${ts}`,
       updatedLastName: `Cust_${ts}_UPD`,
     },
@@ -798,6 +913,7 @@ const testData = {
       accountName:        'Accounts Receivable',
       paymentTerm:        'Net 30',
       currencies:         ['INR'],
+      defaultTaxTemplate: 'UAE VAT',
       displayName:        `AutoCorp_${ts}`,
       updatedCompanyName: `AutoCorp_${ts}_UPD`,
     },
@@ -828,6 +944,7 @@ const testData = {
       accountName:     'Accounts Payable',
       paymentTerm:     'Net 30',
       currencies:      ['INR'],
+      defaultTaxTemplate: 'UAE VAT',
       displayName:     `Auto Vend_${ts}`,
       updatedLastName: `Vend_${ts}_UPD`,
     },
@@ -849,6 +966,7 @@ const testData = {
       accountName:        'Accounts Payable',
       paymentTerm:        'Net 30',
       currencies:         ['INR'],
+      defaultTaxTemplate: 'UAE VAT',
       displayName:        `AutoVendCorp_${ts}`,
       updatedCompanyName: `AutoVendCorp_${ts}_UPD`,
     },
@@ -1740,6 +1858,190 @@ const testData = {
       requestQuantity: '10',
       rate: '100',
       transferQuantity: '10',
+    },
+  },
+
+  // Manufacturing module - tests/manufacturing/ was empty before this suite; Demand Planning is
+  // the first screen automated here. It's a read-only reporting view (filter -> shortfall list),
+  // not a CRUD screen, so its fixtures look different from every other module's: most values here
+  // feed a live-verified UI flow (Inventory Item + Reordering Rule creation), and one field
+  // (apiBaseUrl) exists only because Demand Planning's precondition data has NO complete UI path -
+  // see tests/manufacturing/01-demand-planning.spec.js's header comment for the full reasoning.
+  manufacturing: {
+    // The backend host the frontend itself calls directly for every API request (confirmed live
+    // via network capture - distinct from `baseUrl` above, the frontend's own origin). Needed
+    // because there is no UI path that reliably creates stock from zero: Inventory Adjustment's
+    // "Available Quantity" field is read-only (confirmed live - it corrects Reserve/Back Order
+    // against EXISTING stock, not new stock), and there's no dedicated Reordering Rules endpoint
+    // either (nested inside the Inventory Item payload only) - so the one gap (raw stock creation)
+    // is seeded directly against this API, authenticated with the running session's own token (see
+    // helpers/apiSeed.js). Override via MANUFACTURING_API_BASE_URL if this ever targets a
+    // non-local environment where the API isn't at this fixed local port.
+    apiBaseUrl: process.env.MANUFACTURING_API_BASE_URL || 'http://127.0.0.1:4011',
+
+    demandPlanning: {
+      // Add Inventory Item wizard fixtures below are live-verified against THIS environment's
+      // actual dropdown option lists, confirmed via a dropdown-options dump - 07-inventory-item
+      // .spec.ts's CATEGORY='Electronics'/DEPARTMENT='Test Operations' do NOT exist here and would
+      // hang that spec's selectFromDropdown() on an empty filtered list forever. Category/UOM/
+      // Costing Method/Department are free choices among many real options; Location is NOT -
+      // see below.
+      category: 'Laptop',
+      uom: 'Unit',
+      costingMethod: 'FIFO',
+      department: 'Procurement',
+      salesPrice: '750',
+      leadTime: '7',
+      weight: '3.5',
+      hsnCode: 'HSN998877',
+      averageCost: '350',
+
+      // Location MUST be a location this repo already treats as pinned/stable elsewhere (see the
+      // `location.duplicate.location_id: 'Mumbai'` comment earlier in this file) - Demand
+      // Planning's reorder-point join silently drops any item whose stock row's location_id
+      // doesn't exactly match its reordering_rules.location_id
+      // (`LEFT JOIN reordering_rules rr ON wl.id = rr.location_id AND rr.item_id = sd.item_id`,
+      // then `if (item.reorder_point === null) return;`) - confirmed live: this is the single
+      // most likely cause of "why is my new item not showing up" if a future edit changes one
+      // occurrence of this name but not the other. TC-DP-02 deliberately uses a SECOND, different
+      // real location to prove this join behavior rather than just asserting it from the backend
+      // summary's prose.
+      location: 'Mumbai',
+      mismatchLocation: 'Baroda', // also confirmed live in this environment's Location dropdown
+
+      minimumQuantity: 50,
+      maximumQuantity: 200,
+      availableQuantity: 10, // below minimumQuantity - required_quantity should resolve to 40
+
+      // Demand Planning's own "Type" filter - other confirmed live option is 'Production'.
+      type: 'Procurement',
+
+      // TC-DP-03's netting case reaches the Add Request page via Demand Planning's own Detail
+      // view (openDetailView -> selectDetailRow -> createPurchaseRequestFromSelection), which
+      // pre-fills Entity/Currency/Item/Quantity/Rate directly from the selected row - only
+      // Location is left to fill, so this is the one remaining fixture value needed. 'Mumbai' is
+      // a live-confirmed real, EXISTING option in Procurement Request's own Location dropdown in
+      // THIS environment, directly selectable with no search typed at all (confirmed live) - the
+      // spec selects it directly rather than via ProcurementRequestPage.selectLocation(), which
+      // always creates a brand-new location instead of reusing one that already exists.
+      pr: {
+        location: 'Mumbai',
+      },
+
+      // TC-DP-06 (Type='Production', "Show Below Reorder Point" unchecked) needs an item with
+      // real Production-type demand (demand_quantity sourced from something other than a
+      // Reordering Rule shortfall) - there is no confirmed UI or API path to generate that
+      // ourselves yet (Manufacturing's Work Order screen reached by DIRECT navigation is an empty
+      // stub, confirmed live - it only does anything when reached via Demand Planning's own
+      // Detail view, see TC-DP-06), so this reuses an existing, live-verified shared item instead
+      // of creating one, the same way FK-reference values elsewhere in this file do.
+      production: {
+        itemName: 'New Product1', // item_id 123, confirmed live in the Production+unchecked list
+      },
+    },
+
+    // Bill of Material (dashboard/manufacturing/bill-of-material) - unlike Work Order/BOM reached
+    // by direct navigation elsewhere (empty stubs, see demandPlanning.production's comment above),
+    // THIS route is a real, fully-built document module (Add/View/Edit/Delete/Duplicate,
+    // Draft/Pending/Approved statuses) - confirmed live. Item/UOM/Material-row-Item fixtures are
+    // deliberately left to "first available option" (see pages/BillOfMaterialPage.js) rather than
+    // pinned literals - this environment's Item list is dominated by short-lived automation
+    // records from other suites (Demand Planning's own Automation_DemandPlanning_* items), so any
+    // literal name pinned here would need constant re-verification as those churn.
+    billOfMaterial: {
+      location: 'Navi Mumbai',
+      quantity: 10,
+      materialQuantity: 1,
+    },
+
+    // Work Order (dashboard/manufacturing/orders/work-order) - real document module, requires an
+    // Approved Bill of Material for whichever Item is selected (pages/WorkOrderPage.js's own
+    // ensureBomForItem() creates one on the fly when missing, matching this repo's established
+    // self-healing-dependency pattern - see 03-bin.spec.js for the precedent). Location has no
+    // visible required-field asterisk but IS required (confirmed live - saving without it surfaces
+    // "Loacation is required", a real app typo).
+    //
+    // releaseMaterial pins "RM1" as the Materials row for any auto-created BOM (see
+    // ensureBomForItem) - Release checks whether that material actually has Available stock, and
+    // RM1's stock is often fully reserved/committed by other automation runs. Seeding stock
+    // directly via the backend API (POST inventory/v1/stock, apiSeed.js's seedStock - the same
+    // helper Demand Planning's own suite uses for ITS zero-stock gap) does NOT satisfy this check
+    // (confirmed live: it writes a real stock row but Release still blocks with the same 400).
+    // Only a real Stock Transfer "Receipt" taken all the way through its own Track Detail
+    // (Lot/Serial Number traceability) step and Validate actually clears it - see
+    // 03-work-order.spec.js's TC-WO-04 for that flow, built on pages/StockTransferPage.js.
+    // updatedQuantity is what TC-WO-03's Edit test changes Quantity to - a distinct fixture value
+    // instead of deriving it via arithmetic on `quantity` (e.g. "+5"), so it stays a single source
+    // of truth: TC-WO-06's own Build Order has to fully account for whatever the Work Order's
+    // ACTUAL quantity is at that point (which is this value, since TC-WO-03 already changed it),
+    // or the Work Order only partially builds and stays "In progress" instead of "Completed"
+    // (confirmed live).
+    workOrder: {
+      location: 'Navi Mumbai',
+      quantity: 5,
+      updatedQuantity: 10,
+      releaseMaterial: {
+        itemName: 'RM1',
+        availableQuantity: 500,
+      },
+    },
+
+    // Unbuild Order (dashboard/manufacturing/orders/unbuild-order) - reachable either via a
+    // COMPLETED Build Order's own "Unbuild" action, or via direct navigation (see
+    // pages/UnbuildOrderPage.js's own header comment for the confirmed bugs still open: the
+    // initial Add form's own "Save" button, and the direct-creation path's Materials array never
+    // persisting). quantityToUnbuild matches workOrder.quantity above since this suite creates its
+    // own dedicated Work Order -> Build Order chain at that same quantity.
+    unbuildOrder: {
+      quantityToUnbuild: 5,
+    },
+
+    // Work Center Categories (dashboard/manufacturing/settings/work-center-categories) - a plain
+    // master-data CRUD screen (no approval workflow, unlike the document modules above), used to
+    // group Work Centers by Type. "Save" creates it directly (no visible status chip on View);
+    // "Save To Draft" creates it with a "Draft" status chip instead (confirmed live:
+    // `is_draft: true` in the create response) - Edit's own Save works for both and clears the
+    // Draft chip if present, same "Edit -> Save transitions out of Draft" shape as Unbuild Order.
+    // Item is left to "first available" (see pages/WorkCenterCategoryPage.js) rather than a
+    // pinned literal, matching Bill of Material's own reasoning - this environment's Item list
+    // churns too often from other suites' automation records to pin one safely.
+    workCenterCategory: {
+      type: 'Machine',
+    },
+
+    // Work Center (dashboard/manufacturing/settings/work-centers) - same plain master-data CRUD
+    // shape as Work Center Category (see pages/WorkCenterPage.js's own header comment) - only
+    // Name and Location are actually required (confirmed live via empty-Save validation errors).
+    // Location is pinned to "Navi Mumbai" (the same real, live-verified location used throughout
+    // this module - confirmed live 2026-08-10 that the previously-pinned "Mumbai" no longer exists
+    // as a location in this environment at all, only "Navi Mumbai" does; a dropdown-options dump
+    // showed it's not even in the default/unfiltered list, dominated by short-lived
+    // Auto_Full_Location_* automation records, and searching "Mumbai" only surfaces "Navi Mumbai"
+    // as a substring match) rather than "first available", since Work Center's own Location field
+    // has no per-item scoping concern the way Item pickers elsewhere in this module do.
+    workCenter: {
+      location: 'Navi Mumbai',
+    },
+
+    // Equipment (dashboard/manufacturing/settings/equipments) - third step of the Work Center
+    // Categories -> Work Center -> Operation and Equipments -> Routing sequence. Category is a
+    // fixed enum (see pages/EquipmentPage.js's own header comment for the full option list) - not
+    // a pinned literal for any live-data reason, just picked from that fixed set.
+    equipment: {
+      category: 'Tools',
+    },
+
+    // Job Card (dashboard/manufacturing/job-cards) - reachable ONLY from a Completed Work Order's
+    // own Actions menu ("Create Job Cards" - see pages/WorkOrderPage.js's own
+    // openCreateJobCardsForm()/pages/JobCardPage.js header comment), so this suite builds its own
+    // dedicated Work Center Category -> Work Center -> Operation -> Bill of Material -> Routing
+    // chain rather than reusing any other module's. reason is one of a fixed enum on the Block
+    // dialog's own "Reason" dropdown (other confirmed live options: "Material Availability",
+    // "Setup and Adjustment", "Process Defect").
+    jobCard: {
+      location: 'Navi Mumbai',
+      quantity: 5,
+      reason: 'Equipment Failure',
     },
   },
 };

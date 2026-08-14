@@ -1,0 +1,2 @@
+This is a sample attachment file used by Playwright tests that exercise file-upload fields
+(e.g. Journal Entry's/Commission Plan's Attachments section). Safe to reuse across specs.

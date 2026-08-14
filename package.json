@@ -1,27 +1,27 @@
 {
-    "name": "erpforce-automation",
-    "version": "1.0.0",
-    "description": "Playwright automation tests for ERPForce",
-    "scripts": {
-        "test": "playwright test",
-        "test:headed": "playwright test --headed",
-        "test:debug": "playwright test --debug",
-        "test:report": "playwright show-report",
-        "test:login": "playwright test tests/auth/login.spec.js",
-        "test:uom": "playwright test tests/inventory/uom.spec.js",
-        "test:stock-transfer": "playwright test tests/inventory/08-stock-transfer.spec.js",
-        "test:procurement": "playwright test tests/procurement",
-        "test:request": "playwright test tests/procurement/01-procurement-request.spec.js",
-        "test:rfq": "playwright test tests/procurement/03-rfq.spec.js",
-        "test:purchase-order": "playwright test tests/procurement/04-purchase-order.spec.js",
-        "test:smoke": "playwright test --grep @smoke",
-        "test:regression": "playwright test",
-        "test:accounting": "playwright test tests/accounting"
-    },
-    "devDependencies": {
-        "@playwright/test": "^1.45.0",
-        "dotenv": "^17.4.2",
-        "exceljs": "^4.4.0",
-        "@faker-js/faker": "^10.5.0"
-    }
+  "name": "erpforce-automation",
+  "version": "1.0.0",
+  "description": "Playwright automation tests for ERPForce",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:report": "playwright show-report",
+    "test:login": "playwright test tests/auth/login.spec.js",
+    "test:uom": "playwright test tests/inventory/uom.spec.js",
+    "test:stock-transfer": "playwright test tests/inventory/08-stock-transfer.spec.js",
+    "test:procurement": "playwright test tests/procurement",
+    "test:request": "playwright test tests/procurement/01-procurement-request.spec.js",
+    "test:rfq": "playwright test tests/procurement/03-rfq.spec.js",
+    "test:purchase-order": "playwright test tests/procurement/04-purchase-order.spec.js",
+    "test:smoke": "playwright test --grep @smoke",
+    "test:regression": "playwright test",
+    "test:accounting": "playwright test tests/accounting"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.45.0",
+    "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
+    "@faker-js/faker": "^10.5.0"
+  }
 }

@@ -66,14 +66,20 @@ test.describe('Journal Entry Management', () => {
     const credit = (await je.totalCreditValue.textContent())?.trim();
     expect(debit).toBe(credit);
 
-    await je.save();
-    await page.waitForLoadState('networkidle');
+    // Capture the real create response instead of assuming the list's top row after navigating
+    // back is this run's own entry (openNewestEntry's "newest row" scan races other
+    // concurrently-created entries in this shared environment - the same class of bug already
+    // fixed for settings-entity.contract.js). Journal Entry's View route has no "/view-" suffix
+    // (confirmed against the real frontend route source: VIEW_JOURNAL_ENTRY: "/journal-entry/:id"),
+    // so build the URL directly from listPath + id rather than SettingsEntityPage.openViewById(),
+    // which assumes the Settings-entity "/view-<slug>" shape.
+    const created = await je.saveAndCaptureId(je.saveButton, ['series_number']);
+    createdEntryUrl = `${je.listPath}/${created.id}`;
+    createdSeriesNumber = created.seriesNumber;
     await page.waitForURL(je.listPath, { timeout: 10000 });
 
-    await openNewestEntry(page);
-    createdEntryUrl = page.url();
-    const seriesMatch = (await page.locator('main').innerText()).match(/[A-Z]{1,3}-\d{4}-\d+/);
-    createdSeriesNumber = seriesMatch?.[0];
+    await page.goto(createdEntryUrl);
+    await page.waitForLoadState('networkidle');
     await expect(page.getByText(data.valid.lineItems[0].narration).first()).toBeVisible();
   });
 
@@ -157,12 +163,17 @@ test.describe('Journal Entry Management', () => {
   });
 
   test('TC-JE-09 [+] Duplicate opens a pre-filled Add form', async ({ page }) => {
-    test.skip(!createdEntryUrl, 'depends on TC-JE-02 creating an entry first');
+    test.skip(!createdSeriesNumber, 'depends on TC-JE-02 creating an entry first');
     const je = new JournalEntryPage(page);
-    await page.goto(createdEntryUrl);
-    await page.waitForLoadState('networkidle');
-    await page.getByRole('button', { name: 'Actions' }).click();
-    await page.getByRole('menuitem', { name: 'Duplicate' }).click();
+    // Confirmed against the real frontend source (view-journal-entry.tsx): the View page's own
+    // Actions > Duplicate re-uses `location.state` - i.e. whatever React Router state this page
+    // itself was navigated with - to pre-fill the Add form; it never re-fetches the record by id.
+    // A hard `page.goto(viewUrl)` (as this test used to do) always has an empty `location.state`,
+    // so Duplicate from there opens a genuinely blank form - not a race/flakiness bug, an
+    // unavoidable consequence of skipping client-side navigation. The list's own row action menu
+    // Duplicate entry (journal-entry.tsx) instead passes the row's real data directly
+    // (`state: journalEntry`), so trigger it from there via the shared row-menu helper.
+    await je.clickRowMenuItem(createdSeriesNumber, 'Duplicate');
     await page.waitForURL(new RegExp(je.addPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     await expect(page.getByText(data.valid.lineItems[0].account).first()).toBeVisible();
   });

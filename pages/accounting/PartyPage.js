@@ -77,6 +77,10 @@ class PartyPage {
     // ── View / row actions ──
     this.actionsButton       = page.getByRole('button', { name: 'Actions', exact: true });
     this.editMenuItem        = page.getByRole('menuitem', { name: 'Edit', exact: true });
+    // Confirmed live: the View Customer/Vendor page header now renders a direct "Edit" button
+    // (pencil icon + text) rather than the Actions -> Edit menu item this suite originally
+    // assumed - a genuine UI change, not a locator bug.
+    this.editButton          = page.getByRole('button', { name: 'Edit', exact: true });
     this.deleteMenuItem      = page.getByRole('menuitem', { name: 'Delete', exact: true });
     this.confirmDeleteButton = page.getByRole('dialog').getByRole('button', { name: 'Delete' });
     this.toast               = page.locator('#notistack-snackbar');
@@ -136,9 +140,7 @@ class PartyPage {
 
   async openEdit(nameText) {
     await this.openRow(nameText);
-    await this.actionsButton.click();
-    await this.editMenuItem.waitFor({ state: 'visible' });
-    await this.editMenuItem.click();
+    await this.editButton.click();
     await this.page.waitForLoadState('networkidle');
   }
 
@@ -440,6 +442,18 @@ class PartyPage {
     }
   }
 
+  /**
+   * Recently added, required field on the Accounting tab (confirmed live: field name
+   * `default_tax_template` - Save silently stays on the add form with "This Field is required"
+   * under "Default tax template" if left unset, on both Customer and Vendor forms).
+   */
+  async selectDefaultTaxTemplate(name) {
+    const t = this.selectTrigger('default_tax_template');
+    if (await t.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await selectDropdown(this.page, t, name, name);
+    }
+  }
+
   // ─── master create sequence ──────────────────────────────────────────────────
 
   /**
@@ -469,6 +483,7 @@ class PartyPage {
    *   paymentTerm?:  string,
    *   accountName?:  string,
    *   currencies?:   string[],
+   *   defaultTaxTemplate?: string,
    * }} data
    */
   async create(data = {}) {
@@ -477,7 +492,7 @@ class PartyPage {
       firstName, middleName, lastName, companyName,
       phone, email, vatNumber, crn,
       address, contact,
-      paymentTerm, accountName, currencies,
+      paymentTerm, accountName, currencies, defaultTaxTemplate,
     } = data;
 
     // ── Tab 1: Basic Details ──
@@ -509,6 +524,7 @@ class PartyPage {
     // ── Next → Tab 5: Accounting ──
     await this._clickNext('Accounting');
     if (accountName)           await this.selectAccount(accountName);
+    if (defaultTaxTemplate)    await this.selectDefaultTaxTemplate(defaultTaxTemplate);
     if (currencies?.length)    await this.selectCurrencies(currencies);
   }
 
@@ -581,10 +597,20 @@ class PartyPage {
     }
 
     await this.searchInput.fill('');
+    // ActionBar search is debounced (~1.2s, same component SettingsEntityPage.search() documents)
+    // - a fixed 600ms wait was firing before the debounced request even went out, so the row
+    // this returns to the caller can still be showing the pre-search list, which then gets
+    // replaced out from under an in-flight click once the real filtered response lands
+    // (TC-CUST-04/TC-VEND-04's "element is not visible" failures - a stale row reference, not a
+    // locator bug). Wait for the real debounced request/response instead of guessing a timeout.
+    const waitForSearchResponse = text
+      ? this.page
+          .waitForResponse((res) => res.url().includes(`search=${encodeURIComponent(text)}`), { timeout: 10000 })
+          .catch(() => null)
+      : null;
     await this.searchInput.fill(text);
-    // Wait for debounced API call
+    if (waitForSearchResponse) await waitForSearchResponse;
     await this.page.waitForLoadState('networkidle').catch(() => {});
-    await this.page.waitForTimeout(600);
     await this.page.mouse.click(2, 2);
     await this.page.waitForTimeout(300);
   }

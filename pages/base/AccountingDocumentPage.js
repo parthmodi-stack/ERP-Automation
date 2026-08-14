@@ -1,24 +1,6 @@
 const { expect } = require('@playwright/test');
 const SettingsEntityPage = require('./SettingsEntityPage');
 
-// Depth-first search for a record shaped like `{ id, ...distinguishingKeys }` inside a save
-// response whose nesting varies unpredictably between modules (and sometimes between requests to
-// the same endpoint) - same helper SalesInvoicePage.js defines locally; centralized here so every
-// AccountingDocumentPage subclass can capture id/series_number straight from its own save response
-// instead of re-deriving them from a page that may render the record incorrectly (see
-// ExpenseReimbursementPage.js's saveAndCaptureId for why that matters).
-function findRecordWithId(node, distinguishingKeys, depth = 0) {
-  if (!node || typeof node !== 'object' || depth > 6) return null;
-  if (!Array.isArray(node) && 'id' in node && distinguishingKeys.some((k) => k in node)) {
-    return node;
-  }
-  for (const value of Array.isArray(node) ? node : Object.values(node)) {
-    const found = findRecordWithId(value, distinguishingKeys, depth + 1);
-    if (found) return found;
-  }
-  return null;
-}
-
 /**
  * Base Page Object for the "document with approval workflow" archetype used across the
  * Accounting module (Journal Entry, Sales/Purchase Invoice, Cash Expense, Credit/Debit Note,
@@ -76,8 +58,39 @@ class AccountingDocumentPage extends SettingsEntityPage {
     return this.page.locator(`[class*="${this.statusCssSlug}--StatusChip"]`);
   }
 
+  /**
+   * Clicks the given action and, if a matching PATCH/PUT/POST mutation response shows up within
+   * the timeout, throws immediately with the backend's own error message on failure - instead of
+   * leaving callers to infer success only from a status-chip text match, which can pass or fail
+   * for reasons unrelated to whether the action actually succeeded server-side. Each entity's own
+   * status-transition endpoint URL differs (this is a shared base class across ~10 document
+   * modules), so this matches by method only rather than a specific URL fragment; if no matching
+   * response shows up in time (a wrong guess for some entity's own endpoint shape, or a genuinely
+   * slower one), falls back to the old UI-only behavior rather than hanging or failing spuriously.
+   */
+  async _clickAndCaptureMutation(clickFn, actionName) {
+    let response;
+    try {
+      [response] = await Promise.all([
+        this.page.waitForResponse(
+          (res) => ['PATCH', 'PUT', 'POST'].includes(res.request().method()),
+          { timeout: 10000 }
+        ),
+        clickFn(),
+      ]);
+    } catch {
+      return null;
+    }
+    if (!response.ok()) {
+      const body = await response.json().catch(() => ({}));
+      const message = body?.message || body?.error || `HTTP ${response.status()}`;
+      throw new Error(`${actionName}: action failed - ${message}`);
+    }
+    return response;
+  }
+
   async submitForApproval() {
-    await this.submitButton.click();
+    return this._clickAndCaptureMutation(() => this.submitButton.click(), 'submitForApproval');
   }
 
   // ---------- Approval flow (split-button caret + menu, same pattern as pages/BasePage.js's own
@@ -139,55 +152,32 @@ class AccountingDocumentPage extends SettingsEntityPage {
     await this.clickSubmitMenuItem('Accept');
     const dialog = this.page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 10000 });
-    await dialog.getByRole('button', { name: confirmButtonName }).click();
+    return this._clickAndCaptureMutation(
+      () => dialog.getByRole('button', { name: confirmButtonName }).click(),
+      'acceptApproval'
+    );
   }
 
   async rejectApproval({ confirmButtonName = /Submit/i } = {}) {
     await this.clickSubmitMenuItem('Reject');
     const dialog = this.page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 10000 });
-    await dialog.getByRole('button', { name: confirmButtonName }).click();
+    return this._clickAndCaptureMutation(
+      () => dialog.getByRole('button', { name: confirmButtonName }).click(),
+      'rejectApproval'
+    );
   }
 
   async markAsVoid() {
-    await this.markAsVoidButton.click();
+    return this._clickAndCaptureMutation(() => this.markAsVoidButton.click(), 'markAsVoid');
   }
 
   async attachFile(filePath, fieldName = 'attachment_url') {
     await this.fieldLocator(fieldName).setInputFiles(filePath);
   }
 
-  /**
-   * Clicks the given Save-family button, captures its own POST response, and extracts
-   * `{ id, seriesNumber }` directly from that response - not from a subsequent list refetch or
-   * a View-page render, either of which can be wrong or (per ExpenseReimbursementPage.js) can
-   * crash outright for reasons unrelated to whether the save itself actually succeeded.
-   * @param {import('@playwright/test').Locator} button
-   * @param {string[]} distinguishingKeys - fields (besides `id`) that identify this module's own
-   *   record shape, e.g. ['employee_id', 'expense_entry_type'] for Expense Reimbursement -
-   *   needed because the response node also contains `id` on unrelated nested rows (line items).
-   * @param {string} [urlFragment] - defaults to the entity's own listPath segment.
-   */
-  async saveAndCaptureId(button, distinguishingKeys, urlFragment) {
-    const fragment = urlFragment || this.listPath.split('/').filter(Boolean).pop();
-    const [response] = await Promise.all([
-      this.page.waitForResponse(
-        (r) => r.request().method() === 'POST' && r.url().includes(fragment),
-        { timeout: 15000 }
-      ),
-      button.click(),
-    ]);
-    await this.page.waitForLoadState('networkidle').catch(() => {});
-
-    const body = await response.json();
-    const record = findRecordWithId(body?.data, distinguishingKeys);
-    if (!record?.id) {
-      throw new Error(
-        `saveAndCaptureId: could not find a matching record in the save response (got: ${JSON.stringify(body?.data)})`
-      );
-    }
-    return { id: String(record.id), seriesNumber: record.series_number };
-  }
+  // saveAndCaptureId() is inherited from SettingsEntityPage - moved there so Settings-entity
+  // modules with no approval workflow (e.g. CommissionPlanPage) can use it too.
 }
 
 module.exports = AccountingDocumentPage;

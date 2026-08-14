@@ -1,3 +1,4 @@
+const { expect } = require('@playwright/test');
 const SettingsEntityPage = require('../base/SettingsEntityPage');
 
 /**
@@ -25,6 +26,10 @@ class ChartOfAccountsPage extends SettingsEntityPage {
       listPath: '/dashboard/accounting/settings/chart-of-accounts',
       addPath: '/dashboard/accounting/settings/chart-of-accounts/add-chart-of-accounts',
       displayNameField: 'account_name',
+      // Confirmed live: the create POST hits .../accounting/v1/chart-of-account/ - SINGULAR,
+      // unlike listPath's own plural "chart-of-accounts" - saveAndCaptureId()'s default guess
+      // (derived from listPath) never matches this and times out without this override.
+      createUrlFragment: 'chart-of-account',
     });
 
     this.statusCheckbox = page.locator('input[name="is_active"]');
@@ -73,7 +78,15 @@ class ChartOfAccountsPage extends SettingsEntityPage {
   /** Fills the add form; caller (or the shared settings-entity test contract) triggers save(). */
   async create({ parentType, accountType, parentAccount, allowedJournal, currency, enabled, ...rest }) {
     if (parentType) await this.selectParentType(parentType);
-    if (accountType) await this.selectAccountType(accountType);
+    if (accountType) {
+      await this.selectAccountType(accountType);
+      // account_code is auto-derived server-side by an account_type_id change-watcher
+      // (getV1ChartOfAccountNextCode) - confirmed live this API call can still be in flight after
+      // the dropdown itself has settled, leaving Account Code empty/required if Save is clicked
+      // immediately (TC-COA-02 failure). Wait for the field's real value instead of a blind
+      // timeout, so this only ever waits as long as the backend actually takes.
+      await expect(this.accountCodeField()).not.toHaveValue('', { timeout: 15000 });
+    }
     if (parentAccount) await this.selectParentAccount(parentAccount);
     if (allowedJournal) await this.selectAllowedJournal(allowedJournal);
     if (currency) await this.selectCurrency(currency);

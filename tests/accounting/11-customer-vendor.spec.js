@@ -70,6 +70,7 @@ test.describe('Customer Management', () => {
         accountName: d.accountName,
         paymentTerm: d.paymentTerm,
         currencies:  d.currencies,
+        defaultTaxTemplate: d.defaultTaxTemplate,
       });
 
       await party.save();
@@ -103,6 +104,7 @@ test.describe('Customer Management', () => {
         accountName: d.accountName,
         paymentTerm: d.paymentTerm,
         currencies:  d.currencies,
+        defaultTaxTemplate: d.defaultTaxTemplate,
       });
 
       await party.save();
@@ -159,7 +161,16 @@ test.describe('Customer Management', () => {
         'Depends on TC-CUST-01 creating the Individual customer first'
       );
 
-      await row.first().getByRole('link').first().click();
+      // Match the link by its real accessible name (the visible text) rather than "first <a>
+      // found anywhere in the row" - confirmed live a row can carry more than one anchor, and
+      // the first one in DOM order isn't necessarily the visible one, which made a plain
+      // row.first().getByRole('link').first() time out as "not visible". Stay on the already-
+      // searched/filtered list rather than party.openRow() (which re-navigates via gotoList()
+      // and would lose that filtering in this large, cumulative environment).
+      // Not exact: true - the row's real link's accessible name is the full display name
+      // ("Auto Cust_..."), not just the bare last name, confirmed live (an exact match against
+      // lastName alone never matched anything and timed out).
+      await page.getByRole('link', { name: d.lastName }).first().click();
       await page.waitForLoadState('networkidle');
 
       // Last name should be visible on the view page
@@ -185,12 +196,13 @@ test.describe('Customer Management', () => {
         'Depends on TC-CUST-01 creating the Individual customer first'
       );
 
-      // Open view → Actions → Edit
-      await row.first().getByRole('link').first().click();
+      // Match by accessible name (not exact - see TC-CUST-04's comment) on the already-searched
+      // list, rather than party.openRow() which would re-navigate and lose that filtering.
+      await page.getByRole('link', { name: d.lastName }).first().click();
       await page.waitForLoadState('networkidle');
-      await party.actionsButton.click();
-      await party.editMenuItem.waitFor({ state: 'visible' });
-      await party.editMenuItem.click();
+      // Confirmed live: the View page header has a direct "Edit" button now, not an Actions ->
+      // Edit menu item - a genuine UI change from what this test originally assumed.
+      await party.editButton.click();
       await page.waitForLoadState('networkidle');
 
       await expect(page).toHaveURL(/edit-customer/);
@@ -263,6 +275,7 @@ test.describe('Vendor Management', () => {
         accountName: d.accountName,
         paymentTerm: d.paymentTerm,
         currencies:  d.currencies,
+        defaultTaxTemplate: d.defaultTaxTemplate,
       });
 
       await party.save();
@@ -294,6 +307,7 @@ test.describe('Vendor Management', () => {
         accountName: d.accountName,
         paymentTerm: d.paymentTerm,
         currencies:  d.currencies,
+        defaultTaxTemplate: d.defaultTaxTemplate,
       });
 
       await party.save();
@@ -345,7 +359,15 @@ test.describe('Vendor Management', () => {
         'Depends on TC-VEND-01 creating the Individual vendor first'
       );
 
-      await row.first().getByRole('link').first().click();
+      // party.openRow() matches by real accessible name rather than "first <a> in the row" -
+      // see TC-CUST-04's own comment on why the plain row-click pattern isn't reliable here.
+      // Match by accessible name rather than "first <a> in the row" - see TC-CUST-04's own
+      // comment above. Stay on the already-searched list instead of party.openRow(), which
+      // re-navigates via gotoList() and would lose that filtering.
+      // Not exact: true - the row's real link's accessible name is the full display name
+      // ("Auto Cust_..."), not just the bare last name, confirmed live (an exact match against
+      // lastName alone never matched anything and timed out).
+      await page.getByRole('link', { name: d.lastName }).first().click();
       await page.waitForLoadState('networkidle');
 
       await expect(page.getByText(d.lastName).first()).toBeVisible({ timeout: 15000 });
@@ -368,11 +390,19 @@ test.describe('Vendor Management', () => {
         'Depends on TC-VEND-01 creating the Individual vendor first'
       );
 
-      await row.first().getByRole('link').first().click();
+      // party.openRow() matches by real accessible name rather than "first <a> in the row" -
+      // see TC-CUST-04's own comment on why the plain row-click pattern isn't reliable here.
+      // Match by accessible name rather than "first <a> in the row" - see TC-CUST-04's own
+      // comment above. Stay on the already-searched list instead of party.openRow(), which
+      // re-navigates via gotoList() and would lose that filtering.
+      // Not exact: true - the row's real link's accessible name is the full display name
+      // ("Auto Cust_..."), not just the bare last name, confirmed live (an exact match against
+      // lastName alone never matched anything and timed out).
+      await page.getByRole('link', { name: d.lastName }).first().click();
       await page.waitForLoadState('networkidle');
-      await party.actionsButton.click();
-      await party.editMenuItem.waitFor({ state: 'visible' });
-      await party.editMenuItem.click();
+      // Confirmed live: the View page header has a direct "Edit" button now, not an Actions ->
+      // Edit menu item - a genuine UI change from what this test originally assumed.
+      await party.editButton.click();
       await page.waitForLoadState('networkidle');
 
       await expect(page).toHaveURL(/edit-vendor/);

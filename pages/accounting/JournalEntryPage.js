@@ -21,6 +21,10 @@ class JournalEntryPage extends AccountingDocumentPage {
       listPath: '/dashboard/accounting/journal-entry',
       addPath: '/dashboard/accounting/journal-entry/add-journal-entry',
       statusCssSlug: 'journalEntry',
+      // Confirmed live: the create POST hits .../accounting/v1/journal-entries/ - PLURAL,
+      // unlike listPath's own singular "journal-entry" - saveAndCaptureId()'s default guess
+      // (derived from listPath) never matches this and times out without this override.
+      createUrlFragment: 'journal-entries',
     });
 
     // Confirmed against the running app: the button is labeled just "Add" (class
@@ -102,6 +106,12 @@ class JournalEntryPage extends AccountingDocumentPage {
    */
   async attachFile(filePath) {
     await this.page.locator('input[type="file"][name="attachment_url"]').setInputFiles(filePath);
+    // UploadMedia does its own async upload after the file is picked - confirmed live that
+    // clicking Save immediately after setInputFiles() can create the entry before the upload
+    // finishes, so no attachment ends up saved (TC-JE-14 failure). Wait for the component's own
+    // filename preview to render as a real signal the upload has registered, not a blind timeout.
+    const fileName = filePath.split(/[\\/]/).pop();
+    await this.page.getByText(fileName, { exact: false }).first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
   }
 
   /**
