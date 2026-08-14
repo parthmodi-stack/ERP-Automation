@@ -55,33 +55,41 @@ test.describe('Accounting Settings (Settings)', () => {
   test('TC-ACST-02 [-] Create with an already-used company/department/location is rejected', async ({ page }) => {
     test.setTimeout(60000);
     const acs = new AccountingSettingPage(page);
+    const listUrlPattern = new RegExp(acs.listPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$');
+    const duplicateToast = acs.toastMessage.filter({ hasText: /already exists/i });
 
-    // Don't rely on this combination having been seeded ahead of time by a previous session -
-    // create it ourselves first (idempotent: skip if it's already there) so this test is
-    // self-contained and reproducible regardless of what static state the environment happens
-    // to be in.
-    await acs.gotoList();
-    await waitForIdle(page);
-    const existingRow = page.locator('table tbody tr')
-      .filter({ hasText: data.duplicate.company_id })
-      .filter({ hasText: data.duplicate.department_id })
-      .filter({ hasText: data.duplicate.location_id })
-      .first();
-    if (!(await existingRow.isVisible({ timeout: 3000 }).catch(() => false))) {
+    // Attempts the create and races the two outcomes the backend can actually produce: navigation
+    // to the list (the combo didn't exist yet) or the duplicate-rejection toast (it already did).
+    // Deliberately doesn't pre-scan the list for an existing row first - the list shows newest
+    // rows first and its search box is confirmed not to filter by Location at all (see
+    // AccountingSettingPage.openRowByCombo's own comment), so a duplicate combo created by an
+    // earlier run reliably ages off page 1 and a DOM-visibility check goes stale on a second run,
+    // wrongly concluding the combo is missing and re-attempting a create the backend then rejects
+    // - which the old code never expected and just timed out waiting on. Races rather than waiting
+    // out a full navigation timeout before checking for the toast, since the toast is a MUI
+    // Snackbar that auto-hides after a few seconds and would already be gone by the time a 15s
+    // navigation wait gave up.
+    async function attemptCreate() {
       await acs.openAdd();
       await acs.create(data.duplicate);
       await acs.save();
-      await page.waitForURL(new RegExp(acs.listPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'), {
-        timeout: 15000,
-      });
-      await waitForIdle(page);
+      const [navigated, rejected] = await Promise.all([
+        page.waitForURL(listUrlPattern, { timeout: 10000 }).then(() => true).catch(() => false),
+        duplicateToast.waitFor({ state: 'visible', timeout: 10000 }).then(() => true).catch(() => false),
+      ]);
+      if (navigated) await waitForIdle(page);
+      return { navigated, rejected };
     }
 
-    await acs.openAdd();
-    await acs.create(data.duplicate);
-    await acs.save();
+    // If the first attempt actually created it (didn't exist yet), immediately try again so the
+    // rejection this test is about still runs against a combo now guaranteed to exist.
+    let result = await attemptCreate();
+    if (result.navigated) {
+      result = await attemptCreate();
+    }
+
+    expect(result.rejected).toBe(true);
     await expect(page).toHaveURL(new RegExp(acs.addPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-    await expect(acs.toastMessage).toContainText(/already exists/i, { timeout: 5000 });
   });
 
   test.describe.serial('Create -> View -> Edit -> Delete lifecycle', () => {

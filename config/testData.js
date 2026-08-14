@@ -457,11 +457,20 @@ const testData = {
       // environment (see the purchaseInvoice block's own comment below, where the same stale
       // vendor was already swapped out) - switched to 'Royal Mine Industries', the same
       // confirmed-live, currently-existing vendor purchaseInvoice already uses.
+      // NOT "INR": confirmed live (2026-08-14) that Payment Entry's own Currency dropdown for
+      // this vendor never resolves "INR" to a real match ("No data available" even with the
+      // search cleared) - the Currency *master list* does have a real, Enabled "INR" record
+      // (CUR-2026-000001), it's just never offered as a selectable option here, same class of
+      // "options scoped to whatever's linked to the party" gap already documented for
+      // purchaseAgreement.reject's own currency field below. "kud" is the one option that
+      // actually resolves for this vendor right now - pinning to it explicitly (rather than
+      // leaving 'INR' for selectDropdown()'s fallback to silently swap out) keeps selection
+      // deterministic instead of depending on whichever option happens to render first.
       cash: {
         type: 'Cash',
         partyType: 'Vendor',
         party: 'Royal Mine Industries',
-        currency: 'INR',
+        currency: 'kud',
         amount: '500',
         narration: `Automation Cash Payment ${ts}`,
         advance: true,
@@ -470,7 +479,7 @@ const testData = {
         type: 'Bank',
         partyType: 'Vendor',
         party: 'Royal Mine Industries',
-        currency: 'INR',
+        currency: 'kud',
         amount: '500',
         bankAccount: 'Test Acc',
         narration: `Automation Bank Payment ${ts}`,
@@ -480,7 +489,7 @@ const testData = {
         type: 'Cheque',
         partyType: 'Vendor',
         party: 'Royal Mine Industries',
-        currency: 'INR',
+        currency: 'kud',
         amount: '11.11',
         bankAccount: 'Test Acc',
         chequeNumber: `CHQ-${ts}`,
