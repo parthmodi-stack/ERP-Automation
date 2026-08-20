@@ -2010,6 +2010,28 @@ const testData = {
     },
   },
 
+  // Customer Returns (CRM > Orders > Customer Returns). `customer` is a real, live-confirmed
+  // Customer record (also the customer behind this environment's existing RMA-2025/2026-* rows -
+  // confirmed live via the list page) - CRM's Customer dropdown has no reliable pinned-value
+  // convention yet the way Procurement's Vendor fields do, so this is the one deliberately chosen
+  // for now. `item`/`uom` only matter for a Save-To-Draft create (see CustomerReturnPage.js's own
+  // header comment on why a full, non-draft Save can never succeed through the direct-create form
+  // in this environment regardless of item choice - a confirmed app bug, not a data problem) - any
+  // real item works here, 'RM-C' is simply confirmed live to exist and resolve to an exact
+  // dropdown match.
+  customerReturn: {
+    valid: {
+      customer: 'Nishit M Vankawala',
+      item: 'RM-C',
+      quantity: '1',
+      rate: '100',
+    },
+    // Must be the CURRENTLY LOGGED-IN test user (credentials.valid = dipen.modi@trootech.com) -
+    // same reasoning as every other module's own approverName: the Quick Approval flow's
+    // resulting Accept action only renders for whoever the approval was actually routed to.
+    approverName: 'Dipen Modi',
+  },
+
   // stockTransfer.destinationLocation references the same name that location
   // tests create/rename to in TC-LOC-02 (see 02-location.spec.js). Stock
   // Transfer records have no user-entered name field (they're identified by

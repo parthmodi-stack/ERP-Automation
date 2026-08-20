@@ -229,8 +229,8 @@ class OpportunityPage {
   // Opens the Items table's own "Add" modal, searches Item by whichever text is given (empty =
   // pick first available, same "first available" convention as 07-inventory-item.spec.ts/
   // erpforce-stock-transfer.spec.js for fields whose exact live master-data value isn't pinned),
-  // fills Quantity/Tax Template (both required per Yup) and saves the row.
-  async addItem({ itemSearchText = '', quantity } = {}) {
+  // fills Quantity/Rate/Tax Template (all required per Yup) and saves the row.
+  async addItem({ itemSearchText = '', quantity, rate } = {}) {
     await this.addItemButton.click();
     await this.itemModal.waitFor({ state: 'visible', timeout: 10000 });
 
@@ -260,6 +260,18 @@ class OpportunityPage {
       .locator('input');
     if (await qtyInput.isVisible({ timeout: 2000 }).catch(() => false)) {
       await qtyInput.fill(String(quantity ?? 1));
+    }
+
+    // Rate is ALSO required (item_entries.rate) - CONFIRMED LIVE: this was missing entirely,
+    // leaving Rate genuinely empty ("Please add rate" inline error) and every downstream Amount
+    // field (Gross/Tax/Net/Total) stuck at 0/empty since they're computed from it - Save then
+    // silently never closes the modal, with no thrown error to explain why. The selected Item's
+    // own default price does NOT pre-fill this field (confirmed live), so always fill it.
+    const rateInput = this.itemModal.getByText(/^Rate\s*\*?$/i).first()
+      .locator('xpath=..')
+      .locator('input');
+    if (await rateInput.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await rateInput.fill(String(rate ?? 100));
     }
     await this.page.waitForTimeout(500); // let any debounced amount recompute settle
 

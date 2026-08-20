@@ -1,6 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const LeadPage = require('../../pages/LeadPage');
 const testData = require('../../config/testData');
+const factory = require('../../config/testDataFactory');
 
 // ── tests/crm/06-lead-extended.spec.js ───────────────────────────────────────────────────────
 // Extended Lead positive/negative coverage NOT already exercised by tests/crm/01-lead.spec.js
@@ -147,7 +148,21 @@ test.describe('Lead Management - Extended', () => {
   // ── TC-LEAD-18: Add a second Address row ─────────────────────────────────
   test('TC-LEAD-18 [+] Add a second Address row', async ({ page }) => {
     const lead = new LeadPage(page);
-    const data = testData.lead.minimal;
+    // Own distinct Company Name AND Email - CONFIRMED LIVE: reusing testData.lead.minimal's own
+    // companyName/email verbatim collides with TC-LEAD-02 (01-lead.spec.js's own earlier real
+    // create using that identical fixture - both files run in the same worker process by default,
+    // so testData.js's require-time `ts` is identical across them), silently blocking this test's
+    // own Next transition with a duplicate-name/duplicate-email validation that has no other
+    // visible signal. Phone is auto-freshened inside LeadPage.fillBasicDetails() itself since no
+    // test anywhere asserts on the exact phone text; company name and email are NOT auto-freshened
+    // there because TC-LEAD-01/03 assert on the exact static email, and TC-LEAD-15 deliberately
+    // relies on reusing an existing company name to test duplicate-name detection - so each caller
+    // that needs a fresh value provides its own, as done here.
+    const data = {
+      ...testData.lead.minimal,
+      companyName: factory.uniqueName('Automation_Lead_SecondAddress'),
+      email: factory.uniqueEmail('automation.lead.secondaddress'),
+    };
     const second = testData.lead.secondAddress;
 
     await lead.goto();

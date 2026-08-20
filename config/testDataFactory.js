@@ -33,4 +33,10 @@ function calendarName() {
   return `${faker.company.name()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
-module.exports = { uniqueName, referenceNumber, narration, quantity, amount, calendarName };
+// For tests that deliberately reuse another test's fixture email for a second real create
+// (e.g. to isolate a duplicate-COMPANY-NAME check without also tripping a duplicate-email one).
+function uniqueEmail(localPrefix = 'automation.lead') {
+  return `${localPrefix}.${Date.now()}@acmeglobal.com`;
+}
+
+module.exports = { uniqueName, referenceNumber, narration, quantity, amount, calendarName, uniqueEmail };

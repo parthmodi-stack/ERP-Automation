@@ -175,7 +175,11 @@ class LeadPage {
       await searchInput.click().catch(() => {});
       await this.page.waitForTimeout(300);
       await searchInput.fill(companyName).catch(() => {});
-      await this.page.waitForTimeout(800);
+      // CONFIRMED LIVE elsewhere in this suite: this ActionBar search is debounced ~1.2s - a
+      // fixed 800ms wait fires before the debounced request/re-render completes, especially on
+      // this large, ever-growing shared dataset. Wait for the real target to actually appear
+      // instead of guessing a timeout - the subsequent click below still needs a match to exist.
+      await companyText.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
     }
     await companyText.click();
     await this.page.waitForURL('**/view-lead');
@@ -218,13 +222,41 @@ class LeadPage {
     await this.page.waitForLoadState('networkidle');
   }
 
+  /** Direct-by-id navigation - see saveAndCaptureId()'s own comment on why this is preferred over openEdit(companyName). */
+  async gotoEdit(id) {
+    if (!id) throw new Error(`gotoEdit() called with a falsy id (${id}) - a prior create step likely failed.`);
+    await this.page.goto(`/dashboard/crm/orders/lead/${id}/edit-lead`, { timeout: 60000 });
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+  }
+
   async clickNext() {
     await this.nextButton.click();
   }
 
   async fillBasicDetails({ companyName, phone, email, vatNumber, crnNumber, responsiblePerson }) {
     if (companyName !== undefined) await this.companyNameInput.fill(companyName);
-    if (phone !== undefined) await this.phoneInput.fill(phone);
+    if (phone !== undefined) {
+      // CONFIRMED LIVE: phone number must be unique across Leads (same class of constraint as
+      // Company Name) - config/testData.js's own phone fixtures are computed ONCE per test-run
+      // process (a shared `ts`/`tsDigits`), so multiple tests that each complete a REAL create
+      // using the same fixture object (e.g. TC-LEAD-02 and TC-LEAD-18 both use
+      // testData.lead.minimal as-is) submit the IDENTICAL phone, and every create after the first
+      // silently fails uniqueness. Only touch values that actually look like a real phone number
+      // (all digits) - leave already-invalid negative-test fixtures (e.g. 'abcd') untouched so
+      // this doesn't accidentally turn an intentionally-invalid input into a valid one.
+      // Keep the same length/shape as the original (a single leading digit + 8 more), just
+      // resolved fresh at fill-time instead of reusing testData.js's own require-time `ts` -
+      // avoids exceeding whatever max-length validation the phone field itself enforces.
+      const uniquePhone = /^\d+$/.test(phone) ? phone[0] + String(Date.now()).slice(-8) : phone;
+      await this.phoneInput.fill(uniquePhone);
+    }
+    // NOTE: unlike phone, email is deliberately filled verbatim here, not auto-freshened -
+    // TC-LEAD-01/03 assert the exact static testData.lead.valid.email text appears on the
+    // created/viewed record, so silently mutating it here breaks those assertions. Where a real
+    // duplicate-email collision actually exists across two separate real creates (TC-LEAD-15 vs
+    // TC-LEAD-01, TC-LEAD-18 vs TC-LEAD-02), the affected test overrides `email` itself with a
+    // unique value before calling fillBasicDetails, the same way TC-LEAD-18 already overrides
+    // companyName.
     if (email !== undefined) await this.emailInput.fill(email);
     if (vatNumber !== undefined) await this.vatInput.fill(vatNumber);
     if (crnNumber !== undefined) await this.crnInput.fill(crnNumber);
@@ -363,13 +395,29 @@ class LeadPage {
   // actually switched tabs (observed: a blocked Next silently left the
   // previous tab active, and this.addressRow then matched the wrong table).
   // Assert aria-selected instead to confirm the switch really happened.
+  // CONFIRMED LIVE: Next can silently swallow its first click (same react-hook-form Controller-
+  // registration race documented on save()/TC-PE-VAL-01 elsewhere) even on an otherwise fully
+  // valid, freshly-filled form with no visible error - retry once, same convention as save().
+  // The settle wait BEFORE the aria-selected check matters: checking immediately after click()
+  // resolves races the switch every time (before the DOM/state update renders), which on
+  // Contact - the LAST tab - fired a pointless second click at a "Next" button that had already
+  // disappeared once the switch actually succeeded, hanging for the full click timeout. The
+  // retry click itself is best-effort for the same reason.
   async goToAddressTab() {
     await this.nextButton.click();
+    await this.page.waitForTimeout(500);
+    if (!(await this.addressTab.getAttribute('aria-selected').then((v) => v === 'true').catch(() => false))) {
+      await this.nextButton.click().catch(() => {});
+    }
     await expect(this.addressTab).toHaveAttribute('aria-selected', 'true', { timeout: 10000 });
   }
 
   async goToContactTab() {
     await this.nextButton.click();
+    await this.page.waitForTimeout(500);
+    if (!(await this.contactTab.getAttribute('aria-selected').then((v) => v === 'true').catch(() => false))) {
+      await this.nextButton.click().catch(() => {});
+    }
     await expect(this.contactTab).toHaveAttribute('aria-selected', 'true', { timeout: 10000 });
   }
 
@@ -377,8 +425,18 @@ class LeadPage {
   // already uses for StockTransferPage's Track Detail column - reliable regardless of how many
   // other columns share an identical placeholder/label. Row-indexed so a second/third Address
   // row can be targeted too, not just the auto-generated first one.
+  // CONFIRMED LIVE: this table also has its own "Country Code" column (the phone dial code, e.g.
+  // "+64"), positioned BEFORE "Country" itself - a bare `^${headerText}` prefix match for
+  // "Country" matches "Country Code" first (`.first()` picks whichever comes first in DOM order),
+  // silently returning the wrong cell with no error (e.g. TC-LEAD-14's own Country/State-missing
+  // negative test was unaffected since it never reads the cell back, but fillAddressRow's Country
+  // handling below depends on this being right). The negative lookahead excludes that specific
+  // collision (harmless for every other header here, none of which are followed by " Code")
+  // without needing an exact end-anchor, since this table's own header text carries extra
+  // trailing content of its own (a stray "0" observed via allTextContents()) that an exact
+  // `$`-anchored match can't safely account for.
   async addressCellByHeaderForRow(rowIndex, headerText) {
-    const index = await this.page.getByRole('columnheader', { name: new RegExp(`^${headerText}`) }).first().evaluate(
+    const index = await this.page.getByRole('columnheader', { name: new RegExp(`^${headerText}(?!\\sCode)`) }).first().evaluate(
       (th) => Array.from(th.parentElement.children).indexOf(th)
     );
     return this.addressRowAt(rowIndex).locator('td').nth(index);
@@ -527,46 +585,98 @@ class LeadPage {
     if (zipCode !== undefined) await (await this.addressCellByHeader('Zip Code')).locator('input').fill(zipCode);
     if (city !== undefined) await (await this.addressCellByHeader('City')).locator('input').fill(city);
 
-    // CONFIRMED LIVE: Country now arrives pre-filled with a default ("India"), the same
-    // pre-filled-breaks-the-placeholder-locator issue as Priority/Lead Status above - leave it as
-    // whatever pre-fills rather than fight a broken locator for a field no test here actually
-    // asserts a specific value on.
+    // CONFIRMED LIVE: Country arrives pre-filled to SOME default - previously "India", observed
+    // as "Afghanistan" more recently (this environment's own default apparently drifts over time,
+    // same class of live-data-drift issue seen elsewhere in this suite, e.g. Accounting's
+    // Currency fallback picking whatever's first). Since State is only ever a valid State/
+    // Province for WHATEVER country is currently selected, an unselected `country` param here
+    // silently breaks any caller whose `state` value only matches a different country than the
+    // live default - confirmed live: this blocks the Address row from ever validating, with no
+    // visible error until Next is clicked and the row is inspected directly. Actively select
+    // Country whenever the caller specifies one, instead of trusting the pre-fill. Both dropdowns
+    // are the same DynamicSelect-family combobox `helpers/dropdown.js`'s selectDropdown() already
+    // handles elsewhere in this suite (id="mui-component-select-country"/"...-state", confirmed
+    // live) - reuse it directly rather than hand-rolling the same open/search/click/fallback
+    // sequence again. CONFIRMED LIVE: an earlier hand-rolled version of this that opened the
+    // dropdown but never typed into its own search box silently fell back to whatever renders
+    // first in the long, unfiltered (likely virtualized) options list - "Afghanistan" sorts first
+    // alphabetically - even when 'United Arab Emirates' genuinely exists further down; always
+    // search by the target text so selectDropdown's own exact-match check actually has a chance.
+    if (country !== undefined) {
+      const countryTrigger = (await this.addressCellByHeader('Country')).locator('[role="combobox"]').first();
+      await selectDropdown(this.page, countryTrigger, country, country, { optional: true });
+    }
+
     if (state !== undefined) {
-      const stateCell = await this.addressCellByHeader('State');
-      const currentStateText = ((await stateCell.innerText().catch(() => '')) || '').replace(/[​﻿]/g, '').trim();
-      if (!currentStateText || /^Select /i.test(currentStateText)) {
-        // Click the trigger by its own visible placeholder text - proven live against the
-        // running app; a generic role/tag-based locator here can resolve to the wrong element
-        // within the cell (e.g. a wrapping div) and silently no-op the click.
-        await stateCell.getByText('Select state', { exact: true }).click();
-        await this.page.waitForTimeout(600);
-        // CONFIRMED LIVE: this popover is a plain search-list (not an ARIA listbox/native
-        // select) - click the desired state's own text directly, falling back to whichever
-        // option renders first if the exact name isn't found within a couple seconds (master
-        // data may not have every named state for every account).
-        const exactOption = this.page.getByText(state, { exact: true });
-        const found = await exactOption.first().isVisible({ timeout: 3000 }).catch(() => false);
-        if (found) {
-          await exactOption.first().click();
-        } else {
-          await this.page.locator('li, [role="option"]').first().click().catch(() => {});
-        }
-        await this.page.waitForTimeout(300);
-        // Same stale-MUI-backdrop-after-closing quirk documented in helpers/dropdown.js - a
-        // neutral click in empty space dismisses it without touching a real control.
-        await this.page.keyboard.press('Escape').catch(() => {});
-        await this.page.mouse.click(2, 2).catch(() => {});
-        await this.page.waitForTimeout(300);
-      }
+      const stateTrigger = (await this.addressCellByHeader('State')).locator('[role="combobox"]').first();
+      await selectDropdown(this.page, stateTrigger, state, state, { optional: true });
     }
 
     await this.saveAddressRow();
   }
 
+  // CONFIRMED LIVE: a stale MUI backdrop left over from an earlier dropdown selection (same quirk
+  // documented in helpers/dropdown.js and already worked around in OpportunityPage.save()) can
+  // silently swallow this click with no visible error and no navigation - dismiss any stray
+  // backdrop first, and retry once if the click still didn't navigate anywhere.
   async save() {
+    await this.page.keyboard.press('Escape').catch(() => {});
+    await this.page.mouse.click(2, 2).catch(() => {});
+    await this.page.waitForTimeout(300);
+    const urlBefore = this.page.url();
+    await this.saveButton.click();
+    await this.page.waitForTimeout(2000);
+    if (this.page.url() === urlBefore) {
+      await this.saveButton.click();
+    }
+  }
+
+  // CONFIRMED LIVE: save()'s own retry-if-URL-unchanged is wrong for a test that's asserting a
+  // validation error blocks the save (e.g. duplicate-name checks) - the retry's second click can
+  // go through even after the first one was rejected, silently creating the record for real
+  // before the test ever gets to check for the error. Same backdrop-dismiss hygiene as save(),
+  // but exactly one click, no retry - use this whenever the assertion right after IS the
+  // still-blocked-on-this-page check.
+  async saveOnce() {
+    await this.page.keyboard.press('Escape').catch(() => {});
+    await this.page.mouse.click(2, 2).catch(() => {});
+    await this.page.waitForTimeout(300);
     await this.saveButton.click();
   }
 
+  /**
+   * Save, capturing the created record's id/series_number straight from the create API response
+   * (`POST /sales/v1/lead/` -> `{ data: { lead: { lead: { id, series_number, ... } } } }` -
+   * confirmed live, doubly-nested `lead.lead`) - a direct-by-id `gotoView()` afterward is far more
+   * reliable than searching the list by company name, which is confirmed live to time out on this
+   * large, ever-growing shared dataset once a record isn't on the list's default page (the search
+   * fallback's own debounced re-fetch isn't always caught in time either).
+   * @returns {Promise<{id: string, seriesNumber: string}>}
+   */
+  async saveAndCaptureId() {
+    const [, response] = await Promise.all([
+      this.saveButton.click(),
+      this.page.waitForResponse(
+        (r) => r.url().endsWith('/sales/v1/lead/') && r.request().method() === 'POST',
+        { timeout: 15000 },
+      ),
+    ]);
+    const body = await response.json();
+    const record = body.data.lead.lead;
+    return { id: String(record.id), seriesNumber: record.series_number };
+  }
+
+  /** Direct-by-id navigation - see saveAndCaptureId()'s own comment on why this is preferred over openView(companyName). */
+  async gotoView(id) {
+    if (!id) throw new Error(`gotoView() called with a falsy id (${id}) - a prior create step likely failed.`);
+    await this.page.goto(`/dashboard/crm/orders/lead/${id}/view-lead`, { timeout: 60000 });
+    await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+  }
+
+  /**
+   * @returns {Promise<{id: string, seriesNumber: string}>} the created record's id/series_number -
+   * existing callers that don't need this can simply ignore the return value.
+   */
   async createLead(data) {
     await this.goto();
     await this.fillBasicDetails(data);
@@ -585,7 +695,7 @@ class LeadPage {
 
     await this.goToContactTab();
 
-    await this.save();
+    return this.saveAndCaptureId();
   }
 }
 
