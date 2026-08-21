@@ -379,14 +379,19 @@ class OpportunityPage {
       // shows a real value once the fetch has resolved before clicking Save.
       await expect(this.expectedClosingDateInput).not.toHaveValue('', { timeout: 15000 }).catch(() => {});
 
-      // DIAGNOSTIC: capture the actual update request/response so a still-Draft result after
-      // this reports what the server really did with is_draft, instead of guessing blind again.
-      const responsePromise = this.page.waitForResponse(
-        (r) => /opportunit/i.test(r.url()) && ['POST', 'PUT', 'PATCH'].includes(r.request().method()),
-        { timeout: 15000 },
-      ).catch(() => null);
-      await this.save();
-      const response = await responsePromise;
+      // Capture the actual update request/response as the SOURCE OF TRUTH instead of trusting
+      // navigation - CONFIRMED LIVE the Save click can be silently swallowed (same stray-
+      // backdrop/click-race class of issue documented throughout this suite) with no request
+      // ever firing, which then made a hard, unguarded waitForURL right after throw and abort
+      // this whole function instead of letting the outer retry loop try again. If no response
+      // comes back, click Save a second time in place before giving up on this attempt - same
+      // "edit second time" recovery this method already relies on for the is_draft bug itself.
+      let response = await this.captureUpdateResponse();
+      if (!response) {
+        console.log(`DEBUG promoteFromDraftIfNeeded attempt ${attempt}: first Save click produced no response - retrying the click once`);
+        response = await this.captureUpdateResponse();
+      }
+
       if (response) {
         const body = await response.json().catch(() => null);
         console.log(
@@ -394,10 +399,16 @@ class OpportunityPage {
           JSON.stringify(body).slice(0, 800),
         );
       } else {
-        console.log(`DEBUG promoteFromDraftIfNeeded attempt ${attempt}: no matching opportunity update response captured (request may not have fired at all)`);
+        console.log(`DEBUG promoteFromDraftIfNeeded attempt ${attempt}: no matching opportunity update response captured after retry - Save may be genuinely stuck this attempt`);
       }
 
-      await this.page.waitForURL(/\/(view-opportunity|dashboard\/crm\/orders\/opportunity(\?.*)?$)/, { timeout: 20000 });
+      // Don't let a stuck/slow navigation crash the whole function - a failed attempt should
+      // just fall through to the outer loop's next attempt instead of throwing uncaught.
+      const navigated = await this.page.waitForURL(
+        /\/(view-opportunity|dashboard\/crm\/orders\/opportunity(\?.*)?$)/,
+        { timeout: 20000 },
+      ).then(() => true).catch(() => false);
+      if (!navigated) continue;
       await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
 
       // Verify AFTER acting whether it's still Draft - a longer, more generous wait than any
@@ -407,6 +418,17 @@ class OpportunityPage {
         .isVisible({ timeout: 10000 }).catch(() => false);
       if (!stillDraft) return;
     }
+    throw new Error(`promoteFromDraftIfNeeded: Opportunity ${opportunityId} still Draft after 3 attempts`);
+  }
+
+  // Single click-and-capture used by promoteFromDraftIfNeeded's own first-try/retry-once pair.
+  async captureUpdateResponse() {
+    const responsePromise = this.page.waitForResponse(
+      (r) => /opportunit/i.test(r.url()) && ['POST', 'PUT', 'PATCH'].includes(r.request().method()),
+      { timeout: 15000 },
+    ).catch(() => null);
+    await this.save();
+    return responsePromise;
   }
 
   async createOpportunity(data) {

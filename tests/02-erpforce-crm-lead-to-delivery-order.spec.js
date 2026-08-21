@@ -173,24 +173,10 @@ async function convertSalesOrderToDelivery(page, salesOrder, delivery, salesOrde
   await salesOrder.openViewById(salesOrderId);
   await salesOrder.createDelivery();
 
-  await delivery.fillRequiredFieldsAndSave();
-
-  const saved = await page.waitForURL(/\/(view-delivery-orders|dashboard\/crm\/orders\/delivery-orders(\?.*)?$)/, { timeout: 20000 })
-    .then(() => true).catch(() => false);
-  if (!saved) {
-    await page.screenshot({ path: 'test-results/crmfull-delivery-order-save-blocked.png', fullPage: true });
-    throw new Error('Delivery Order Save did not redirect - see test-results/crmfull-delivery-order-save-blocked.png');
-  }
-
-  let deliveryOrderId = (page.url().match(/\/delivery-orders\/(\d+)\/view-delivery-orders/) || [])[1];
-  if (!deliveryOrderId) {
-    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
-    // table tbody tr (NOT getByRole('row').first()) - the latter also matches the table's own
-    // HEADER row, which has no anchor at all - same fix already proven throughout this suite.
-    const createdRow = page.locator('table tbody tr').first();
-    const href = await createdRow.locator('a').first().getAttribute('href').catch(() => null);
-    deliveryOrderId = (href && href.match(/\/delivery-orders\/(\d+)\//) || [])[1];
-  }
+  // Capture id straight from the Save response instead of guessing from navigation/DOM - see
+  // CrmDeliveryOrderPage.fillRequiredFieldsAndSave's own header comment.
+  const created = await delivery.fillRequiredFieldsAndSave();
+  let deliveryOrderId = created.id;
   expect(deliveryOrderId).toBeTruthy();
 
   await delivery.openViewById(deliveryOrderId);

@@ -185,8 +185,21 @@ class CrmDeliveryOrderPage extends require('./BasePage') {
     if (hasError) {
       throw new Error('CrmDeliveryOrderPage.fillRequiredFieldsAndSave: "Please fill all the required fields" blocked Save - see screenshot');
     }
-    await this.saveButton.click();
-    await this.page.waitForTimeout(2000);
+
+    // Capture the create response directly instead of the caller separately guessing success
+    // from navigation (page.waitForURL) with a table-row-href scrape fallback - same
+    // saveAndCaptureId() convention as LeadPage/CustomerReturnPage/DeliveryOrderPage.
+    // createFromApprovedVra. Response shape not yet confirmed live for this specific endpoint -
+    // logging the raw body so the extraction below can be corrected against a real run if the
+    // caller ever finds id/seriesNumber empty.
+    const [response] = await Promise.all([
+      this.page.waitForResponse((r) => /delivery-order/i.test(r.url()) && r.request().method() === 'POST', { timeout: 20000 }),
+      this.saveButton.click(),
+    ]);
+    const body = await response.json().catch(() => null);
+    console.log('DEBUG CrmDeliveryOrderPage.fillRequiredFieldsAndSave response:', response.url(), JSON.stringify(body).slice(0, 800));
+    const record = body?.data?.delivery_order ?? body?.data?.deliveryOrder ?? body?.data?.delivery_orders ?? body?.data;
+    return { id: record?.id != null ? String(record.id) : '', seriesNumber: record?.series_number ?? '' };
   }
 
   // Opens the Items grid row's Trace Details icon (last button in the last column) and returns
