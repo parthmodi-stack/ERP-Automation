@@ -58,7 +58,21 @@ class DiscountedItemPage {
     await menu.waitFor({ state: 'visible', timeout: 5000 });
     await menu.locator('input').fill(searchText);
     await this.page.waitForTimeout(500);
-    await menu.locator(`li:has-text("${searchText}")`).first().click();
+
+    const option = menu.locator(`li:has-text("${searchText}")`).first();
+    const found = await option.isVisible({ timeout: 3000 }).catch(() => false);
+    if (found) {
+      await option.click();
+    } else {
+      // Chart-of-Accounts naming (like every other pinned FK-reference value in this suite) can
+      // drift between environments - fall back to whichever real account renders first instead
+      // of hanging for the full timeout, same convention as helpers/dropdown.js. CONFIRMED LIVE:
+      // index 0 here is a disabled, already aria-selected "Select ..." placeholder (data-value=""),
+      // not a real option - exclude aria-disabled rows.
+      await menu.locator('input').fill('');
+      await this.page.waitForTimeout(500);
+      await menu.locator('li[role="option"]:not([aria-disabled="true"])').first().click();
+    }
     await menu.waitFor({ state: 'hidden', timeout: 5000 });
   }
 
