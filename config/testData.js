@@ -1787,6 +1787,76 @@ const testData = {
     },
   },
 
+  // CRM > Settings > Shipping Rule (erpforce-fe: modules/crm/src/views/settings/shipping-rules/).
+  // CONFIRMED LIVE: this field's real rendered label is "Entity" (not "Company", which is only
+  // en.ts's translation key name), and it comes pre-filled with this environment's one real
+  // company, "erp-force", selected by default - the same entity name Loan Configuration pins for
+  // this environment (the "Trootech" name in accountingSetting above appears to be stale/from a
+  // different environment snapshot). Shipping/Handling Account option text is unverified live
+  // master data, so tests pick whatever renders first (ShippingRulePage.selectFirstOptionByLabel)
+  // rather than asserting a literal account name, same caution as Loan Configuration's Eligible
+  // Departments/Grades.
+  shippingRule: {
+    valid: {
+      name: factory.uniqueName('Automation_ShippingRule'),
+      updatedName: factory.uniqueName('Automation_ShippingRule_UPDATED'),
+      company: 'erp-force',
+      shippingCost: '50',
+      handlingCost: '20',
+    },
+    draft: {
+      name: factory.uniqueName('Automation_ShippingRule_Draft'),
+      company: 'erp-force',
+      shippingCost: '30',
+      handlingCost: '10',
+    },
+    negative: {
+      nonNumericCost: 'abc',
+      zeroCost: '0',
+      negativeCost: '-50',
+    },
+  },
+
+  // CRM > Settings > Customer Segments (erpforce-fe: modules/crm/src/views/settings/customer-segments/).
+  // Only name/company_id/start_date are Yup-validated; end_date/purchase_amount/purchase_count/
+  // segment_duration have no rule at all, gated purely by the `autoassign` checkbox at the UI level.
+  customerSegment: {
+    valid: {
+      name: factory.uniqueName('Automation_CustomerSegment'),
+      updatedName: factory.uniqueName('Automation_CustomerSegment_UPDATED'),
+      // startDate is computed at spec-run time via BasePage.formatDateToday(), not pinned here -
+      // Start Date's own field disallows past dates, and a hardcoded value would go stale.
+    },
+    draft: {
+      name: factory.uniqueName('Automation_CustomerSegment_Draft'),
+    },
+    autoAssign: {
+      name: factory.uniqueName('Automation_CustomerSegment_AutoAssign'),
+      purchaseAmount: '500',
+      purchaseCount: '3',
+    },
+  },
+
+  // CRM > Settings > Promotions (erpforce-fe: modules/crm/src/views/settings/promotions/). Entity
+  // (company_id) is pre-filled by default same as Shipping Rule/Customer Segments - not re-selected
+  // in test data. Account option text is unverified live master data, so tests pick whatever
+  // renders first rather than asserting a literal name.
+  promotions: {
+    fixedAmount: {
+      name: factory.uniqueName('Automation_Promo_Fixed'),
+      updatedName: factory.uniqueName('Automation_Promo_Fixed_UPDATED'),
+    },
+    percentage: {
+      name: factory.uniqueName('Automation_Promo_Percentage'),
+    },
+    buyXGetY: {
+      name: factory.uniqueName('Automation_Promo_BuyXGetY'),
+    },
+    draft: {
+      name: factory.uniqueName('Automation_Promo_Draft'),
+    },
+  },
+
   lead: {
     valid: {
       companyName: `Automation_Lead_${ts}`,

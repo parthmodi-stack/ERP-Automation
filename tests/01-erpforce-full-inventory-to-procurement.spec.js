@@ -217,7 +217,15 @@ async function selectFromInventoryItemDropdown(page, fieldName, optionText) {
   const selectedText = ((await selectedOption.textContent().catch(() => '')) || '').trim();
   await selectedOption.click();
 
-  await menu.waitFor({ state: 'hidden', timeout: 5000 });
+  // CONFIRMED LIVE (recurring smoke2 failure, TC-FULLFLOW-01, on both "unit_of_measurement" and
+  // "category" fields): the MUI Select menu can stay open/visible for the full 5s wait even after
+  // its own option was clicked - same class of stray-popover issue this file's own auto-fill loop
+  // above already recovers from (see its own menu.waitFor + Escape retry) - apply the identical
+  // Escape-and-recheck recovery here instead of a bare wait with no fallback.
+  await menu.waitFor({ state: 'hidden', timeout: 5000 }).catch(async () => {
+    await page.keyboard.press('Escape').catch(() => {});
+    await menu.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {});
+  });
   return selectedText;
 }
 
