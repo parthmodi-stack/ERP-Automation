@@ -60,23 +60,10 @@ async function convertLeadToOpportunity(page, lead, opportunity, leadCompanyName
   await lead.convertToOpportunity();
 
   const data = { ...testData.opportunity.valid, locationSearchText, itemSearchText, itemQuantity };
-  await opportunity.fillRequiredFieldsAndSave(data);
-
-  const saved = await page.waitForURL(/\/(view-opportunity|dashboard\/crm\/orders\/opportunity(\?.*)?$)/, { timeout: 20000 })
-    .then(() => true).catch(() => false);
-  if (!saved) {
-    await page.screenshot({ path: 'test-results/crmfull-opportunity-save-blocked.png', fullPage: true });
-    throw new Error('Opportunity Save did not redirect - see test-results/crmfull-opportunity-save-blocked.png');
-  }
-
-  let opportunityId = (page.url().match(/\/opportunity\/(\d+)\/view-opportunity/) || [])[1];
-  if (!opportunityId) {
-    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
-    const createdRow = page.getByRole('row').filter({ hasText: leadCompanyName }).first();
-    await expect(createdRow).toBeVisible({ timeout: 10000 });
-    const href = await createdRow.locator('a').first().getAttribute('href').catch(() => null);
-    opportunityId = (href && href.match(/\/opportunity\/(\d+)\//) || [])[1];
-  }
+  // Capture id straight from the Save response instead of guessing from navigation/DOM - see
+  // OpportunityPage.fillRequiredFieldsAndSaveAndCaptureId's own header comment.
+  const created = await opportunity.fillRequiredFieldsAndSaveAndCaptureId(data);
+  const opportunityId = created.id;
   expect(opportunityId).toBeTruthy();
 
   // CONFIRMED APP BUG (see OpportunityPage.promoteFromDraftIfNeeded's own comment): a fresh

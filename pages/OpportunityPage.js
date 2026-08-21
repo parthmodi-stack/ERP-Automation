@@ -332,6 +332,36 @@ class OpportunityPage {
     await this.save();
   }
 
+  // Same field-filling as fillRequiredFieldsAndSave, but captures the created record's id/
+  // series_number straight from the create POST response instead of leaving the caller to
+  // extract it from the post-save URL (fragile once a stray backdrop delays navigation) or, as a
+  // second fallback, search the list by label text (fragile once the record isn't on the
+  // default page) - same saveAndCaptureId() convention as LeadPage/CustomerReturnPage/
+  // CrmDeliveryOrderPage.fillRequiredFieldsAndSave. Response shape not yet confirmed live for
+  // this specific create endpoint - logs the raw body so the extraction can be corrected if the
+  // caller ever finds id empty.
+  async fillRequiredFieldsAndSaveAndCaptureId(data = {}) {
+    await this.selectCustomer(data.customerSearchText);
+    await this.fillExpectedClosingDate(data.expectedClosingDate);
+    await this.fillBasicDetails(data);
+    await this.selectStage(data.stage);
+    await this.selectPriority(data.priority);
+    await this.selectLocation(data.locationSearchText);
+    await this.addItem({ itemSearchText: data.itemSearchText, quantity: data.itemQuantity });
+
+    await this.page.keyboard.press('Escape').catch(() => {});
+    await this.page.mouse.click(2, 2).catch(() => {});
+    await this.page.waitForTimeout(300);
+    const [response] = await Promise.all([
+      this.page.waitForResponse((r) => /opportunit/i.test(r.url()) && r.request().method() === 'POST', { timeout: 20000 }),
+      this.saveButton.click(),
+    ]);
+    const body = await response.json().catch(() => null);
+    console.log('DEBUG OpportunityPage.fillRequiredFieldsAndSaveAndCaptureId response:', response.url(), JSON.stringify(body).slice(0, 800));
+    const record = body?.data?.opportunity ?? body?.data?.createdOpportunity?.data ?? body?.data?.opportunity?.data ?? body?.data;
+    return { id: record?.id != null ? String(record.id) : '', seriesNumber: record?.series_number ?? '' };
+  }
+
   // CONFIRMED AGAINST SOURCE (add-opportunity.tsx onSubmit): a brand-new Opportunity's "Save"
   // click (not "Save To Draft") still submits with is_draft:1 regardless - a genuine app bug.
   // onSubmit's ternary is `(opportunityState?.id && vals?.opportunity?.id) ? updateOpportunity(vals)
@@ -345,19 +375,25 @@ class OpportunityPage {
   // has a real id, so onSubmit takes the updateOpportunity(vals) branch and actually clears the
   // Draft flag.
   async promoteFromDraftIfNeeded(opportunityId) {
-    // CONFIRMED LIVE: checking for "Draft" text BEFORE acting is itself unreliable - the chip can
+    // CONFIRMED LIVE: checking for "Draft" TEXT before acting is unreliable - that chip can
     // render after the rest of the page (same class of slowness documented throughout this
-    // suite), so an early check can false-negative and skip the Edit+Save fix entirely even
-    // though the record genuinely still needs it (confirmed live: a run with no DEBUG log at all
-    // from the block below still ended up Draft, meaning the early check wrongly concluded "not
-    // draft" and returned without ever attempting the fix). Always attempt Edit+Save
-    // unconditionally instead of gating on that read - re-saving an already-non-draft record with
-    // the same data via the same "update" endpoint is harmless/idempotent - then verify success
-    // AFTER acting (a check failing there means genuinely still Draft, not a rendering race).
-    // Retry the whole cycle up to 3 times.
+    // suite), so an instant check can false-negative. "Make Quotation" is a different, safe
+    // signal though - it's the same real is_draft-gated control this file's own header comment
+    // already documents ("Draft records don't show 'Make Quotation'"), not a race-prone chip -
+    // WAIT (not an instant check) for either it or the Edit button to actually render, then act
+    // on whichever really showed up. CONFIRMED LIVE: some Opportunities (e.g. created via a
+    // Lead's Convert flow) already land non-draft, and "Edit" as a bare top-level button doesn't
+    // exist at all on a non-draft view - blindly clicking it regardless hung for the full 25s.
     for (let attempt = 1; attempt <= 3; attempt++) {
       await this.openViewById(opportunityId);
       await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+
+      const editButton = this.page.getByRole('button', { name: 'Edit', exact: true });
+      const ready = await this.makeQuotationButton.or(editButton).first()
+        .waitFor({ state: 'visible', timeout: 15000 }).then(() => true).catch(() => false);
+      if (ready && await this.makeQuotationButton.isVisible().catch(() => false)) {
+        return; // already non-draft - nothing to promote
+      }
 
       await this.page.getByRole('button', { name: 'Edit', exact: true }).click();
       await this.page.waitForURL('**/edit-opportunity**', { timeout: 15000 });
